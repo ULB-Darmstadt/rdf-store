@@ -4,7 +4,7 @@
 
 ## Installation
 ```
-git clone https://gitlab.ulb.tu-darmstadt.de/rokit/rdf-store.git
+git clone https://github.com/ULB-Darmstadt/rdf-store.git
 cd rdf-store
 docker compose up -d
 ```
