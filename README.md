@@ -6,6 +6,7 @@
 ```
 git clone https://github.com/ULB-Darmstadt/rdf-store.git
 cd rdf-store
+[edit .env file as needed]
 docker compose up -d
 ```
 Afterwards, open browser at http://localhost:8089
