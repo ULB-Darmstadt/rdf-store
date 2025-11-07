@@ -1,0 +1,138 @@
+services:
+  fuseki:
+    image: stain/jena-fuseki:5.1.0
+    restart: unless-stopped
+    # ports:
+    #   - 127.0.0.1:3030:3030
+    volumes:
+      - fusekidata:/fuseki
+    environment:
+      - ADMIN_PASSWORD=${FUSEKI_PASSWORD}
+    healthcheck:
+      test: ["CMD-SHELL", "[[ $(curl -s -u admin:$$ADMIN_PASSWORD -o /dev/null -w '%{http_code}' http://localhost:3030/$/stats) == 200 ]] || exit 1"]
+      start_period: 15s
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  solr:
+    build:
+      context: ./solr
+    restart: unless-stopped
+    command:
+      - bash
+      - "-c"
+      - "solr -c -f -q"
+    # ports:
+    #   - 127.0.0.1:8983:8983
+    volumes:
+      - solrdata:/var/solr
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s -A 'healthcheck' http://localhost:8983/api/cluster | grep -q '\"status\":0' || exit 1"]
+      start_period: 15s
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "60", "1", "--loglevel", "warning"]
+    restart: unless-stopped
+    profiles:
+      - ${DISABLE_OAUTH:-}
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  oauth2-proxy:
+    image: quay.io/oauth2-proxy/oauth2-proxy:latest
+    restart: unless-stopped
+    profiles:
+      - ${DISABLE_OAUTH:-}
+    environment:
+      OAUTH2_PROXY_HTTP_ADDRESS: 0.0.0.0:4180
+      OAUTH2_PROXY_SKIP_PROVIDER_BUTTON: true
+      OAUTH2_PROXY_REDIRECT_URL: ${APP_BASE_URL}/oauth2/callback
+      OAUTH2_PROXY_REVERSE_PROXY: true
+      OAUTH2_PROXY_PROVIDER: oidc
+      OAUTH2_PROXY_OIDC_ISSUER_URL: ${OAUTH2_PROXY_OIDC_ISSUER_URL}
+      OAUTH2_PROXY_CLIENT_ID: ${OAUTH2_PROXY_CLIENT_ID:-rdf-store}
+      OAUTH2_PROXY_CLIENT_SECRET: ${OAUTH2_PROXY_CLIENT_SECRET:-''}
+      OAUTH2_PROXY_CODE_CHALLENGE_METHOD: S256
+      OAUTH2_PROXY_SESSION_STORE_TYPE: redis
+      OAUTH2_PROXY_REDIS_CONNECTION_URL: redis://redis:6379/0
+      OAUTH2_PROXY_EMAIL_DOMAINS: "*"
+      OAUTH2_PROXY_COOKIE_SECRET: ${OAUTH2_PROXY_COOKIE_SECRET}
+      OAUTH2_PROXY_SET_XAUTHREQUEST: true
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  gateway:
+    image: nginx:1-alpine
+    restart: unless-stopped
+    profiles:
+      - ${DISABLE_OAUTH:-}
+    ports:
+      - 127.0.0.1:8089:80
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf
+    depends_on:
+      app:
+        condition: service_started
+      oauth2-proxy:
+        condition: service_started
+
+  validator:
+    build:
+      context: ./validator
+    restart: unless-stopped
+    # ports:
+    #   - 127.0.0.1:8000:8000
+    environment:
+      - PROXY=http://app:3000/api/v1/proxy?url=
+
+  app:
+    build:
+      context: .
+    restart: unless-stopped
+    # ports:
+    #   - 127.0.0.1:3000:3000
+    volumes:
+      - ./backend/local:/app/local
+    environment:
+      - GIN_MODE=release
+      - SOLR_ENDPOINT=http://solr:8983
+      - SOLR_INDEX=${SOLR_INDEX:-rdf}
+      - FUSEKI_ENDPOINT=http://fuseki:3030
+      - FUSEKI_PASSWORD=${FUSEKI_PASSWORD}
+      - VALIDATOR_ENDPOINT=http://validator:8000
+      - LOCAL_PROFILES_ENABLED=${LOCAL_PROFILES_ENABLED:-false}
+      - MPS_ENABLED=${MPS_ENABLED:-true}
+      - MPS_QUERY=${MPS_QUERY:-}
+      - MPS_COMMUNITY=${MPS_COMMUNITY:-}
+      - LAYOUT=${LAYOUT:-default}
+      - RDF_NAMESPACE=${RDF_NAMESPACE:-http://example.org/}
+      - DISABLE_OAUTH=${DISABLE_OAUTH:-}
+      - WRITE_ACCESS_GROUP=${WRITE_ACCESS_GROUP:-}
+      - CONTACT_EMAIL=${CONTACT_EMAIL:-}
+      - CRON=${CRON:-}
+      - EXPOSE_FUSEKI_FRONTEND=${EXPOSE_FUSEKI_FRONTEND:-false}
+      - LOG_LEVEL=${LOG_LEVEL}
+    depends_on:
+      validator:
+        condition: service_started
+      solr:
+        condition: service_healthy
+      fuseki:
+        condition: service_healthy
+
+volumes:
+  solrdata:
+  fusekidata:
+  redisdata:
