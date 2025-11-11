@@ -42,10 +42,16 @@ func CacheLoad(url string, header *http.Header) ([]byte, error) {
 			return nil, err
 		}
 		defer resp.Body.Close()
-		data, err = io.ReadAll(resp.Body)
-		if err != nil {
-			return nil, err
+
+		// ignore reponses with no content type or with text/html (mostly 404 pages) by writing an empty cache file
+		contentType := resp.Header.Get("Content-Type")
+		if len(contentType) > 0 && !strings.HasPrefix(contentType, "text/html") {
+			data, err = io.ReadAll(resp.Body)
+			if err != nil {
+				return nil, err
+			}
 		}
+
 		// write data to cache
 		if err = os.WriteFile(cacheFilename, data, 0600); err != nil {
 			log.Printf("failed caching response for url %s. reason: %v", url, err)
