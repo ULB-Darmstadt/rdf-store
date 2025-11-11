@@ -4,20 +4,6 @@ import { validate } from './validator.ts'
 
 const port = 8000
 
-/* prevents error "maximum call stack size exceeded" caused by recursion */
-const replacerFunc = () => {
-    const visited = new WeakSet()
-    return (_: any, value: any) => {
-      if (typeof value === "object" && value !== null) {
-        if (visited.has(value)) {
-          return
-        }
-        visited.add(value)
-      } 
-      return value
-    }
-}
-
 function checkSingleFormParamExists(form: Record<string, string | string[] | undefined>, param: string): boolean {
     return typeof form[param] === 'string' && form[param].length > 0
 }
@@ -42,14 +28,11 @@ server.on('request', (req, res) => {
             }
 
             try {
-                const [conforms, results] = await validate(form.shapesGraph as string, form.shapeID as string, form.dataGraph as string, form.dataID as string)
-                const response = JSON.stringify({
-                    conforms: conforms,
-                    results: results
-                }, replacerFunc())
+                const conforms = await validate(form.shapesGraph as string, form.shapeID as string, form.dataGraph as string, form.dataID as string, form.clearCache as string)
+                const response = JSON.stringify({conforms: conforms})
                 res.writeHead(200)
                 res.end(response)
-                console.log('validation result of', form.shapeID, 'against', form.shapeID, ':', conforms)
+                console.log('validation result of', form.dataID, 'against', form.shapeID, ':', conforms)
             } catch(e) {
                 console.error('error validating', form)
                 res.writeHead(500)

@@ -1,6 +1,7 @@
 import { Store, DataFactory, NamedNode, Quad, StreamParser } from 'n3'
 import { RdfXmlParser } from 'rdfxml-streaming-parser'
 import jsonld from 'jsonld'
+// @ts-ignore
 import { Validator } from 'shacl-engine'
 
 const proxy = process.env.PROXY
@@ -8,75 +9,93 @@ const loadOwlImports = process.env.IGNORE_OWL_IMPORTS !== 'false'
 const owlPredicateImports = DataFactory.namedNode('http://www.w3.org/2002/07/owl#imports')
 const shapesGraphName = DataFactory.namedNode('shapes')
 const dataGraphName = DataFactory.namedNode('data')
+let cache: Record<string, Promise<Quad[]>> = {}
+let prefixes: Record<string, string> = {}
 
-export async function validate(shapesGraph: string, shapeID: string, dataGraph: string, dataID: string) {
+export async function validate(shapesGraph: string, shapeID: string, dataGraph: string, dataID: string, clearCache?: string) {
+    if (clearCache) {
+        cache = {}
+        prefixes = {}
+    }
     const dataset = new Store()
-    const loadedUrls: string[] = []
-    const prefixes: Record<string, string> = {}
+    const importedUrls: string[] = []
 
-    await importRDF(shapesGraph, dataset, loadedUrls, prefixes, shapesGraphName)
-    await importRDF(dataGraph, dataset, loadedUrls, prefixes, dataGraphName)
+    await importRDF(parseRDF(shapesGraph, shapesGraphName), dataset, importedUrls)
+    await importRDF(parseRDF(dataGraph, dataGraphName), dataset, importedUrls)
 
     const validator = new Validator(dataset, { factory: DataFactory })
     const report = await validator.validate({ dataset: dataset, terms: [ DataFactory.namedNode(dataID) ] }, [{ terms: [ DataFactory.namedNode(shapeID) ] }])
-    return [report.conforms, report.results]
+    return report.conforms
 }
 
-async function importRDF(input: string | Promise<string>, store: Store, loadedUrls: string[], prefixes: Record<string, string>, graph?: NamedNode) {
-    const parse = async (input: string) => {
-        const dependencies: Promise<void>[] = []
-        await new Promise((resolve, reject) => {
-            const parser = guessContentType(input) === 'xml' ? new RdfXmlParser() : new StreamParser()
-            parser.on('data', (quad: Quad) => {
-                store.add(new Quad(quad.subject, quad.predicate, quad.object, graph))
-                // check if this is an owl:imports predicate and try to load the url
-                if (loadOwlImports && owlPredicateImports.equals(quad.predicate)) {
-                    const url = toURL(quad.object.value, prefixes)
-                    // import url only once
-                    if (url && loadedUrls.indexOf(url) < 0) {
-                        loadedUrls.push(url)
-                        // import into separate graph
-                        dependencies.push(importRDF(fetchRDF(url), store, loadedUrls, prefixes, DataFactory.namedNode(url)))
-                    }
-                }
-            })
-            .on('error', (error) => {
-                console.warn('failed parsing RDF', graph?.id, ', reason:' ,error.message)
-                reject(error)
-            })
-            .on('prefix', (prefix, iri) => {
-                // ignore empty (default) namespace
-                if (prefix) {
-                    prefixes[prefix] = iri
-                }
-            })
-            .on('end', () => {
-                resolve(null)
-            })
-            parser.write(input)
-            parser.end()
-        })
-        try {
-            await Promise.allSettled(dependencies)
-        } catch (e) {
-            console.warn(e)
-        }
-    }
-
-    if (input instanceof Promise) {
-        input = await input
-    }
-    if (input) {
-        if (guessContentType(input) === 'json') {
-            // convert json to n-quads
-            try {
-                input = await jsonld.toRDF(JSON.parse(input), { format: 'application/n-quads' }) as string
-            } catch(e) {
-                console.error(e)
+async function importRDF(rdf: Promise<Quad[]>, store: Store, importedUrls: string[]) {
+    const quads = await rdf
+    const dependencies: Promise<void>[] = []
+    for (const quad of quads) {
+        store.add(new Quad(quad.subject, quad.predicate, quad.object, quad.graph))
+        // check if this is an owl:imports predicate and try to load the url
+        if (owlPredicateImports.equals(quad.predicate) && loadOwlImports) {
+            const url = toURL(quad.object.value, prefixes)
+            // import url only once
+            if (url && importedUrls.indexOf(url) < 0) {
+                importedUrls.push(url)
+                dependencies.push(importRDF(fetchRDF(url), store, importedUrls))
             }
         }
-        await parse(input)
     }
+    await Promise.allSettled(dependencies)
+}
+
+async function fetchRDF(url: string): Promise<Quad[]> {
+    // try to load from cache first
+    if (url in cache) {
+        return cache[url]
+    }
+    let proxiedURL = url
+    // if we have a proxy configured, then load url via proxy
+    if (proxy) {
+        proxiedURL = proxy + encodeURIComponent(url)
+    }
+    const response = await fetch(proxiedURL, {
+        headers: {
+            'Accept': 'text/turtle, application/trig, application/n-triples, application/n-quads, text/n3, application/ld+json'
+        },
+    }).then(resp => resp.text())
+    cache[url] = parseRDF(response, DataFactory.namedNode(url))
+    return cache[url]
+}
+
+async function parseRDF(rdf: string, graph: NamedNode): Promise<Quad[]> {
+    if (guessContentType(rdf) === 'json') {
+        // convert json to n-quads
+        try {
+            rdf = await jsonld.toRDF(JSON.parse(rdf), { format: 'application/n-quads' }) as string
+        } catch(e) {
+            console.error(e)
+        }
+    }
+    const quads: Quad[] = []
+    await new Promise((resolve, reject) => {
+        const parser = guessContentType(rdf) === 'xml' ? new RdfXmlParser() : new StreamParser()
+        parser.on('data', (quad: Quad) => {
+            quads.push(new Quad(quad.subject, quad.predicate, quad.object, graph))
+        })
+        .on('error', (error) => {
+            reject(error)
+        })
+        .on('prefix', (prefix, iri) => {
+            // ignore empty (default) namespace
+            if (prefix) {
+                prefixes[prefix] = iri
+            }
+        })
+        .on('end', () => {
+            resolve(null)
+        })
+        parser.write(rdf)
+        parser.end()
+    })
+    return quads
 }
 
 function isURL(input: string): boolean {
@@ -107,21 +126,6 @@ function toURL(id: string, prefixes: Record<string, string>): string | null {
     }
     return null
 }
-
-async function fetchRDF(url: string): Promise<string> {
-    let proxiedURL = url
-    // if we have a proxy configured, then load url via proxy
-    if (proxy) {
-        proxiedURL = proxy + encodeURIComponent(url)
-    }
-    const promise = fetch(proxiedURL, {
-        headers: {
-            'Accept': 'text/turtle, application/trig, application/n-triples, application/n-quads, text/n3, application/ld+json'
-        },
-    }).then(resp => resp.text())
-    return promise
-}
-
 
 /* Can't rely on HTTP content-type header, since many resources are delivered with text/plain */
 function guessContentType(input: string) {
