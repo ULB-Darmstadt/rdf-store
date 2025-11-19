@@ -51,17 +51,23 @@ async function fetchRDF(url: string): Promise<Quad[]> {
     if (url in cache) {
         return cache[url]
     }
-    let proxiedURL = url
-    // if we have a proxy configured, then load url via proxy
-    if (proxy) {
-        proxiedURL = proxy + encodeURIComponent(url)
-    }
-    const response = await fetch(proxiedURL, {
-        headers: {
-            'Accept': 'text/turtle, application/trig, application/n-triples, application/n-quads, text/n3, application/ld+json'
-        },
-    }).then(resp => resp.text())
-    cache[url] = parseRDF(response, DataFactory.namedNode(url))
+    cache[url] = new Promise<Quad[]>(async (resolve, reject) => {
+        try {
+            let proxiedURL = url
+            // if we have a proxy configured, then load url via proxy
+            if (proxy) {
+                proxiedURL = proxy + encodeURIComponent(url)
+            }
+            const response = await fetch(proxiedURL, {
+                headers: {
+                    'Accept': 'text/turtle, application/trig, application/n-triples, application/n-quads, text/n3, application/ld+json'
+                },
+            }).then(resp => resp.text())
+            resolve(await parseRDF(response, DataFactory.namedNode(url)))
+        } catch(e) {
+            reject(e)
+        }
+    })
     return cache[url]
 }
 
