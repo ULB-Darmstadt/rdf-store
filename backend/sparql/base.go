@@ -18,6 +18,7 @@ import (
 	"strings"
 
 	"github.com/antchfx/xmlquery"
+	"github.com/deiu/rdf2go"
 )
 
 var Endpoint = base.EnvVar("FUSEKI_ENDPOINT", "http://localhost:3030")
@@ -37,6 +38,7 @@ func init() {
 
 func initDatasets() error {
 	for _, dataset := range []string{ResourceDataset, profileDataset, labelDataset} {
+		// check if dataset exists
 		req, err := http.NewRequest("GET", fmt.Sprintf("%s/$/stats/%s", Endpoint, dataset), nil)
 		if err != nil {
 			return err
@@ -48,11 +50,51 @@ func initDatasets() error {
 		}
 		defer resp.Body.Close()
 		if resp.StatusCode != 200 {
+			// dataset does not exist, so create it
+			/*
+							template := fmt.Sprintf(`
+				@prefix :       <http://base/#> .
+				@prefix fuseki: <http://jena.apache.org/fuseki#> .
+				@prefix tdb2: <http://jena.apache.org/2016/tdb#> .
+				@prefix rdf:    <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+				@prefix rdfs:   <http://www.w3.org/2000/01/rdf-schema#> .
+
+				:tdb_dataset_readwrite a tdb2:DatasetTDB2 ;
+				tdb2:location "/fuseki/databases/%s" ;
+				tdb2:unionDefaultGraph true .
+
+				:service_tdb_all  rdf:type  fuseki:Service;
+				        rdfs:label       "TDB2 %s";
+				        fuseki:dataset   :tdb_dataset_readwrite;
+				        fuseki:endpoint  [ fuseki:name       "get";
+				                           fuseki:operation  fuseki:gsp-r
+				                         ];
+				        fuseki:endpoint  [ fuseki:name       "sparql";
+				                           fuseki:operation  fuseki:query
+				                         ];
+				        fuseki:endpoint  [ fuseki:operation  fuseki:update ];
+				        fuseki:endpoint  [ fuseki:operation  fuseki:query ];
+				        fuseki:endpoint  [ fuseki:operation  fuseki:gsp-rw ];
+				        fuseki:endpoint  [ fuseki:name       "data";
+				                           fuseki:operation  fuseki:gsp-rw
+				                         ];
+				        fuseki:endpoint  [ fuseki:name       "update";
+				                           fuseki:operation  fuseki:update
+				                         ];
+				        fuseki:endpoint  [ fuseki:name       "query";
+				                           fuseki:operation  fuseki:query
+				                         ];
+				        fuseki:name      "%s" .
+				`, dataset, dataset, dataset)
+
+							req, err = http.NewRequest(http.MethodPost, fmt.Sprintf("%s/$/datasets", Endpoint), strings.NewReader(template))
+			*/
 			req, err = http.NewRequest(http.MethodPost, fmt.Sprintf("%s/$/datasets?dbName=%s&dbType=TDB2", Endpoint, dataset), nil)
 			if err != nil {
 				return err
 			}
 			req.Header.Set("Authorization", AuthHeader)
+			// req.Header.Set("Content-Type", "text/turtle")
 			resp, err = http.DefaultClient.Do(req)
 			if err != nil {
 				return err
@@ -80,7 +122,7 @@ func importLocalResources() error {
 				if err != nil {
 					return err
 				}
-				if err = uploadGraph(ResourceDataset, file.Name(), data); err != nil {
+				if err = uploadGraph(ResourceDataset, file.Name(), data, nil); err != nil {
 					return err
 				}
 			}
@@ -93,7 +135,7 @@ func createGraph(dataset string, id string, data []byte) error {
 	if exists, err := checkGraphExists(dataset, id); err != nil || exists {
 		return fmt.Errorf("graph %s already exists in dataset %s", id, dataset)
 	}
-	return uploadGraph(dataset, id, data)
+	return uploadGraph(dataset, id, data, nil)
 }
 
 func loadGraph(dataset string, id string) (data []byte, err error) {
@@ -104,7 +146,7 @@ func loadGraph(dataset string, id string) (data []byte, err error) {
 	return queryDataset(dataset, fmt.Sprintf(`CONSTRUCT { ?s ?p ?o } WHERE { GRAPH <%s> { ?s ?p ?o } }`, id))
 }
 
-func uploadGraph(dataset string, id string, data []byte) (err error) {
+func uploadGraph(dataset string, id string, data []byte, graph *rdf2go.Graph) (err error) {
 	if err = deleteGraph(dataset, id); err != nil {
 		return
 	}
@@ -141,10 +183,14 @@ func uploadGraph(dataset string, id string, data []byte) (err error) {
 	}
 	// extract labels from graph
 	if dataset != labelDataset {
-		graph, err := base.ParseGraph(bytes.NewReader(data))
-		if err != nil {
-			slog.Error("failed parsing graph for label extraction.", "id", id, "error", err)
-		} else {
+		if graph == nil {
+			graph, err = base.ParseGraph(bytes.NewReader(data))
+			if err != nil {
+				slog.Error("failed parsing graph for label extraction.", "id", id, "error", err)
+			}
+		}
+		if err == nil {
+			fmt.Println("--- extract labels from", id)
 			if err := ExtractLabels(id, graph, dataset == profileDataset); err != nil {
 				slog.Error("failed extracting labels.", "id", id, "error", err)
 			}

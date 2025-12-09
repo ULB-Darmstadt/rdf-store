@@ -1,5 +1,5 @@
-import { Facet } from './facets'
 import { BACKEND_URL } from './constants'
+import { Facets } from './facets/base'
 
 export type Field = {
     name: string
@@ -13,7 +13,7 @@ export type SearchOptions = {
     term?: string
     creator?: string
     sort?: string
-    facets?: Facet[]
+    facets?: Facets
     offset?: number
     limit?: number
 }
@@ -25,6 +25,7 @@ export type SearchRequest = {
     offset: number
     facet?: Record<string, QueryFacet | string>
     filter?: string[]
+    fields?: string[]
 }
 
 export type SearchResponse = {
@@ -35,7 +36,7 @@ export type SearchResponse = {
     response: {
         numFound: number
         start: number
-        docs: Document[]
+        docs: SearchDocument[]
     }
     error?: {
         msg?: string
@@ -45,11 +46,13 @@ export type SearchResponse = {
     facets?: Record<string, AggregationFacet | number>
 }
 
-export type Document = {
+export interface SearchDocument {
     id: string
-    _shape: string[]
-    _rdf: string
-    _creator: string
+    shape: string[]
+    rdf: string
+    creator: string
+    _nest_parent_: string
+    _root_: string
 }
 
 export type QueryFacet = {
@@ -62,6 +65,7 @@ export type QueryFacet = {
     limit?: number
     geom?: string
     gridLevel?: number
+    domain?: {}
 }
 
 export type AggregationFacet = {
@@ -81,32 +85,37 @@ export type Schema = {
     fields: Field[]
 }
 
-export async function fetchSchema(index: string): Promise<Schema> {
-    const resp = await fetch(`${BACKEND_URL}/solr/${index}/schema`)
-    const schemaResult = await resp.json()
-    return schemaResult.schema
+export async function fetchSchema(index: string): Promise<string[]> {
+    const fieldList = await fetch(`${BACKEND_URL}/solr/${index}/select?fl=*&q=*&rows=0&wt=csv`).then(r => r.text())
+    return fieldList.split(',').map(field => field.trim())
 }
 
 export async function search(index: string, params?: SearchOptions): Promise<SearchResponse> {
     const query: SearchRequest = {
         limit: params?.limit !== undefined ? params.limit : 10,
         offset: params?.offset || 0,
-        query: params?.term ? `*${params.term}*` : '*',
         sort: params?.sort ?  `${params.sort}` : '',
+        fields: ['*', '_nest_parent_'],
     }
     if (params?.facets) {
         query.facet = {}
         query.filter = []
-        for (const facet of params.facets) {
-            facet.applyAggregationQuery(query.facet)
-            if (facet.active) {
-                facet.applyFilterQuery(query.filter)
+        for (const profile of Object.keys(params.facets.facets)) {
+            for (const facet of params.facets.facets[profile]) {
+                facet.applyAggregationQuery(query.facet)
+                if (facet.active) {
+                    facet.applyFilterQuery(query.filter)
+                }
             }
         }
+        query.query = `{!child of='docType:container'}`
     }
     if (params?.creator) {
         query.filter = query.filter || []
-        query.filter.push(`_creator:"${params.creator}"`)
+        query.filter.push(`creator:"${params.creator}"`)
+    }
+    if (params?.term) {
+        query.filter?.push(`_text_:*${params.term}*`)
     }
 
     const resp = await fetch(`${BACKEND_URL}/solr/${index}/query`, {
@@ -118,8 +127,10 @@ export async function search(index: string, params?: SearchOptions): Promise<Sea
     const response = await resp.json() as SearchResponse
     // update facet values
     if (params?.facets && response.facets) {
-        for (const facet of params.facets) {
-            facet.updateValues(response.facets)
+        for (const profile of Object.keys(params.facets.facets)) {
+            for (const facet of params.facets.facets[profile]) {
+                facet.updateValues(response.facets)
+            }
         }
     }
     return response

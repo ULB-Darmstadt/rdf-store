@@ -5,16 +5,18 @@ import '@fontsource/material-icons'
 import styles from './styles.css?inline'
 import { globalStyles } from './styles'
 import './editor'
+import './viewer'
 import { BACKEND_URL } from './constants'
 import { RokitInput, showSnackbarMessage } from '@ro-kit/ui-widgets'
-import { Facet, initFacets } from './facets'
-import { search, Document, fetchSchema } from './solr'
+import { initFacets } from './facets'
+import { search, SearchDocument } from './solr'
 import { fetchLabels, i18n } from './i18n'
 import { Editor } from './editor'
 import { map } from 'lit/directives/map.js'
 import { range } from 'lit/directives/range.js'
 import { registerPlugin } from '@ulb-darmstadt/shacl-form'
 import { LeafletPlugin } from '@ulb-darmstadt/shacl-form/plugins/leaflet.js'
+import { Facets } from './facets/base'
 
 export type Config = {
     layout: string
@@ -43,13 +45,17 @@ export class App extends LitElement {
     searchCreator?: string
 
     @state()
-    searchHits: Document[] = []
+    searchHits: SearchDocument[] = []
     @state()
-    facets: Facet[] = []
+    facets?: Facets
     @state()
     totalHits = 0
     @state()
     editorRdfSubject = ''
+    @state()
+    viewerRdfSubject = ''
+    @state()
+    viewerRdf = ''
     @state()
     config: Config | undefined
 
@@ -73,8 +79,7 @@ export class App extends LitElement {
 
               // fetch labels for profiles. this is needed for the editor dialog, which renders before the keyword facet can load the labels
             await fetchLabels(this.config.profiles, true)
-            const schema = await fetchSchema(this.config.index)
-            this.facets = await initFacets(this.config, schema)
+            this.facets = await initFacets(this.config.index, this.config.solrMaxAggregations)
             if (this.config.geoDataType) {
                 registerPlugin(new LeafletPlugin({ datatype: this.config.geoDataType }))
             }
@@ -111,7 +116,7 @@ export class App extends LitElement {
                 const searchResult = await search(this.config!.index, {
                     offset: this.offset,
                     limit: this.limit,
-                    sort: `_lastModified desc`,
+                    sort: `lastModified desc`,
                     term: this.searchTerm,
                     creator: this.searchCreator,
                     facets: this.facets,
@@ -170,13 +175,18 @@ export class App extends LitElement {
         <div id="main">
             <rokit-progressbar class="progress"></rokit-progressbar>
             <div id="search-filter">
-                <rokit-input id="search-field" label="${i18n['fulltextsearch']}" placeholder="${i18n['fulltextsearchplaceholder']}" value="${this.searchTerm}" clearable>
+                <rokit-input id="search-field" dense label="${i18n['fulltextsearch']}" placeholder="${i18n['fulltextsearchplaceholder']}" value="${this.searchTerm}" clearable>
                     <span slot="prefix" class="material-icons icon">search</span>
                 </rokit-input>
                 ${this.config.authUser ? html`
                     <div class="own"><label><input id="search-own" type="checkbox">${i18n['search_filter_own']}</label></div>
                 ` : nothing}
-                ${this.facets.map((facet) => facet.valid ? html`${facet}` : nothing)}
+                ${!this.facets ? nothing : Object.keys(this.facets.facets).sort((a, b) => i18n[a]?.localeCompare(i18n[b])).map(profile => !this.facets?.hasValidFacet(profile) ? nothing : html`
+                    <div class="profile-wrapper">
+                        <header>${i18n[profile]}</header>
+                        ${this.facets.facets[profile].sort((a, b) => a.label.localeCompare(b.label)).map((facet) => facet.valid ? html`${facet}` : nothing)}
+                    </div>
+                `)}
             </div>
             <div id="search-result">
                 <div class="stats">
@@ -188,16 +198,21 @@ export class App extends LitElement {
                     <div class="hits">
                     ${this.searchHits.map((hit) => html`
                         <div class="card">
-                            ${!hit._shape?.length ? nothing : html`<div class="header">${i18n[hit._shape[0]]}</div>`}
+                            ${!hit.shape?.length ? nothing : html`<div class="header">${i18n[hit.shape[0]]}</div>`}
                             <shacl-form
                                 data-view
                                 data-loading=""
                                 data-proxy="${BACKEND_URL}/proxy?url="
                                 data-collapse
-                                data-values="${hit._rdf}"
+                                data-shape-subject="${hit.shape[0]}"
+                                data-shapes-url="${hit.shape[0]}"
+                                data-values="${hit.rdf}"
                                 data-values-subject="${decodeURIComponent(hit.id)}">
                             </shacl-form>
-                            ${!this.config?.authEnabled || (this.config?.authUser && this.config?.authUser == hit._creator) ? html`<rokit-button class="edit-button" icon @click="${() => { this.openEditor(decodeURIComponent(hit.id)) }}"><span class="material-icons">edit</span></rokit-button>` : nothing }
+                            ${hit._nest_parent_ === hit._root_ && (!this.config?.authEnabled || (this.config?.authUser && this.config?.authUser == hit.creator)) ? html`<rokit-button class="edit-button" icon @click="${() => { this.openEditor(decodeURIComponent(hit.id)) }}"><span class="material-icons">edit</span></rokit-button>` : nothing }
+                            ${hit._nest_parent_ === hit._root_ ? nothing : html`
+                                Used by <a @click="${() => { this.viewerRdfSubject = hit._nest_parent_; this.viewerRdf = hit.rdf }}">${hit._nest_parent_}</a>
+                            `}
                         </div>`
                     )}
                     </div>
@@ -217,6 +232,7 @@ export class App extends LitElement {
                     @saved="${() => { this.filterChanged() }}"
                     @close="${() => { this.editorRdfSubject = '' }}"
                 ></shacl-editor>`: nothing}
+            <shacl-viewer .rdfSubject="${this.viewerRdfSubject}" .rdf="${this.viewerRdf}" @close="${() => { this.viewerRdfSubject = '' }}">
         </div>
         <layout-footer></layout-footer>
         `}

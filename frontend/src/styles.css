@@ -20,8 +20,8 @@ layout-footer {
 #search-filter .own { display: flex; border-bottom: 2px solid #DDD; }
 #search-filter .own label { flex-grow: 1; padding: 11px 4px; user-select: none; }
 #search-filter .own input { margin: 0 6px; }
-#search-filter header .label { flex-grow: 1; }
-#search-filter header:not(.active) .reset-button { visibility: hidden; }
+#search-filter header:not(:empty) { font-size: 0.9rem; font-weight: 800; padding: 4px 8px 0 8px; color: var(--rokit-primary-color); }
+#search-filter .profile-wrapper > *:not(:last-child) { --rokit-light-background-darker-color: transparent; }
 #search-result { padding-top: 10px; flex-grow: 1; position: relative; }
 #search-result .hits { display: flex; gap: 30px; flex-wrap: wrap; }
 #search-result .edit-button { position: absolute; right: 0; top: 0; }

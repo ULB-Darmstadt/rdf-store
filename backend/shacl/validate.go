@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"net/url"
 	"rdf-store-backend/base"
@@ -13,8 +12,7 @@ import (
 )
 
 type validationResponse struct {
-	Conforms bool                     `json:"conforms"`
-	Results  []map[string]interface{} `json:"results"`
+	Conforms bool `json:"conforms"`
 }
 
 func Validate(shapesGraph string, shapeID string, dataGraph string, dataID string) error {
@@ -44,9 +42,7 @@ func Validate(shapesGraph string, shapeID string, dataGraph string, dataID strin
 		return err
 	}
 	if !res.Conforms {
-		err := fmt.Errorf("resource %v does not conform to %v", dataID, shapeID)
-		slog.Error("failed validating SHACL", "err", err, "results", res.Results)
-		return err
+		return fmt.Errorf("resource %v does not conform to %v", dataID, shapeID)
 	}
 	return nil
 }

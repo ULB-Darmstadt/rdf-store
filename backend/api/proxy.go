@@ -21,9 +21,12 @@ func handleHttpProxy(c *gin.Context) {
 		return
 
 	}
+	var data []byte
 	// check if url references a profile
-	data, err := sparql.LoadProfile(url)
-	if err != nil {
+	if profile, ok := sparql.Profiles[url]; ok {
+		data = *profile.RDF
+	} else {
+		var err error
 		// check if url references a resource
 		data, _, err = sparql.LoadResource(url, false)
 		if err != nil {

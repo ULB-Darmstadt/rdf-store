@@ -10,6 +10,7 @@ require (
 	github.com/gin-contrib/cors v1.7.6
 	github.com/gin-contrib/static v1.1.5
 	github.com/gin-gonic/gin v1.10.1
+	github.com/google/uuid v1.6.0
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/stevenferrer/solr-go v0.4.0
 	golang.org/x/exp v0.0.0-20250819193227-8b4c13bb791b

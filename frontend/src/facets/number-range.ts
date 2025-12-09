@@ -67,7 +67,7 @@ export class NumberRangeFacet extends Facet {
 
     applyFilterQuery(query: string[]) {
         if (this.value) {
-            query.push(`${this.indexField}:[${this.value[0]} TO ${this.value[1]}]`)
+            query.push(`+${this.indexField}:[${this.value[0]} TO ${this.value[1]}]`)
         }
     }
 
@@ -77,7 +77,7 @@ export class NumberRangeFacet extends Facet {
 
     render() {
         return  html`
-            <rokit-slider id="slider" title="${this.title}" label="${this.label}" class="w-100" min="${this.min}" max="${this.max}" @change="${() => this.onChange()}" range clearable>
+            <rokit-slider id="slider" dense title="${this.title}" label="${this.label}" class="w-100" min="${this.min}" max="${this.max}" @change="${() => this.onChange()}" range clearable>
                 <span class="material-icons icon" slot="prefix">${this.icon}</span>
             </rokit-slider>
         `

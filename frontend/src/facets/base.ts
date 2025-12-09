@@ -4,6 +4,26 @@ import { property, state } from 'lit/decorators.js'
 
 import { globalStyles } from '../styles'
 
+export class Facets {
+    facets: Record<string, Facet[]> = {}
+
+    add(profile: string, facet: Facet) {
+        if (this.facets[profile] === undefined) {
+            this.facets[profile] = []
+        }
+        this.facets[profile].push(facet)
+    }
+
+    hasValidFacet(profile: string) {
+        for (const facet of this.facets[profile]) {
+            if (facet.valid) {
+                return true
+            }
+        }
+        return false
+    }
+}
+
 export abstract class Facet extends LitElement {
     static styles = [css`
         :host([valid=false]) { display: none; }
@@ -17,6 +37,7 @@ export abstract class Facet extends LitElement {
     active: boolean = false
 
     indexField: string
+    indexFieldWithoutDatatype = ''
     profile = ''
     label = ''
 
@@ -26,6 +47,9 @@ export abstract class Facet extends LitElement {
         const tokens = indexField.split('.')
         if (tokens.length == 2) {
             this.profile = tokens[0]
+            this.indexFieldWithoutDatatype = tokens[1].lastIndexOf('_') > -1 ? tokens[1].substring(0, tokens[1].lastIndexOf('_')) : tokens[1]
+        } else {
+            this.indexFieldWithoutDatatype = indexField
         }
     }
 

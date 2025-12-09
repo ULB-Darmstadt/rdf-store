@@ -16,7 +16,7 @@ import (
 var fixBooleanRegex = regexp.MustCompile(`(true|false)(\s*)]`)
 
 // dirty fix for buggy boolean parsing in rdf2go
-func FixBooleansInProfile(profile []byte) []byte {
+func FixBooleansInRDF(profile []byte) []byte {
 	return fixBooleanRegex.ReplaceAll(profile, []byte("${1} ; ]"))
 }
 

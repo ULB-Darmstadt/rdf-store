@@ -6,8 +6,8 @@ import { Facet } from './base'
 import { AggregationFacet, QueryFacet } from '../solr'
 import { fetchLabels, i18n } from '../i18n'
 
-@customElement('keyword-facet')
-export class KeywordFacet extends Facet {
+@customElement('profile-facet')
+export class ProfileFacet extends Facet {
     static styles = [...Facet.styles, css`
         rokit-select { width: 100%; }
         rokit-select::part(facet-count)::after { content: attr(data-count); color: var(--secondary-color); display: inline-block; font-family: monospace; margin-left: 7px; font-size: 12px; }
@@ -21,8 +21,8 @@ export class KeywordFacet extends Facet {
     select!: RokitSelect
     solrMaxAggregations: number
 
-    constructor(indexField: string, solrMaxAggregations: number) {
-        super(indexField)
+    constructor(solrMaxAggregations: number) {
+        super('shape')
         this.solrMaxAggregations = solrMaxAggregations
     }
 
@@ -58,16 +58,17 @@ export class KeywordFacet extends Facet {
     }
 
     applyAggregationQuery(facets: Record<string, QueryFacet>) {
-        facets[this.indexField] = { field: this.indexField, type: 'terms', limit: -1 }
+        facets['shape'] = { field: 'shape', type: 'terms', limit: -1 }
     }
 
     applyFilterQuery(filter: string[]) {
-        filter.push(`+${this.indexField}:${this.selectedValue?.replace(/:/, '\\:')}`)
+        const val = this.selectedValue?.replace(/:/, '\\:')
+        filter.push(`+(shape:${val} OR _nest_parent_:${val})`)
     }
 
     render() {
         return html`
-            <rokit-select id="select"dense  value="${this.selectedValue}" title="${this.title}" label="${this.label}" @change="${() => this.onChange()}" clearable>
+            <rokit-select id="select" dense value="${this.selectedValue}" title="${this.title}" label="${this.label}" @change="${() => this.onChange()}" clearable>
                 <span class="material-icons icon" slot="prefix">list</span>
                 <ul>
                 ${this.values.map((v) => html`

@@ -13,7 +13,7 @@ const languages = [...new Set(navigator.languages.flatMap(lang => {
 const appLabels: Record<string, Literal[]> = {
     'fulltextsearch' : [ DataFactory.literal('Full-text search', 'en'), DataFactory.literal('Volltextsuche', 'de') ],
     'fulltextsearchplaceholder' : [ DataFactory.literal('Search query...', 'en'), DataFactory.literal('Suchanfrage...', 'de') ],
-    '_shape' : [ DataFactory.literal('Profile', 'en'), DataFactory.literal('Profil', 'de') ],
+    'shape' : [ DataFactory.literal('Profile', 'en'), DataFactory.literal('Profil', 'de') ],
     'selectprofile' : [ DataFactory.literal('Select profile', 'en'), DataFactory.literal('Profil auswählen', 'de') ],
     'add_resource' : [ DataFactory.literal('Add resource', 'en'), DataFactory.literal('Ressource hinzufügen', 'de') ],
     'save' : [ DataFactory.literal('Save', 'en'), DataFactory.literal('Speichern', 'de') ],
@@ -26,6 +26,7 @@ const appLabels: Record<string, Literal[]> = {
     'loading' : [ DataFactory.literal('Loading', 'en'), DataFactory.literal('Lade', 'de') ],
     'sign_in' : [ DataFactory.literal('Sign in', 'en'), DataFactory.literal('Anmelden', 'de') ],
     'sign_out' : [ DataFactory.literal('Sign out', 'en'), DataFactory.literal('Abmelden:', 'de') ],
+    'no_label' : [ DataFactory.literal('<No label>', 'en'), DataFactory.literal('<Kein Label>', 'de') ],
     'error' : [ DataFactory.literal('Error', 'en'), DataFactory.literal('Fehler', 'de') ],
     'resource_save_failed' : [ DataFactory.literal('Failed saving resource', 'en'), DataFactory.literal('Ressource konnte nicht gespeichert werden', 'de') ],
     'resource_save_succeeded' : [ DataFactory.literal('Resource saved', 'en'), DataFactory.literal('Ressource gespeichert', 'de') ],
@@ -35,36 +36,27 @@ const appLabels: Record<string, Literal[]> = {
 }
 
 export async function fetchLabels(ids: string[], surroundWithBrackets = false, prependColon = false) {
-    let atLeastOneIdMissing = false
     const formData = new URLSearchParams()
-    formData.append('lang', navigator.language)
+    const transormed: Record<string, string> = {}
     for (let id of ids) {
         // load id only if not already available or requested before
         if (i18n[id] === undefined) {
-            atLeastOneIdMissing = true
+            let transformedId = id
             if (prependColon) {
-                id = ':' + id
+                transformedId = ':' + transformedId
             }
             if (surroundWithBrackets) {
-                id = '<' + id + '>'
+                transformedId = '<' + transformedId + '>'
             }
-            formData.append('id', id)
+            formData.append('id', transformedId)
+            transormed[id] = transformedId
         }
     }
-    if (atLeastOneIdMissing) {
-        const resp = await fetch(`${BACKEND_URL}/labels`, { method: "POST", body: formData })
-        const labelsBatch: Record<string, string> = await resp.json()
-        for (let [id, label] of Object.entries(labelsBatch)) {
-            // clean up leading '<' and trailing '>'
-            if (surroundWithBrackets && id.startsWith('<') && id.endsWith('>')) {
-                id = id.substring(1, id.length - 1)
-            }
-            if (prependColon) {
-                id = id.substring(1, id.length)
-            }
-            // put empty string in i18n[] if server has no label to prevent requesting it again
-            label = label || i18n[id] || ''
-            i18n[id] = label
+    if (formData.size > 0) {
+        formData.append('lang', navigator.language)
+        const resp: Record<string, string> = await fetch(`${BACKEND_URL}/labels`, { method: "POST", body: formData }).then(r => r.json())
+        for (const id of ids) {
+            i18n[id] = resp[transormed[id]] || i18n['no_label'] || ''
         }
     }
 }

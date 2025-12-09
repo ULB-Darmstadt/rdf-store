@@ -1,8 +1,8 @@
 package shacl
 
 import (
+	"bytes"
 	"fmt"
-	"rdf-store-backend/base"
 	"strconv"
 
 	"github.com/deiu/rdf2go"
@@ -10,117 +10,218 @@ import (
 
 type NodeShape struct {
 	Id         rdf2go.Term
-	Parents    map[rdf2go.Term]bool
-	Properties []*Property
+	Parents    map[string]bool
+	Properties map[string][]*Property // path -> property
+	RDF        *[]byte
+	Graph      *rdf2go.Graph
 }
 
-func (node *NodeShape) Parse(id rdf2go.Term, graph *rdf2go.Graph) *NodeShape {
+func (node *NodeShape) Parse(id rdf2go.Term, rdf *[]byte) (*NodeShape, error) {
 	node.Id = id
-	node.Parents = make(map[rdf2go.Term]bool)
-	// there can be multiple properties with same path (e.g. for qualified value shapes), so deduplicate here
-	propertyMap := make(map[string]*Property) // path -> property
-	for triple := range graph.IterTriples() {
-		if triple.Subject.Equal(id) {
-			if triple.Predicate.Equal(SHACL_NODE) {
-				node.Parents[triple.Object] = true
-			} else if triple.Predicate.Equal(SHACL_AND) {
-				for _, parent := range parseList(triple.Object, graph) {
-					node.Parents[parent] = true
-				}
-			} else if triple.Predicate.Equal(SHACL_PROPERTY) {
-				property := new(Property).Parse(triple.Object, node, graph)
-				// ignore properties without path
-				if property.Path != nil {
-					// merge if property already exists
-					if existingProperty, ok := propertyMap[property.Path.RawValue()]; ok {
-						existingProperty.Merge(property)
-					} else {
-						propertyMap[property.Path.RawValue()] = property
-					}
-				}
+	node.Parents = make(map[string]bool)
+	node.Properties = make(map[string][]*Property)
+	node.RDF = rdf
+	if node.Graph == nil {
+		if rdf == nil {
+			return nil, fmt.Errorf("missing rdf parameter")
+		}
+		node.Graph = rdf2go.NewGraph("")
+		if err := node.Graph.Parse(bytes.NewReader(*rdf), "text/turtle"); err != nil {
+			return nil, err
+		}
+
+	}
+	for _, triple := range node.Graph.All(id, nil, nil) {
+		if triple.Predicate.Equal(SHACL_NODE) {
+			node.Parents[triple.Object.RawValue()] = true
+		} else if triple.Predicate.Equal(SHACL_AND) {
+			for _, parent := range parseList(triple.Object, node.Graph) {
+				node.Parents[parent.RawValue()] = true
+			}
+		} else if triple.Predicate.Equal(SHACL_PROPERTY) {
+			property, err := new(Property).Parse(triple.Object, node, node.Graph)
+			if err != nil {
+				return nil, err
+			}
+			node.AddProperty(property)
+		}
+	}
+	return node, nil
+}
+
+func (node *NodeShape) AddProperty(property *Property) {
+	if len(property.Path) > 0 {
+		// there can be multiple properties with same path. we merge them into one property (except qualifiedValueShapes)
+		merged := false
+		if len(property.QualifiedValueShape) == 0 {
+			existingProperty := node.findPropertyWithoutQualifiedValueShape(property.Path)
+			if existingProperty != nil {
+				merged = true
+				existingProperty.Merge(property)
+			}
+		}
+		if !merged {
+			node.Properties[property.Path] = append(node.Properties[property.Path], property)
+		}
+	}
+}
+
+func (node *NodeShape) ParentList() (list []string) {
+	// list = append(list, node.Id.RawValue())
+	for parent := range node.Parents {
+		list = append(list, parent)
+	}
+	return
+}
+
+func (node *NodeShape) findPropertyWithoutQualifiedValueShape(path string) *Property {
+	if props, ok := node.Properties[path]; ok {
+		for _, prop := range props {
+			if len(prop.QualifiedValueShape) == 0 {
+				return prop
 			}
 		}
 	}
-	for _, prop := range propertyMap {
-		node.Properties = append(node.Properties, prop)
+	return nil
+}
+
+func (node *NodeShape) findPropertiesWithQualifiedValueShape(qualifiedMinCount int) []*Property {
+	result := make([]*Property, 0)
+	for _, props := range node.Properties {
+		for _, prop := range props {
+			if len(prop.QualifiedValueShape) > 0 && prop.QualifiedMinCount >= qualifiedMinCount {
+				result = append(result, prop)
+			}
+		}
 	}
-	return node
+	return result
+}
+
+func (node *NodeShape) Print() {
+	fmt.Println("Id: " + node.Id.RawValue())
+	fmt.Println("Parents:")
+	for p := range node.Parents {
+		fmt.Println("\t" + p)
+	}
+	fmt.Println("Properties:")
+	for _, ps := range node.Properties {
+		for _, p := range ps {
+			p.Print()
+			fmt.Println("------------------------")
+		}
+	}
 }
 
 type Property struct {
-	Id         rdf2go.Term
-	FieldName  string
-	Path       *rdf2go.Resource
-	Datatype   *rdf2go.Resource
-	In         bool
-	NodeShapes []*rdf2go.Term // this is a slice because properties may override, so that multiple sh:node must be aggregated
-	Class      *rdf2go.Resource
-	NodeKind   *rdf2go.Resource
-	Facet      *bool
-	Ignore     bool // indicates that this property overrides a property in the parent chain so that it should be ignored for indexing puposes
+	Id                              rdf2go.Term
+	Parent                          *NodeShape
+	Path                            string
+	Datatype                        string
+	In                              bool
+	Class                           bool
+	HasValue                        bool
+	QualifiedValueShape             string
+	QualifiedValueShapeDenormalized *NodeShape
+	NodeShapesDenormalized          *NodeShape
+	QualifiedMinCount               int
+	MaxCount                        int
+	NodeShapes                      map[string]bool
+	Or                              map[string]bool
+	NodeKind                        string
+	Facet                           *bool
 }
 
-func (prop *Property) Parse(id rdf2go.Term, parent *NodeShape, graph *rdf2go.Graph) *Property {
-	prop.Id = id
-	if datatype := graph.One(id, SHACL_DATATYPE, nil); datatype != nil {
-		if spec, ok := datatype.Object.(*rdf2go.Resource); ok {
-			prop.Datatype = spec
-		} else {
-			panic(fmt.Errorf("property's sh:datatype is not a named node: %v", datatype.Object))
-		}
+func (prop *Property) Print() {
+	fmt.Printf("\tPath: %v\n", prop.Path)
+	fmt.Printf("\tDatatype: %v\n", prop.Datatype)
+	fmt.Printf("\tIn: %v\n", prop.In)
+	fmt.Printf("\tMaxCount: %v\n", prop.MaxCount)
+	fmt.Printf("\tQualifiedValueShape: %v\n", prop.QualifiedValueShape)
+	fmt.Printf("\tClass: %v\n", prop.Class)
+	fmt.Printf("\tHasValue: %v\n", prop.HasValue)
+	fmt.Println("\tShapes:")
+	for s := range prop.NodeShapes {
+		fmt.Println("\t\t" + s)
 	}
-	if path := graph.One(id, SHACL_PATH, nil); path != nil {
-		if spec, ok := path.Object.(*rdf2go.Resource); ok {
-			prop.Path = spec
-			nodeName := base.CleanStringForSolr(parent.Id.RawValue())
-			prop.FieldName = fmt.Sprintf("%s.%s", nodeName, base.CleanStringForSolr(prop.Path.RawValue()))
-		}
-	}
-	if node := graph.One(id, SHACL_NODE, nil); node != nil {
-		prop.NodeShapes = append(prop.NodeShapes, &node.Object)
-	}
-	if class := graph.One(id, SHACL_CLASS, nil); class != nil {
-		if spec, ok := class.Object.(*rdf2go.Resource); ok {
-			prop.Class = spec
-		} else {
-			panic(fmt.Errorf("property's sh:class is not a named node: %v", class.Object))
-		}
-	}
-	if in := graph.One(id, SHACL_IN, nil); in != nil {
-		prop.In = true
-	}
-	if nodeKind := graph.One(id, SHACL_NODE_KIND, nil); nodeKind != nil {
-		if spec, ok := nodeKind.Object.(*rdf2go.Resource); ok {
-			prop.NodeKind = spec
-		}
-	}
-	if facet := graph.One(id, DASH_FACET, nil); facet != nil {
-		if spec, ok := facet.Object.(*rdf2go.Literal); ok {
-			boolValue, err := strconv.ParseBool(spec.RawValue())
-			if err != nil {
-				panic(fmt.Errorf("property's dash:facet is not a boolean: %v", spec.RawValue()))
-			}
+}
 
+func (prop *Property) Parse(id rdf2go.Term, parent *NodeShape, graph *rdf2go.Graph) (*Property, error) {
+	prop.Id = id
+	prop.Parent = parent
+	prop.NodeShapes = make(map[string]bool)
+	prop.Or = make(map[string]bool)
+
+	for _, triple := range graph.All(id, nil, nil) {
+		if triple.Predicate.Equal(SHACL_DATATYPE) {
+			if spec, ok := triple.Object.(*rdf2go.Resource); ok {
+				prop.Datatype = spec.RawValue()
+			} else {
+				return nil, fmt.Errorf("property's sh:datatype is not a named node: %v", triple.Object)
+			}
+		} else if triple.Predicate.Equal(SHACL_PATH) {
+			if spec, ok := triple.Object.(*rdf2go.Resource); ok {
+				prop.Path = spec.RawValue()
+			}
+		} else if triple.Predicate.Equal(SHACL_NODE) {
+			prop.NodeShapes[triple.Object.RawValue()] = true
+		} else if triple.Predicate.Equal(SHACL_AND) {
+			for _, shape := range parseList(triple.Object, graph) {
+				prop.NodeShapes[shape.RawValue()] = true
+			}
+		} else if triple.Predicate.Equal(SHACL_QUALIFIED_VALUE_SHAPE) {
+			prop.QualifiedValueShape = triple.Object.RawValue()
+		} else if triple.Predicate.Equal(SHACL_QUALIFIED_MIN_COUNT) {
+			if i, err := strconv.Atoi(triple.Object.RawValue()); err == nil {
+				prop.QualifiedMinCount = i
+			}
+		} else if triple.Predicate.Equal(SHACL_MAX_COUNT) {
+			if i, err := strconv.Atoi(triple.Object.RawValue()); err == nil {
+				prop.MaxCount = i
+			}
+		} else if triple.Predicate.Equal(SHACL_CLASS) {
+			prop.Class = true
+		} else if triple.Predicate.Equal(SHACL_IN) {
+			prop.In = true
+		} else if triple.Predicate.Equal(SHACL_HAS_VALUE) {
+			prop.HasValue = true
+		} else if triple.Predicate.Equal(SHACL_NODE_KIND) {
+			if spec, ok := triple.Object.(*rdf2go.Resource); ok {
+				prop.NodeKind = spec.RawValue()
+			}
+		} else if triple.Predicate.Equal(DASH_FACET) {
+			boolValue, err := strconv.ParseBool(triple.Object.RawValue())
+			if err != nil {
+				return nil, fmt.Errorf("property's dash:facet is not a boolean: %v", triple.Object.RawValue())
+			}
 			prop.Facet = &boolValue
+		} else if triple.Predicate.Equal(SHACL_OR) || triple.Predicate.Equal(SHACL_XONE) {
+			for _, option := range parseList(triple.Object, graph) {
+				prop.Or[option.RawValue()] = true
+			}
 		}
 	}
-	return prop
+	return prop, nil
 }
 
 func (prop *Property) Merge(other *Property) {
-	if other.Datatype != nil {
-		prop.Datatype = other.Datatype
+	prop.In = prop.In || other.In
+	prop.Class = prop.Class || other.Class
+	prop.HasValue = prop.HasValue || other.HasValue
+	prop.QualifiedMinCount = max(prop.QualifiedMinCount, other.QualifiedMinCount)
+	if other.MaxCount > 0 && prop.MaxCount > 0 {
+		prop.MaxCount = min(prop.MaxCount, other.MaxCount)
+	} else {
+		prop.MaxCount = max(prop.MaxCount, other.MaxCount)
 	}
-	if other.In {
-		prop.In = other.In
-	}
-	if other.Class != nil {
-		prop.Class = other.Class
-	}
-	if other.NodeKind != nil {
+	if len(other.NodeKind) > 0 {
 		prop.NodeKind = other.NodeKind
 	}
-	prop.NodeShapes = append(prop.NodeShapes, other.NodeShapes...)
+	if len(other.Datatype) > 0 {
+		prop.Datatype = other.Datatype
+	}
+	for k := range other.NodeShapes {
+		prop.NodeShapes[k] = true
+	}
 }
 
 func parseList(head rdf2go.Term, graph *rdf2go.Graph) []rdf2go.Term {

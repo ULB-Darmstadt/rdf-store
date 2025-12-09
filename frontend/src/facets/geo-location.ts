@@ -84,7 +84,7 @@ export class GeoLocationFacet extends Facet {
     }
 
     applyFilterQuery(query: string[]) {
-        query.push(`${this.indexField}:${this.boundsToRange()}`)
+        query.push(`+${this.indexField}:${this.boundsToRange()}`)
     }
 
     reset() {
@@ -104,7 +104,7 @@ export class GeoLocationFacet extends Facet {
 
     render() {
         return html`
-            <rokit-collapsible>
+            <rokit-collapsible dense>
                 <span class="material-icons icon" slot="prefix">location_on</span>
                 <div id="label" slot="label">${this.label}</div>
                 <div id="map"></div>

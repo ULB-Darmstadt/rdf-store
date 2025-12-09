@@ -1,6 +1,10 @@
 import { css, html, LitElement } from "lit"
 import { customElement } from "lit/decorators.js"
 
+const style = document.createElement('style')
+style.innerText = `:root { --rokit-primary-color: #008877; }`
+document.head.appendChild(style)
+
 @customElement('layout-header')
 export class Header extends LitElement {
     static styles = css`

@@ -22,6 +22,7 @@ func init() {
 	solrProxy = httputil.NewSingleHostReverseProxy(solrProxyTarget)
 
 	Router.GET(basePath+"/solr/:collection/schema", handleSolr)
+	Router.GET(basePath+"/solr/:collection/select", handleSolr)
 	Router.GET(basePath+"/solr/:collection/query", handleSolr)
 	Router.POST(basePath+"/solr/:collection/query", handleSolr)
 }

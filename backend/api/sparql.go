@@ -99,7 +99,12 @@ func handleAddResource(c *gin.Context) {
 		return
 	}
 
-	resourceID, profile, err := sparql.FindResourceProfile(graph, nil)
+	resourceID, profile, err := shacl.FindResourceProfile(graph, nil, sparql.Profiles)
+	if err != nil {
+		slog.Error("could not determine shacl shape", "error", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 	dataGraph, _ := readGraphBytesFromRequest(c)
 	shapesGraph, err := sparql.LoadProfile(profile.Id.RawValue())
 	if err != nil {
@@ -150,7 +155,12 @@ func handleUpdateResource(c *gin.Context) {
 	}
 
 	resourceID := rdf2go.NewResource(did)
-	_, profile, err := sparql.FindResourceProfile(graph, &resourceID)
+	_, profile, err := shacl.FindResourceProfile(graph, &resourceID, sparql.Profiles)
+	if err != nil {
+		slog.Error("could not determine shacl shape", "error", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 	profileID := profile.Id.RawValue()
 	dataGraph, _ := readGraphBytesFromRequest(c)
 	shapesGraph, err := sparql.LoadProfile(profileID)

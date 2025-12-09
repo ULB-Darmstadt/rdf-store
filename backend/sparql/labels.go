@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"rdf-store-backend/base"
 	"rdf-store-backend/shacl"
-	"regexp"
 	"text/template"
 
 	"github.com/antchfx/xmlquery"
@@ -16,14 +15,13 @@ import (
 const fallbackLanguage = "en"
 
 var labelPredicates = map[string]bool{
-	shacl.SHACL_NAME.String():      true,
-	shacl.SKOS_PREF_LABEL.String(): true,
-	shacl.RDFS_LABEL.String():      true,
-	shacl.DCTERMS_TITLE.String():   true,
-	shacl.FOAF_NAME.String():       true,
+	shacl.SHACL_NAME.RawValue():      true,
+	shacl.SKOS_PREF_LABEL.RawValue(): true,
+	shacl.RDFS_LABEL.RawValue():      true,
+	shacl.DCTERMS_TITLE.RawValue():   true,
+	shacl.FOAF_NAME.RawValue():       true,
 }
 var labelTargetPredicate = shacl.RDFS_LABEL.String()
-var resourceRegex = regexp.MustCompile("<.*>")
 var labelsQuery = `
 SELECT DISTINCT ?id ?label
 WHERE {
@@ -80,31 +78,59 @@ func GetLabels(language string, ids []string) (map[string]string, error) {
 
 func ExtractLabels(id string, graph *rdf2go.Graph, convertShaclProperties bool) error {
 	var result bytes.Buffer
-
+	var profileLables map[string]string
+	if convertShaclProperties {
+		profileLables = findProfileLabels(rdf2go.NewResource(id), graph)
+	}
 	for triple := range graph.IterTriples() {
-		if _, isLabel := labelPredicates[triple.Predicate.String()]; isLabel {
-			sub := triple.Subject.String()
-			subjectIsResource := resourceRegex.MatchString(sub)
-			if convertShaclProperties {
-				// check if this is a label for a shacl node shape
-				if node := graph.One(triple.Subject, shacl.RDF_TYPE, shacl.SHACL_NODE_SHAPE); node != nil {
-					// addtionally add converted id to labels graph (for the facet titles)
-					fmt.Fprintf(&result, "<:%s> %s %s .\n", base.CleanStringForSolr(triple.Subject.RawValue()), labelTargetPredicate, triple.Object.String())
-				} else if path := graph.One(triple.Subject, shacl.SHACL_PATH, nil); path != nil {
-					// id is a shacl property (we just assume that this is the case if sh:path exists)
-					sub = fmt.Sprintf("<:%s.%s>", base.CleanStringForSolr(id), base.CleanStringForSolr(path.Object.RawValue()))
-					// shacl properties might be blank nodes, but we converted their id, so pretend that they are resources
-					subjectIsResource = true
+		if _, isLabel := labelPredicates[triple.Predicate.RawValue()]; isLabel {
+			// check if triple object is a literal
+			if label, ok := triple.Object.(*rdf2go.Literal); ok {
+				if convertShaclProperties {
+					// check if this is a label for a shacl node shape
+					if node := graph.One(triple.Subject, shacl.RDF_TYPE, shacl.SHACL_NODE_SHAPE); node != nil {
+						// addtionally add converted id to labels graph (for the facet titles)
+						fmt.Fprintf(&result, "<:%s> %s %s .\n", base.CleanStringForSolr(triple.Subject.RawValue()), labelTargetPredicate, label.String())
+					} else if path := graph.One(triple.Subject, shacl.SHACL_PATH, nil); path != nil {
+						// addtionally add converted id to labels graph (for the facet titles)
+						prefixedLabel := label.Value
+						lang := label.Language
+						if len(lang) == 0 {
+							lang = "en"
+						}
+						if graph.One(triple.Subject, shacl.SHACL_QUALIFIED_VALUE_SHAPE, nil) != nil || graph.One(triple.Subject, shacl.SHACL_NODE, nil) != nil {
+							if profileLabel, ok := profileLables[lang]; ok {
+								prefixedLabel = profileLabel + " > " + prefixedLabel
+							}
+						}
+						fmt.Fprintf(&result, "<:%s> %s %s .\n", base.CleanStringForSolr(triple.Subject.RawValue()), labelTargetPredicate, rdf2go.NewLiteralWithLanguage(prefixedLabel, lang).String())
+					}
 				}
-			}
-			if subjectIsResource {
-				fmt.Fprintf(&result, "%s %s %s .\n", sub, labelTargetPredicate, triple.Object.String())
+				fmt.Fprintf(&result, "%s %s %s .\n", triple.Subject.String(), labelTargetPredicate, triple.Object.String())
 			}
 		}
 	}
 
 	if result.Len() > 0 {
-		return uploadGraph(labelDataset, id, result.Bytes())
+		return uploadGraph(labelDataset, id, result.Bytes(), nil)
 	}
 	return nil
+}
+
+func findProfileLabels(id rdf2go.Term, graph *rdf2go.Graph) map[string]string {
+	labels := make(map[string]string)
+	for labelPredicate := range labelPredicates {
+		for _, labelTriple := range graph.All(id, rdf2go.NewResource(labelPredicate), nil) {
+			if spec, ok := labelTriple.Object.(*rdf2go.Literal); ok {
+				lang := spec.Language
+				if len(lang) == 0 {
+					lang = "en"
+				}
+				if _, ok := labels[lang]; !ok {
+					labels[lang] = spec.Value
+				}
+			}
+		}
+	}
+	return labels
 }

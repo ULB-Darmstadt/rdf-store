@@ -57,7 +57,7 @@ func synchronize() {
 		} else if changed {
 			_, err := sparql.ParseAllProfiles()
 			if err != nil {
-				slog.Error("failed retrieving profile ids", "error", err)
+				slog.Error("failed parsing profiles", "error", err)
 			} else {
 				search.Reindex()
 			}
@@ -121,23 +121,24 @@ func synchronizeProfiles() (changed bool, err error) {
 		}
 	}
 
-	profilesToExctractLabelsFrom := make(map[string][]byte)
+	changedOrNewProfiles := make(map[string]*rdf2go.Graph)
 
 	// first pass: store changed or new profiles
 	for _, profile := range profiles {
 		profileIds[profile.BaseUrl] = true
-		// check if profile changes or is new
+		// check if profile changed or is new
 		profileData := []byte(profile.Definition)
-		profileData = base.FixBooleansInProfile(profileData)
+		profileData = base.FixBooleansInRDF(profileData)
 		inputHash := base.Hash(profileData)
 		existingHash, hashErr := sparql.GetProfileHash(profile.BaseUrl)
 		if hashErr != nil || inputHash != existingHash {
 			changed = true
 			// store profile
-			if err = sparql.UpdateProfile(profile.BaseUrl, profileData); err != nil {
-				return
+			graph, err := sparql.UpdateProfile(profile.BaseUrl, profileData)
+			if err != nil {
+				return changed, err
 			}
-			profilesToExctractLabelsFrom[profile.BaseUrl] = profileData
+			changedOrNewProfiles[profile.BaseUrl] = graph
 		}
 	}
 
@@ -157,14 +158,12 @@ func synchronizeProfiles() (changed bool, err error) {
 		}
 	}
 
-	// third pass: extract labels from owl:imports
-	for profileId, profile := range profilesToExctractLabelsFrom {
-		graph, err := base.ParseGraph(bytes.NewReader(profile))
-		if err != nil {
-			slog.Error("failed parsing profile", "profile", profileId, "error", err)
-		} else {
-			extractLabelsFromOwlImports(graph, make(map[string]bool), profileIds)
-		}
+	// third pass: create index profiles and extract labels from owl:imports
+	for _, graph := range changedOrNewProfiles {
+		// if err = sparql.UpdateIndexProfile(profileId); err != nil {
+		// 	return
+		// }
+		extractLabelsFromOwlImports(graph, make(map[string]bool), profileIds)
 	}
 	slog.Info("syncing profiles finished", "profiles", len(profiles), "changed", changed, "duration", time.Since(start))
 	return

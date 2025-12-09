@@ -9,7 +9,7 @@ document.head.appendChild(style)
 @customElement('layout-header')
 export class Header extends LitElement {
     static styles = css`
-    :host { color: #FFF; background-color: #212121; display: flex; padding: 10px; }
+    :host { color: #FFF; background-color: #49526a; display: flex; padding: 10px; }
     #title { flex-grow: 1; }
     #title img { height: 30px; margin-right: 12px; }
     #title h1 { font-size: 30px; margin: 0; display: flex; align-items: center; }

@@ -1,8 +1,7 @@
 package sparql
 
 import (
-	"bytes"
-	"errors"
+	"fmt"
 	"rdf-store-backend/base"
 	"rdf-store-backend/shacl"
 
@@ -17,63 +16,44 @@ func ParseAllProfiles() (map[string]*shacl.NodeShape, error) {
 		return nil, err
 	}
 	Profiles = make(map[string]*shacl.NodeShape)
+	// first pass: parse profiles
 	for _, profileId := range profileIds {
 		profile, err := LoadProfile(profileId)
 		if err != nil {
 			return nil, err
 		}
-		graph, err := base.ParseGraph(bytes.NewReader(profile))
+		parsed, err := new(shacl.NodeShape).Parse(rdf2go.NewResource(profileId), &profile)
 		if err != nil {
 			return nil, err
 		}
-		Profiles[profileId] = new(shacl.NodeShape).Parse(rdf2go.NewResource(profileId), graph)
+		Profiles[profileId] = parsed
+		// register sub profiles (i.e. node shapes previously converted from blank nodes)
+		for _, nodeShapeTriple := range parsed.Graph.All(nil, shacl.RDF_TYPE, shacl.SHACL_NODE_SHAPE) {
+			if nodeShapeTriple.Subject.RawValue() != profileId {
+				parsedSubProfile, err := new(shacl.NodeShape).Parse(nodeShapeTriple.Subject, &profile)
+				if err != nil {
+					return nil, err
+				}
+				fmt.Println("--- register sub shape", nodeShapeTriple.Subject.RawValue())
+				Profiles[nodeShapeTriple.Subject.RawValue()] = parsedSubProfile
+			}
+		}
 	}
-	// recursively merge overridden properties into parent to prevent duplicate facets
-	// for _, profile := range profiles {
-	// 	mergeOverriddenPropertiesIntoParent(profile, profiles)
+
+	// denormalizedProfiles := make(map[*shacl.NodeShape]bool)
+	for _, profile := range Profiles {
+		// profile.DenormalizeQualifiedValueShapes(Profiles)
+		profile.DenormalizePropertyNodeShapes(Profiles)
+	}
+
+	// for _, profile := range Profiles {
+	// 	profile.Print()
 	// }
+
+	profileIds = make([]string, 0)
+	for id := range Profiles {
+		profileIds = append(profileIds, id)
+	}
 	base.Configuration.Profiles = profileIds
 	return Profiles, nil
 }
-
-func FindResourceProfile(graph *rdf2go.Graph, id *rdf2go.Term) (resourceID rdf2go.Term, profile *shacl.NodeShape, err error) {
-	var refs []*rdf2go.Triple
-	if id == nil {
-		refs = graph.All(nil, shacl.DCTERMS_CONFORMS_TO, nil)
-		refs = append(refs, graph.All(nil, shacl.RDF_TYPE, nil)...)
-	} else {
-		refs = graph.All(*id, shacl.DCTERMS_CONFORMS_TO, nil)
-		refs = append(refs, graph.All(*id, shacl.RDF_TYPE, nil)...)
-	}
-	for _, triple := range refs {
-		if profileRef, ok := Profiles[triple.Object.RawValue()]; ok {
-			if resourceID != nil {
-				return nil, nil, errors.New("graph has multiple relations " + shacl.DCTERMS_CONFORMS_TO.String() + " or " + shacl.RDF_TYPE.String() + " to a known SHACL profile")
-			}
-			resourceID = triple.Subject
-			profile = profileRef
-		}
-	}
-	if resourceID == nil {
-		return nil, nil, errors.New("graph has no relation " + shacl.DCTERMS_CONFORMS_TO.String() + " or " + shacl.RDF_TYPE.String() + " to a known SHACL profile")
-	}
-	return
-}
-
-// func mergeOverriddenPropertiesIntoParent(profile *shacl.NodeShape, profiles map[string]*shacl.NodeShape) {
-// 	for parent := range profile.Parents {
-// 		if parentProfile, ok := profiles[parent.RawValue()]; ok {
-// 			for _, ownProperty := range profile.Properties {
-// 				for _, parentProperty := range parentProfile.Properties {
-// 					if ownProperty.Path.Equal(parentProperty.Path) {
-// 						parentProperty.Merge(ownProperty)
-// 						ownProperty.Ignore = true
-// 					}
-// 				}
-// 			}
-// 			mergeOverriddenPropertiesIntoParent(parentProfile, profiles)
-// 		} else {
-// 			slog.Error("parent profile not found", "id", parent.RawValue())
-// 		}
-// 	}
-// }

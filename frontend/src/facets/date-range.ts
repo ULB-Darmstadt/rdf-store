@@ -26,7 +26,7 @@ export class DateRangeFacet extends NumberRangeFacet {
 
     applyFilterQuery(query: string[]) {
         if (this.value?.length === 2) {
-            query.push(`${this.indexField}:[${epochToDate(this.value[0])} TO ${epochToDate(this.value[1])}]`)
+            query.push(`+${this.indexField}:[${epochToDate(this.value[0])} TO ${epochToDate(this.value[1])}]`)
         }
     }
 }

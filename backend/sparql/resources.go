@@ -38,7 +38,7 @@ func UpdateResource(id string, resource []byte, creator string) (*ResourceMetada
 	if err := validateCreator(id, creator); err != nil {
 		return nil, err
 	}
-	if err := uploadGraph(ResourceDataset, id, resource); err != nil {
+	if err := uploadGraph(ResourceDataset, id, resource, nil); err != nil {
 		return nil, err
 	}
 	return updateResourceMetadata(id, creator)
@@ -110,9 +110,10 @@ var metadataUpdateTemplate = template.Must(template.New("").Funcs(template.FuncM
 `))
 
 func updateResourceMetadata(id string, creator string) (metadata *ResourceMetadata, err error) {
+	deleteResourceMetadata(id)
 	metadata = &ResourceMetadata{
 		Creator:      creator,
-		LastModified: time.Now(),
+		LastModified: time.Now().UTC(),
 	}
 	tmplInput := map[string]interface{}{
 		"Id":       id,

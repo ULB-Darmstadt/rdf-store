@@ -153,7 +153,6 @@ export class Editor extends LitElement {
                     data-values-url="${this.rdfSubject}"
                     data-values-subject="${this.rdfSubject}"
                     data-proxy="${BACKEND_URL}/proxy?url="
-                    data-generate-node-shape-reference="http://purl.org/dc/terms/conformsTo"
                     data-hierarchy-colors
                 ></shacl-form>
                 <div class="buttons">
@@ -167,6 +166,7 @@ export class Editor extends LitElement {
                             if (report.conforms) {
                                 this.saveRDF(this.form!.serialize())
                             } else {
+                                console.log(this.form!.serialize())
                                 console.warn(report)
                             }
                         }

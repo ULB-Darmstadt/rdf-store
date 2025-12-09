@@ -2,8 +2,8 @@ package search
 
 import (
 	"bytes"
+	"fmt"
 	"log/slog"
-	"net/url"
 	"rdf-store-backend/base"
 	"rdf-store-backend/shacl"
 	"rdf-store-backend/sparql"
@@ -12,11 +12,13 @@ import (
 	"github.com/deiu/rdf2go"
 )
 
-func Init(forceRecreate bool) (err error) {
+func Init(forceRecreate bool) error {
 	if forceRecreate || !checkCollectionExists() {
-		err = recreateCollection()
+		if err := recreateCollection(); err != nil {
+			return err
+		}
 	}
-	return
+	return nil
 }
 
 func Reindex() {
@@ -42,7 +44,7 @@ func Reindex() {
 				slog.Error(err.Error())
 			} else {
 				resourceID := rdf2go.NewResource(id)
-				_, profile, err := sparql.FindResourceProfile(graph, &resourceID)
+				_, profile, err := shacl.FindResourceProfile(graph, &resourceID, sparql.Profiles)
 				if err != nil {
 					slog.Error(err.Error())
 				} else {
@@ -59,61 +61,186 @@ func Reindex() {
 }
 
 func IndexResource(id rdf2go.Term, profile *shacl.NodeShape, graph *rdf2go.Graph, metadata *sparql.ResourceMetadata) error {
+	if err := DeindexResource(id.RawValue()); err != nil {
+		return err
+	}
 	slog.Debug("indexing", "resource", id.RawValue(), "creator", metadata.Creator, "profile", profile.Id.RawValue())
 
 	var buf bytes.Buffer
 	if err := graph.Serialize(&buf, "text/turtle"); err != nil {
 		return err
 	}
+	rdf := buf.String()
 
-	// put profile and its parents into _shape index field (for inheritance)
-	documentProfileIds := []string{profile.Id.RawValue()}
-	for parentProfile := range profile.Parents {
-		documentProfileIds = append(documentProfileIds, parentProfile.RawValue())
+	root := document{
+		"id":           "container_" + id.RawValue(),
+		"creator":      metadata.Creator,
+		"lastModified": metadata.LastModified,
+		"docType":      "container",
 	}
 
 	doc := document{
-		"_rdf":          {buf.String()},
-		"_shape":        {documentProfileIds},
-		"_creator":      {metadata.Creator},
-		"_lastModified": {metadata.LastModified},
-		"id":            {url.QueryEscape(id.RawValue())},
+		"id":           id.RawValue(),
+		"rdf":          rdf,
+		"creator":      metadata.Creator,
+		"lastModified": metadata.LastModified,
+		"shape":        make([]string, 0),
+		"ref_shapes":   make([]string, 0),
+		"docType":      "main",
 	}
-	appendPropertiesToDoc(id, doc, profile, graph)
-	return updateDoc(doc)
+	root["_children_"] = []*document{&doc}
+	buildDoc(id, profile.Id, profile, graph, &rdf, &doc, false)
+	return updateDoc(&root)
 }
 
 func DeindexResource(id string) error {
-	return deleteDoc(id)
+	return deleteDocs(id)
 }
 
-func appendPropertiesToDoc(subject rdf2go.Term, doc document, profile *shacl.NodeShape, data *rdf2go.Graph) {
-	for parent := range profile.Parents {
-		if parentProfile, ok := sparql.Profiles[parent.RawValue()]; ok {
-			appendPropertiesToDoc(subject, doc, parentProfile, data)
-		}
+func buildDoc(subject rdf2go.Term, profileId rdf2go.Term, profile *shacl.NodeShape, data *rdf2go.Graph, dataRDF *string, current *document, denormalized bool) {
+	fmt.Println("--- build doc. subject=", subject.RawValue(), " profile=", profile.Id.RawValue(), "current=", (*current)["id"])
+	if !denormalized {
+		(*current)["shape"] = append((*current)["shape"].([]string), profileId.RawValue())
 	}
-	for _, property := range profile.Properties {
-		values := data.All(subject, property.Path, nil)
-		if len(values) > 0 {
-			array := make([]interface{}, 0)
-			for _, value := range values {
-				if len(property.NodeShapes) > 0 {
-					for _, nodeProfileId := range property.NodeShapes {
-						if nodeProfile, ok := sparql.Profiles[(*nodeProfileId).RawValue()]; ok {
-							appendPropertiesToDoc(value.Object, doc, nodeProfile, data)
+
+	for pathId, properties := range profile.Properties {
+		// validation is needed if node shape has multiple properties with the same path
+		needsValidation := len(properties) > 0
+		path := rdf2go.NewResource(pathId)
+		for _, property := range properties {
+			values := data.All(subject, path, nil)
+			ft := fieldType(property)
+			if len(values) > 0 {
+				array := make([]any, 0)
+				for _, value := range values {
+					if len(property.QualifiedValueShape) > 0 && property.QualifiedMinCount > 0 && property.QualifiedValueShapeDenormalized != nil {
+						valid := true
+						if needsValidation {
+							err := shacl.Validate(string(*profile.RDF), property.QualifiedValueShape, *dataRDF, value.Object.RawValue())
+							// RDF graph conforms to this qualifiedValueShape because error is nil
+							valid = err == nil
+						}
+						if valid {
+							nested := document{
+								"id":         value.Object.RawValue(),
+								"rdf":        serializeSubgraph(value.Object, data),
+								"shape":      property.QualifiedValueShapeDenormalized.ParentList(),
+								"ref_shapes": make([]string, 0),
+							}
+							(*current)["ref_shapes"] = append((*current)["ref_shapes"].([]string), property.QualifiedValueShape)
+							data.Remove(value)
+							appendNested(current, &nested)
+							buildDoc(value.Object, rdf2go.NewResource(property.QualifiedValueShape), property.QualifiedValueShapeDenormalized, data, dataRDF, &nested, true)
 						}
 					}
-				} else if !property.Ignore {
+					for nodeProfileId := range property.Or {
+						// validate value according to sh:or
+						if nodeProfile, ok := sparql.Profiles[nodeProfileId]; ok {
+							if err := shacl.Validate(string(*nodeProfile.RDF), nodeProfileId, *dataRDF, value.Object.RawValue()); err == nil {
+								fmt.Println("--- VALID OR")
+								// RDF graph conforms to this shape because error is nil
+								nested := document{
+									"id":         value.Object.RawValue(),
+									"rdf":        serializeSubgraph(value.Object, data),
+									"shape":      make([]string, 0),
+									"ref_shapes": make([]string, 0),
+								}
+								// data.Remove(value)
+								appendNested(current, &nested)
+								buildDoc(value.Object, nodeProfile.Id, nodeProfile, data, dataRDF, &nested, false)
+							} else {
+								fmt.Println("--- INVALID OR")
+							}
+						} else {
+							slog.Warn("property's node shape not found", "id", nodeProfileId, "path", property.Path)
+						}
+					}
+
+					if len(property.NodeShapes) > 0 {
+						for nodeProfileId := range property.NodeShapes {
+							if nodeProfile, ok := sparql.Profiles[nodeProfileId]; ok {
+								nested := document{
+									"id":         value.Object.RawValue(),
+									"rdf":        serializeSubgraph(value.Object, data),
+									"shape":      make([]string, 0),
+									"ref_shapes": make([]string, 0),
+								}
+								data.Remove(value)
+								appendNested(current, &nested)
+								buildDoc(value.Object, nodeProfile.Id, nodeProfile, data, dataRDF, &nested, false)
+							} else {
+								slog.Warn("property's node shape not found", "id", nodeProfileId, "path", property.Path)
+							}
+						}
+					}
 					if _, ok := value.Object.(*rdf2go.Resource); ok {
-						array = append(array, value.Object.String())
+						if data.One(value.Object, nil, nil) == nil {
+							array = append(array, value.Object.String())
+							data.Remove(value)
+						}
+					} else if _, ok := value.Object.(*rdf2go.Literal); ok {
+						val := value.Object.RawValue()
+						if ft == "dts" && len(val) == 10 {
+							val = val + "T00:00:00Z"
+						}
+						array = append(array, val)
+						data.Remove(value)
+					}
+				}
+				if len(array) > 0 {
+					if ft == "t" {
+						(*current)["_text_"] = array
 					} else {
-						array = append(array, value.Object.RawValue())
+						field := base.CleanStringForSolr(profile.Id.RawValue()) + "." + base.CleanStringForSolr(property.Id.RawValue()) + "_" + ft
+						if _, ok := (*current)[field]; ok {
+							(*current)[field] = append((*current)[field].([]any), array...)
+						} else {
+							(*current)[field] = array
+						}
 					}
 				}
 			}
+		}
+	}
 
-			doc[property.FieldName] = append(doc[property.FieldName], array)
+	if !denormalized {
+		for parentId := range profile.Parents {
+			if parentProfile, ok := sparql.Profiles[parentId]; ok {
+				buildDoc(subject, parentProfile.Id, parentProfile, data, dataRDF, current, false)
+			} else {
+				slog.Warn("profile parent not found.", "id", parentId)
+			}
+		}
+	}
+}
+
+func appendNested(parent *document, child *document) {
+	if _, ok := (*parent)["_children_"]; !ok {
+		(*parent)["_children_"] = make([]*document, 0)
+	}
+	(*parent)["_children_"] = append((*parent)["_children_"].([]*document), child)
+}
+
+func serializeSubgraph(subject rdf2go.Term, graph *rdf2go.Graph) string {
+	triples := make(map[rdf2go.Term][]*rdf2go.Triple)
+	buildSubgraph(subject, graph, triples)
+
+	subgraph := rdf2go.NewGraph("")
+	for _, subjectTriples := range triples {
+		for _, triple := range subjectTriples {
+			subgraph.Add(triple)
+		}
+	}
+	var buf bytes.Buffer
+	subgraph.Serialize(&buf, "text/turtle")
+	return buf.String()
+}
+
+func buildSubgraph(subject rdf2go.Term, graph *rdf2go.Graph, triples map[rdf2go.Term][]*rdf2go.Triple) {
+	triples[subject] = graph.All(subject, nil, nil)
+	for _, t := range triples[subject] {
+		if _, ok := triples[t.Object]; !ok {
+			buildSubgraph(t.Object, graph, triples)
 		}
 	}
 }

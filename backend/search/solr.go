@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"net/url"
 	"rdf-store-backend/base"
 
 	"github.com/stevenferrer/solr-go"
@@ -18,7 +17,7 @@ var Endpoint = base.EnvVar("SOLR_ENDPOINT", "http://localhost:8983")
 var numShards = base.EnvVarAsInt("SOLR_NUM_SHARDS", 1)
 var client = solr.NewJSONClient(Endpoint)
 
-type document map[string][]interface{}
+type document map[string]any
 
 func checkCollectionExists() bool {
 	query := solr.Query{}
@@ -27,7 +26,6 @@ func checkCollectionExists() bool {
 }
 
 func recreateCollection() (err error) {
-	fields, copyFields := createCollectionSchema()
 	slog.Debug("recreating solr collection", "endpoint", Endpoint, "collection", base.SolrIndex)
 	if err := client.DeleteCollection(context.Background(), solr.NewCollectionParams().Name(base.SolrIndex)); err != nil {
 		slog.Warn("collection couldn't be deleted", "error", err)
@@ -35,10 +33,10 @@ func recreateCollection() (err error) {
 	if err = client.CreateCollection(context.Background(), solr.NewCollectionParams().Name(base.SolrIndex).NumShards(numShards)); err != nil {
 		return
 	}
-	if err = client.AddFields(context.Background(), base.SolrIndex, fields...); err != nil {
+	if err = client.AddFields(context.Background(), base.SolrIndex, createCollectionSchema()...); err != nil {
 		return
 	}
-	if err = client.AddCopyFields(context.Background(), base.SolrIndex, copyFields...); err != nil {
+	if err = client.AddCopyFields(context.Background(), base.SolrIndex, solr.CopyField{Source: "*", Dest: "_text_"}); err != nil {
 		return
 	}
 	if err = patchLocationField(); err != nil {
@@ -50,8 +48,8 @@ func recreateCollection() (err error) {
 // This enables WKT polygon indexing. Note that we have installed "jts-core" in our docker image.
 // See https://solr.apache.org/guide/solr/latest/query-guide/spatial-search.html#jts-and-polygons-flat
 func patchLocationField() error {
-	body := map[string]interface{}{
-		"replace-field-type": map[string]interface{}{
+	body := map[string]any{
+		"replace-field-type": map[string]any{
 			"name":                  "location_rpt",
 			"class":                 "solr.SpatialRecursivePrefixTreeFieldType",
 			"spatialContextFactory": "JTS",
@@ -67,12 +65,18 @@ func patchLocationField() error {
 		return err
 	}
 	// since solr-go doesn't support this we'll simply post directly to solr
-	_, err = http.Post(fmt.Sprintf("%s/solr/%s/schema", Endpoint, base.SolrIndex), "application/json", bytes.NewReader(data))
-	return err
+	resp, err := http.Post(fmt.Sprintf("%s/solr/%s/schema", Endpoint, base.SolrIndex), "application/json", bytes.NewReader(data))
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("failed patching solr schema. status was %d", resp.StatusCode)
+	}
+	return nil
 }
 
-func updateDoc(doc document) error {
-	data, err := json.Marshal(map[string]interface{}{"add": map[string]interface{}{"doc": doc}})
+func updateDoc(doc *document) error {
+	data, err := json.MarshalIndent(map[string]any{"add": map[string]interface{}{"doc": doc}}, "", "   ")
 	if err != nil {
 		return err
 	}
@@ -89,8 +93,8 @@ func updateDoc(doc document) error {
 	return nil
 }
 
-func deleteDoc(id string) error {
-	data, err := json.Marshal(map[string]interface{}{"delete": map[string]interface{}{"query": "id:\"" + url.QueryEscape(id) + "\""}})
+func deleteDocs(root string) error {
+	data, err := json.Marshal(map[string]any{"delete": map[string]any{"query": "_root_:\"container_" + root + "\""}})
 	if err != nil {
 		return err
 	}
