@@ -125,6 +125,7 @@ func ExtractLabels(id string, graph *rdf2go.Graph, convertShaclProperties bool) 
 }
 
 func ImportLabelsFromUrl(url string) (*rdf2go.Graph, error) {
+	slog.Info("importing labels from", "url", url)
 	header := http.Header{}
 	header["Accept"] = []string{"text/turtle"}
 	data, err := base.CacheLoad(url, &header)
@@ -161,6 +162,7 @@ func findProfileLabels(id rdf2go.Term, graph *rdf2go.Graph) map[string]string {
 
 func importLabelsFromStandardTaxonomies() error {
 	for _, url := range strings.Split(base.RdfStandardTaxonomies, ",") {
+		url = strings.TrimSpace(url)
 		if url != "" {
 			if exist, err := CheckLabelsExist(url); err == nil && !exist {
 				if _, err := ImportLabelsFromUrl(url); err != nil {
