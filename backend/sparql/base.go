@@ -34,6 +34,9 @@ func init() {
 	if err := importLocalResources(); err != nil {
 		slog.Error("failed importing local resources", "error", err)
 	}
+	if err := importLabelsFromStandardTaxonomies(); err != nil {
+		slog.Error("failed importing standard taxonomies", "error", err)
+	}
 }
 
 func initDatasets() error {
@@ -190,7 +193,6 @@ func uploadGraph(dataset string, id string, data []byte, graph *rdf2go.Graph) (e
 			}
 		}
 		if err == nil {
-			fmt.Println("--- extract labels from", id)
 			if err := ExtractLabels(id, graph, dataset == profileDataset); err != nil {
 				slog.Error("failed extracting labels.", "id", id, "error", err)
 			}

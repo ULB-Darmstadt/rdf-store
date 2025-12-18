@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -158,42 +157,31 @@ func synchronizeProfiles() (changed bool, err error) {
 		}
 	}
 
-	// third pass: create index profiles and extract labels from owl:imports
+	// third pass: extract labels from owl:imports
 	for _, graph := range changedOrNewProfiles {
 		// if err = sparql.UpdateIndexProfile(profileId); err != nil {
 		// 	return
 		// }
-		extractLabelsFromOwlImports(graph, make(map[string]bool), profileIds)
+		extractLabelsFromOwlImports(graph, profileIds)
 	}
 	slog.Info("syncing profiles finished", "profiles", len(profiles), "changed", changed, "duration", time.Since(start))
 	return
 }
 
-func extractLabelsFromOwlImports(graph *rdf2go.Graph, owlImports map[string]bool, profileIds map[string]bool) {
+func extractLabelsFromOwlImports(graph *rdf2go.Graph, profileIds map[string]bool) {
 	for _, importsStatement := range graph.All(nil, shacl.OWL_IMPORTS, nil) {
 		url := importsStatement.Object.RawValue()
 		// ignore owl:imports that reference profiles
 		if _, ok := profileIds[url]; !ok {
 			// load owl:imports only once
-			if _, ok := owlImports[url]; !ok {
+			if exist, err := sparql.CheckLabelsExist(url); err == nil && !exist {
 				slog.Debug("loading owl:imports", "url", url)
-				owlImports[url] = true
-				header := http.Header{}
-				header["Accept"] = []string{"text/turtle"}
-				data, err := base.CacheLoad(url, &header)
-				if err == nil {
-					graph, err := base.ParseGraph(bytes.NewReader(data))
-					if err == nil {
-						if err := sparql.ExtractLabels(url, graph, false); err != nil {
-							slog.Error("failed extracting labels", "url", url, "error", err)
-						}
-						// recurse
-						extractLabelsFromOwlImports(graph, owlImports, profileIds)
-					} else {
-						slog.Debug("failed loading owl:imports", "url", url, "error", err)
-					}
-				} else {
+				graph, err := sparql.ImportLabelsFromUrl(url)
+				if err != nil {
 					slog.Debug("failed loading owl:imports", "url", url, "error", err)
+				} else {
+					// recurse
+					extractLabelsFromOwlImports(graph, profileIds)
 				}
 			}
 		}

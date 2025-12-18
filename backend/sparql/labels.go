@@ -3,8 +3,11 @@ package sparql
 import (
 	"bytes"
 	"fmt"
+	"log/slog"
+	"net/http"
 	"rdf-store-backend/base"
 	"rdf-store-backend/shacl"
+	"strings"
 	"text/template"
 
 	"github.com/antchfx/xmlquery"
@@ -76,6 +79,10 @@ func GetLabels(language string, ids []string) (map[string]string, error) {
 	return result, nil
 }
 
+func CheckLabelsExist(url string) (bool, error) {
+	return checkGraphExists(labelDataset, url)
+}
+
 func ExtractLabels(id string, graph *rdf2go.Graph, convertShaclProperties bool) error {
 	var result bytes.Buffer
 	var profileLables map[string]string
@@ -117,6 +124,23 @@ func ExtractLabels(id string, graph *rdf2go.Graph, convertShaclProperties bool) 
 	return nil
 }
 
+func ImportLabelsFromUrl(url string) (*rdf2go.Graph, error) {
+	header := http.Header{}
+	header["Accept"] = []string{"text/turtle"}
+	data, err := base.CacheLoad(url, &header)
+	if err != nil {
+		return nil, err
+	}
+	graph, err := base.ParseGraph(bytes.NewReader(data))
+	if err != nil {
+		return nil, err
+	}
+	if err = ExtractLabels(url, graph, false); err != nil {
+		return nil, err
+	}
+	return graph, nil
+}
+
 func findProfileLabels(id rdf2go.Term, graph *rdf2go.Graph) map[string]string {
 	labels := make(map[string]string)
 	for labelPredicate := range labelPredicates {
@@ -133,4 +157,17 @@ func findProfileLabels(id rdf2go.Term, graph *rdf2go.Graph) map[string]string {
 		}
 	}
 	return labels
+}
+
+func importLabelsFromStandardTaxonomies() error {
+	for _, url := range strings.Split(base.RdfStandardTaxonomies, ",") {
+		if url != "" {
+			if exist, err := CheckLabelsExist(url); err == nil && !exist {
+				if _, err := ImportLabelsFromUrl(url); err != nil {
+					slog.Warn("failed importing labels from standard taxonomy", "url", url)
+				}
+			}
+		}
+	}
+	return nil
 }

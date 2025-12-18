@@ -46,6 +46,7 @@ var MPSEndpoint = EnvVar("MPS_ENDPOINT", "https://pg4aims.ulb.tu-darmstadt.de/AI
 var MPSUrl = fmt.Sprintf("%s/?query=%s&language=%s&community=%s&includeDefinition=true", MPSEndpoint, MPSQuery, MPSLanguage, MPSCommunity)
 var SolrIndex = EnvVar("SOLR_INDEX", "rdf")
 var ValidatorEndpoint = EnvVar("VALIDATOR_ENDPOINT", "http://localhost:8000")
+var RdfStandardTaxonomies = EnvVar("RDF_STANDARD_TAXONOMIES", "")
 
 // var SyncSchedule = EnvVar("CRON", "*/5 * * * *") // every 5 minutes
 var SyncSchedule = EnvVar("CRON", "")
