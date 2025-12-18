@@ -81,7 +81,6 @@ func IndexResource(id rdf2go.Term, profile *shacl.NodeShape, graph *rdf2go.Graph
 
 	doc := document{
 		"id":           id.RawValue(),
-		"rdf":          rdf,
 		"creator":      metadata.Creator,
 		"lastModified": metadata.LastModified,
 		"shape":        make([]string, 0),
@@ -116,9 +115,11 @@ func buildDoc(subject rdf2go.Term, profileId rdf2go.Term, profile *shacl.NodeSha
 					if len(property.QualifiedValueShape) > 0 && property.QualifiedMinCount > 0 && property.QualifiedValueShapeDenormalized != nil {
 						valid := true
 						if needsValidation {
-							err := shacl.Validate(string(*profile.RDF), property.QualifiedValueShape, *dataRDF, value.Object.RawValue())
-							// RDF graph conforms to this qualifiedValueShape because error is nil
-							valid = err == nil
+							var err error
+							valid, err = shacl.Validate(string(*profile.RDF), property.QualifiedValueShape, *dataRDF, value.Object.RawValue())
+							if err != nil {
+								slog.Warn("error indexing resource because validation failed", "error", err)
+							}
 						}
 						if valid {
 							nested := document{
@@ -136,7 +137,7 @@ func buildDoc(subject rdf2go.Term, profileId rdf2go.Term, profile *shacl.NodeSha
 					for nodeProfileId := range property.Or {
 						// validate value according to sh:or
 						if nodeProfile, ok := sparql.Profiles[nodeProfileId]; ok {
-							if err := shacl.Validate(string(*nodeProfile.RDF), nodeProfileId, *dataRDF, value.Object.RawValue()); err == nil {
+							if valid, err := shacl.Validate(string(*nodeProfile.RDF), nodeProfileId, *dataRDF, value.Object.RawValue()); valid && err == nil {
 								fmt.Println("--- VALID OR")
 								// RDF graph conforms to this shape because error is nil
 								nested := document{

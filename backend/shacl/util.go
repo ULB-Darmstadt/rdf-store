@@ -2,7 +2,6 @@ package shacl
 
 import (
 	"errors"
-	"fmt"
 	"log/slog"
 
 	"github.com/deiu/rdf2go"
@@ -61,10 +60,6 @@ func (node *NodeShape) DenormalizePropertyNodeShapes(shapes map[string]*NodeShap
 					denormalizedQualifiedValueShape.RDF = node.RDF
 					denormalizeShape(shapeToDenormalizeFrom, denormalizedQualifiedValueShape, shapes)
 					prop.QualifiedValueShapeDenormalized = denormalizedQualifiedValueShape
-					if prop.QualifiedValueShape == "https://w3id.org/nfdi4ing/profiles/cbff1db0-8764-4617-b221-0752ca640258/" {
-						fmt.Println("--- denormalized temp ----------------")
-						denormalizedQualifiedValueShape.Print()
-					}
 					// shapes[denormalizedQualifiedValueShape.Id.RawValue()] = denormalizedQualifiedValueShape
 				} else {
 					slog.Warn("property's qualifiedValueShape not found", "id", prop.QualifiedValueShape, "path", prop.Path)

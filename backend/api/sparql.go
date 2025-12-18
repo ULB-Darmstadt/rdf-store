@@ -112,7 +112,7 @@ func handleAddResource(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if err := shacl.Validate(string(shapesGraph), profile.Id.RawValue(), string(dataGraph), resourceID.RawValue()); err != nil {
+	if valid, err := shacl.Validate(string(shapesGraph), profile.Id.RawValue(), string(dataGraph), resourceID.RawValue()); !valid || err != nil {
 		slog.Error("failed validating graph", "error", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -169,7 +169,7 @@ func handleUpdateResource(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if err := shacl.Validate(string(shapesGraph), profileID, string(dataGraph), did); err != nil {
+	if valid, err := shacl.Validate(string(shapesGraph), profileID, string(dataGraph), did); !valid || err != nil {
 		slog.Error("failed validating graph", "error", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
