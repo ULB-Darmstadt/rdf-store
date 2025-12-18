@@ -48,6 +48,7 @@ export type SearchResponse = {
 
 export interface SearchDocument {
     id: string
+    label: string[]
     shape: string[]
     rdf: string
     creator: string

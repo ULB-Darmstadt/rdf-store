@@ -102,6 +102,8 @@ func buildDoc(subject rdf2go.Term, profileId rdf2go.Term, profile *shacl.NodeSha
 		(*current)["shape"] = append((*current)["shape"].([]string), profileId.RawValue())
 	}
 
+	(*current)["label"] = findLabels(subject, data)
+
 	for pathId, properties := range profile.Properties {
 		// validation is needed if node shape has multiple properties with the same path
 		needsValidation := len(properties) > 0
@@ -124,7 +126,6 @@ func buildDoc(subject rdf2go.Term, profileId rdf2go.Term, profile *shacl.NodeSha
 						if valid {
 							nested := document{
 								"id":         value.Object.RawValue(),
-								"rdf":        serializeSubgraph(value.Object, data),
 								"shape":      property.QualifiedValueShapeDenormalized.ParentList(),
 								"ref_shapes": make([]string, 0),
 							}
@@ -142,7 +143,6 @@ func buildDoc(subject rdf2go.Term, profileId rdf2go.Term, profile *shacl.NodeSha
 								// RDF graph conforms to this shape because error is nil
 								nested := document{
 									"id":         value.Object.RawValue(),
-									"rdf":        serializeSubgraph(value.Object, data),
 									"shape":      make([]string, 0),
 									"ref_shapes": make([]string, 0),
 								}
@@ -162,7 +162,6 @@ func buildDoc(subject rdf2go.Term, profileId rdf2go.Term, profile *shacl.NodeSha
 							if nodeProfile, ok := sparql.Profiles[nodeProfileId]; ok {
 								nested := document{
 									"id":         value.Object.RawValue(),
-									"rdf":        serializeSubgraph(value.Object, data),
 									"shape":      make([]string, 0),
 									"ref_shapes": make([]string, 0),
 								}
@@ -222,26 +221,11 @@ func appendNested(parent *document, child *document) {
 	(*parent)["_children_"] = append((*parent)["_children_"].([]*document), child)
 }
 
-func serializeSubgraph(subject rdf2go.Term, graph *rdf2go.Graph) string {
-	triples := make(map[rdf2go.Term][]*rdf2go.Triple)
-	buildSubgraph(subject, graph, triples)
-
-	subgraph := rdf2go.NewGraph("")
-	for _, subjectTriples := range triples {
-		for _, triple := range subjectTriples {
-			subgraph.Add(triple)
+func findLabels(subject rdf2go.Term, data *rdf2go.Graph) (labels []string) {
+	for _, triple := range data.All(subject, nil, nil) {
+		if _, ok := sparql.LabelPredicates[triple.Predicate.RawValue()]; ok {
+			labels = append(labels, triple.Object.RawValue())
 		}
 	}
-	var buf bytes.Buffer
-	subgraph.Serialize(&buf, "text/turtle")
-	return buf.String()
-}
-
-func buildSubgraph(subject rdf2go.Term, graph *rdf2go.Graph, triples map[rdf2go.Term][]*rdf2go.Triple) {
-	triples[subject] = graph.All(subject, nil, nil)
-	for _, t := range triples[subject] {
-		if _, ok := triples[t.Object]; !ok {
-			buildSubgraph(t.Object, graph, triples)
-		}
-	}
+	return labels
 }

@@ -17,7 +17,7 @@ import (
 
 const fallbackLanguage = "en"
 
-var labelPredicates = map[string]bool{
+var LabelPredicates = map[string]bool{
 	shacl.SHACL_NAME.RawValue():      true,
 	shacl.SKOS_PREF_LABEL.RawValue(): true,
 	shacl.RDFS_LABEL.RawValue():      true,
@@ -90,7 +90,7 @@ func ExtractLabels(id string, graph *rdf2go.Graph, convertShaclProperties bool) 
 		profileLables = findProfileLabels(rdf2go.NewResource(id), graph)
 	}
 	for triple := range graph.IterTriples() {
-		if _, isLabel := labelPredicates[triple.Predicate.RawValue()]; isLabel {
+		if _, isLabel := LabelPredicates[triple.Predicate.RawValue()]; isLabel {
 			// check if triple object is a literal
 			if label, ok := triple.Object.(*rdf2go.Literal); ok {
 				if convertShaclProperties {
@@ -143,7 +143,7 @@ func ImportLabelsFromUrl(url string) (*rdf2go.Graph, error) {
 
 func findProfileLabels(id rdf2go.Term, graph *rdf2go.Graph) map[string]string {
 	labels := make(map[string]string)
-	for labelPredicate := range labelPredicates {
+	for labelPredicate := range LabelPredicates {
 		for _, labelTriple := range graph.All(id, rdf2go.NewResource(labelPredicate), nil) {
 			if spec, ok := labelTriple.Object.(*rdf2go.Literal); ok {
 				lang := spec.Language
