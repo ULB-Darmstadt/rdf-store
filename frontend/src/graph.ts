@@ -34,9 +34,9 @@ export class RdfGraph extends LitElement {
         svg { display: block; font-size: 12px; width: 100%; user-select: none; }
         .wrapper { position: relative; height: 100%; }
         .info-pane {
-            position: absolute;
-            bottom: 0; left: 0; right: 0;
-            background-color: black;
+            position: fixed;
+            bottom: 10px; right: 10px;
+            background-color: #000C;
             border: none;
             border-radius: 5px;
             padding: 15px;
