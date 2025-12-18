@@ -1,5 +1,5 @@
-import { customElement, property, query, state } from 'lit/decorators.js'
-import { LitElement, PropertyValues, css, html, nothing } from 'lit'
+import { customElement, property, query, } from 'lit/decorators.js'
+import { LitElement, PropertyValues, css, html } from 'lit'
 import { ShaclForm } from '@ulb-darmstadt/shacl-form'
 import '@ulb-darmstadt/shacl-form/plugins/leaflet.js'
 import { BACKEND_URL } from './constants'
@@ -21,8 +21,6 @@ export class Editor extends LitElement {
     @property()
     selectedShape = ''
     @property()
-    rdfSubject = ''
-    @property()
     rdfNamespace = ''
     @property()
     open = false
@@ -30,9 +28,6 @@ export class Editor extends LitElement {
     saving = false
     @query('shacl-form')
     form?: ShaclForm
-
-    @state()
-    labels = i18n
 
     updated(changedProperties: PropertyValues) {
         if (changedProperties.has('open') && this.open) {
@@ -42,7 +37,6 @@ export class Editor extends LitElement {
         }
         if (changedProperties.has('selectedShape') && this.selectedShape) {
             this.form!.setClassInstanceProvider(clazz => {
-                console.log('--- resolving', clazz)
                 const url = BACKEND_URL + '/sparql/query'
                 return new Promise<string>(async (resolve, reject) => {
                     const formData = new URLSearchParams()
@@ -58,7 +52,6 @@ export class Editor extends LitElement {
                             throw new Error('server returned status ' + resp.status)
                         }
                         const result = await resp.text()
-                        // console.log('--- classes', clazz, result)
                         resolve(result)
                     } catch(e) {
                         reject(e)
@@ -73,12 +66,7 @@ export class Editor extends LitElement {
         const formData = new URLSearchParams()
         formData.append('ttl', ttl)
         try {
-            const url = BACKEND_URL + '/resource' + (this.rdfSubject ? '/' + encodeURIComponent(this.rdfSubject) : '')
-            const resp = await fetch(url, {
-                method: this.rdfSubject ? 'PUT' : 'POST',
-                cache: 'no-cache',
-                body: formData
-            })
+            const resp = await fetch(`${BACKEND_URL}/resource`, { method: 'POST', cache: 'no-cache', body: formData })
             if (!resp.ok) {
                 let message = i18n['resource_save_failed'] + '<br><small>Status: ' + resp.status + '</small>'
                 const contentType = resp.headers.get('content-type')
@@ -101,64 +89,28 @@ export class Editor extends LitElement {
         }
     }
 
-    async deleteRDF() {
-        try {
-            const url = BACKEND_URL + '/resource/' + encodeURIComponent(this.rdfSubject)
-            const resp = await fetch(url, {
-                method: 'DELETE',
-                cache: 'no-cache',
-            })
-            if (!resp.ok) {
-                let message = i18n['resource_delete_failed'] + '<br><small>Status: ' + resp.status + '</small>'
-                const contentType = resp.headers.get('content-type')
-                if (contentType?.includes('application/json')) {
-                    const data = await resp.json()
-                    if (data.error) {
-                        message += '<br><small>' + i18n['error'] + ': ' + data.error + '</small>'
-                    }
-                }
-                this.showErrorMessage(message)
-            } else {
-                this.close()
-                this.dispatchEvent(new Event('saved'))
-                document.dispatchEvent(new RokitSnackbarEvent({ message: i18n['resource_delete_succeeded'], cssClass: 'success' }))
-            }
-        } catch(e) {
-            this.showErrorMessage('' + e)
-        }
-    }
-
     showErrorMessage(text: string) {
         showSnackbarMessage({ message: text, ttl: 0, cssClass: 'error'}, this.shadowRoot!.querySelector<RokitSnackbar>('rokit-snackbar') || undefined)
     }
 
     close() {
         this.open = false
-        setTimeout(() => {
-            this.rdfSubject = ''
-            this.selectedShape = ''
-            this.dispatchEvent(new Event('close'))
-        }, 10)
+        this.selectedShape = ''
     }
 
     render() {
         return html `<rokit-dialog class="editor-dialog" .open="${this.open}" closable @close="${() => this.close()}">
-            <div slot="header">${this.rdfSubject ? 'Edit' : this.selectedShape ? this.labels['new'] + ' ' + this.labels[this.selectedShape] : this.labels['add_resource']}</div>
+            <div slot="header">${this.selectedShape ? i18n['new'] + ' ' + i18n[this.selectedShape] : i18n['add_resource']}</div>
             <div class="main">
-            ${this.rdfSubject || this.selectedShape ? html`
+            ${this.selectedShape ? html`
                 <shacl-form
                     data-shape-subject="${this.selectedShape}"
                     data-shapes-url="${this.selectedShape}"
                     data-values-namespace="${this.rdfNamespace}"
-                    data-values-url="${this.rdfSubject}"
-                    data-values-subject="${this.rdfSubject}"
                     data-proxy="${BACKEND_URL}/proxy?url="
                     data-hierarchy-colors
                 ></shacl-form>
                 <div class="buttons">
-                    ${this.rdfSubject ? html`
-                        <rokit-button id="delete-button" dense @click="${() => { this.deleteRDF() }}"><span class="material-icons">delete</span>${i18n['delete']}</rokit-button>`
-                    : nothing}
                     <span></span>
                     <rokit-button primary ?disabled="${this.saving}" class="${this.saving ? 'loading' : ''}" @click="${async () => {
                         if (this.form!.form.reportValidity()) {
@@ -174,9 +126,9 @@ export class Editor extends LitElement {
                 </div>
                 <rokit-snackbar></rokit-snackbar>
             ` : html`
-                <rokit-select label="${this.labels['selectprofile']}" sort tabindex="-1" fixedOpen @change="${(ev: Event) => this.selectedShape = (ev.target as HTMLSelectElement).value }">
+                <rokit-select label="${i18n['selectprofile']}" sort tabindex="-1" fixedOpen @change="${(ev: Event) => this.selectedShape = (ev.target as HTMLSelectElement).value }">
                     <ul>
-                        ${this.profiles?.map((id) => html`<li data-value="${id}">${this.labels[id] || id}</li>`)}
+                        ${this.profiles?.map((id) => html`<li data-value="${id}">${i18n[id] || id}</li>`)}
                     </ul>
                 </rokit-select>
             `}

@@ -16,6 +16,7 @@ const appLabels: Record<string, Literal[]> = {
     'shape' : [ DataFactory.literal('Profile', 'en'), DataFactory.literal('Profil', 'de') ],
     'selectprofile' : [ DataFactory.literal('Select profile', 'en'), DataFactory.literal('Profil auswählen', 'de') ],
     'add_resource' : [ DataFactory.literal('Add resource', 'en'), DataFactory.literal('Ressource hinzufügen', 'de') ],
+    'cancel' : [ DataFactory.literal('Cancel', 'en'), DataFactory.literal('Abbrechen', 'de') ],
     'save' : [ DataFactory.literal('Save', 'en'), DataFactory.literal('Speichern', 'de') ],
     'delete' : [ DataFactory.literal('Delete', 'en'), DataFactory.literal('Löschen', 'de') ],
     'new' : [ DataFactory.literal('New', 'en'), DataFactory.literal('Neu:', 'de') ],
@@ -49,15 +50,18 @@ export async function fetchLabels(ids: string[], surroundWithBrackets = false, p
                 transformedId = '<' + transformedId + '>'
             }
             formData.append('id', transformedId)
-            transormed[id] = transformedId
+            transormed[transformedId] = id
         }
     }
     if (formData.size > 0) {
         formData.append('lang', navigator.language)
         const resp: Record<string, string> = await fetch(`${BACKEND_URL}/labels`, { method: "POST", body: formData }).then(r => r.json())
-        for (const id of ids) {
-            i18n[id] = resp[transormed[id]] || i18n['no_label'] || ''
-        }
+        // iterate only over actually requested ids
+        formData.forEach((v, k) => {
+            if (k === 'id') {
+                i18n[transormed[v]] = resp[v] || ''
+            }
+        })
     }
 }
 

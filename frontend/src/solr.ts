@@ -51,6 +51,7 @@ export interface SearchDocument {
     shape: string[]
     rdf: string
     creator: string
+    lastModified: Date
     _nest_parent_: string
     _root_: string
 }

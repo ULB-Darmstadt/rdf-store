@@ -8,31 +8,29 @@ layout-header {
 layout-footer {
   border-top: 2px solid #DDD;
 }
-#main { display: flex; align-items: flex-start; padding: 0 10px 10px 0; flex-grow: 1; position: relative; }
+#main { display: flex; align-items: flex-start; flex-grow: 1; position: relative; }
 
-#main.loading .progress, #main:has(shacl-form[loading]) .progress { display: block; }
+#main.loading .progress { display: block; }
 .progress { display: none; width: 100%; position: absolute; top: -3px; }
-#search-result:has(shacl-form[loading]) {
-    .stats .loading { display: inline; }
-    .card, .pager { display: none; }
-}
-#search-filter { --rokit-light-background-color: #FFF; min-width: var(--filter-column-width, 300px); max-width: var(--filter-column-width, 300px); display: flex; flex-direction: column; margin-right: 20px; color: #555; border-right: 2px solid #DDD; }
+#search-filter { --rokit-light-background-color: #FFF; min-width: var(--filter-column-width, 300px); max-width: var(--filter-column-width, 300px); display: flex; flex-direction: column; color: #555; border-right: 2px solid #DDD; }
 #search-filter .own { display: flex; border-bottom: 2px solid #DDD; }
 #search-filter .own label { flex-grow: 1; padding: 11px 4px; user-select: none; }
 #search-filter .own input { margin: 0 6px; }
 #search-filter header:not(:empty) { font-size: 0.9rem; font-weight: 800; padding: 4px 8px 0 8px; color: var(--rokit-primary-color); }
 #search-filter .profile-wrapper > *:not(:last-child) { --rokit-light-background-darker-color: transparent; }
 #search-result { padding-top: 10px; flex-grow: 1; position: relative; }
-#search-result .hits { display: flex; gap: 30px; flex-wrap: wrap; }
-#search-result .edit-button { position: absolute; right: 0; top: 0; }
 .secondary { color: var(--secondary-color); }
-.stats { margin-bottom: 10px; font-family: monospace; font-size: 14px; }
+.stats { padding-left: 10px; margin-bottom: 10px; font-family: monospace; font-size: 14px; }
 .stats .loading { display: none; opacity: 0.4; }
-.card { min-width: 400px; padding: 2px 6px; position: relative; border: 1px solid #CCC; }
-.card .header { font-size: 1.2em; font-weight: 600; }
+.hit { padding: 10px; cursor: pointer; position: relative; padding-right: 30px; }
+.hit .header { font-weight: 600; }
+.hit:hover, .hit.active { background-color: #F5F5F5; }
+.hit:hover:after, .hit.active:after { content: '\21E8'; opacity: 0.3; font-size: 32px; position: absolute; right: 0; top: 0; bottom: 0; display: flex; align-items: center; }
 .pager { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; justify-content: end; margin: 20px 0; }
 .error { color: red; white-space: pre; }
 .error:before { content: '\\26a0'; margin-right:8px; }
 .pr-1 { padding-right: 4px; }
 .flex-grow-1 { flex-grow: 1; }
 .icon { margin-right: 4px; }
+rdf-viewer { height: 100%; }
+rokit-splitpane::part(separator) { background-color: #DDD; }
