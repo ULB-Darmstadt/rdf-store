@@ -49,8 +49,8 @@ export class RdfGraph extends LitElement {
         .node.root circle { fill: black; }
         .node.highlight:not(:hover) circle { fill: #FAA; stroke: #A33; stroke-width: 1; stroke-dasharray: 2.512; animation: strokes 1s linear infinite; }
         .node:hover circle { stroke-width: 7; stroke: color-mix(in srgb, currentColor 20%, transparent); }
-        .link-labels { visibility: hidden; }
-        svg:hover .link-labels { visibility: visible; }
+        .link-labels, .node-type { visibility: hidden; }
+        svg:hover { .link-labels, .node-type { visibility: visible; } }
         @keyframes strokes { 100%  { stroke-dashoffset: 5.024; }}
     `
 
@@ -144,7 +144,7 @@ export class RdfGraph extends LitElement {
             if (node.type) {
                 let typeLabel = i18n[node.type] || node.type
                 if (node.label) {
-                    node.label += ` <tspan class="type">&lt;${typeLabel}&gt;</tspan>`
+                    node.label += ` <tspan class="type node-type">&lt;${typeLabel}&gt;</tspan>`
                 } else {
                     node.label = `<tspan class="type">&lt;${typeLabel}&gt;</tspan>`
                 }

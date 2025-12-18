@@ -33,4 +33,5 @@ layout-footer {
 .flex-grow-1 { flex-grow: 1; }
 .icon { margin-right: 4px; }
 rdf-viewer { height: 100%; }
+rokit-splitpane { height: 100%; }
 rokit-splitpane::part(separator) { background-color: #DDD; }
