@@ -1,6 +1,6 @@
 import { RokitSnackbar, showSnackbarMessage } from '@ro-kit/ui-widgets'
 import { css, html, LitElement, type PropertyValues } from 'lit'
-import { customElement, property, query, state } from 'lit/decorators.js'
+import { customElement, property, query } from 'lit/decorators.js'
 import  * as d3 from 'd3'
 import { type D3DragEvent, type Simulation, type SimulationLinkDatum, type SimulationNodeDatum } from 'd3'
 import { BACKEND_URL, RDF_TYPE } from './constants'
@@ -10,7 +10,7 @@ type Node = SimulationNodeDatum & {
     id: string
     label?: string
     type?: string
-    properties: Record<string, string>
+    properties: Record<string, string[]>
 } 
 
 type Edge = SimulationLinkDatum<Node> & {
@@ -33,25 +33,39 @@ export class RdfGraph extends LitElement {
     static styles = css`
         svg { display: block; font-size: 12px; width: 100%; user-select: none; }
         .wrapper { position: relative; height: 100%; }
-        .info-pane {
-            position: fixed;
-            bottom: 10px; right: 10px;
-            background-color: #000C;
-            border: none;
-            border-radius: 5px;
-            padding: 15px;
-            min-width: 400px;
-            text-align: left;
-            color: white;
-            pointer-events: none;
-        }
         .type { font-size: 0.7em; color: #888; }
         .node.root circle { fill: black; }
-        .node.highlight:not(:hover) circle { fill: #FAA; stroke: #A33; stroke-width: 1; stroke-dasharray: 2.512; animation: strokes 1s linear infinite; }
+        .node .pulse-ring { fill: none; stroke: currentColor; stroke-width: 6; opacity: 0; pointer-events: none; }
         .node:hover circle { stroke-width: 7; stroke: color-mix(in srgb, currentColor 20%, transparent); }
+        .node.highlight .pulse-ring { animation: pulseRing 1.5s ease-out 2 forwards; }
         .link-labels, .node-type { visibility: hidden; }
         svg:hover { .link-labels, .node-type { visibility: visible; } }
-        @keyframes strokes { 100%  { stroke-dashoffset: 5.024; }}
+
+        @keyframes pulseRing {
+            0%   { transform: scale(1);   opacity: 0.9; }
+            70%  { transform: scale(2.0); opacity: 0.0; }
+            100% { transform: scale(2.0); opacity: 0.0; }
+        }
+
+        .info-pane {
+            position: absolute;
+            right: 8px;
+            top: 8px;
+            width: 320px;
+            max-height: 60%;
+            overflow: auto;
+            color: white;
+            background: #0f172ad9;
+            backdrop-filter: blur(8px);
+            border-radius: 4px;
+            padding: 14px;
+            box-shadow: 0 10px 30px #0007;
+            opacity: 0;
+            h4 { margin: 0 0 8px; font-size: 13px; }
+            dl { margin: 0; }
+            dt { font-size: 11px; color: #9ca3af; margin-top: 6px; }
+            dd { margin: 0; font-size: 12px; }
+        }
     `
 
     @property()
@@ -60,25 +74,27 @@ export class RdfGraph extends LitElement {
     @property()
     highlightSubject = ''
 
-    @state()
-    graph?: SVGSVGElement
+    @query('.info-pane')
+    infopane!: HTMLElement
 
-    @query('.wrapper')
-    wrapper!: HTMLElement
+    showInfoPane = () => { d3.select(this.infopane).transition().style('opacity', 1) }
+    hideInfoPane = () => { d3.select(this.infopane).transition().style('opacity', 0) }
+    keyListener = (event: KeyboardEvent) => { if (event.key === 'Escape') { this.hideInfoPane() }}
 
     updated(pv: PropertyValues) {
         if (pv.has('rdfSubject') || pv.has('highlightSubject')) {
             this.executeQuery()
         }
-        if (pv.has('graph') && this.graph) {
-            this.updateComplete.then(() => {
-                requestAnimationFrame(() => {
-                    if (this.graph) {
-                        fitToView(this.graph)
-                    }
-                })
-            })
-        }
+    }
+
+    connectedCallback() {
+        super.connectedCallback()
+        window.addEventListener('keydown', this.keyListener)
+    }
+
+    disconnectedCallback() {
+        super.disconnectedCallback()
+        window.removeEventListener('keydown', this.keyListener)
     }
 
     async executeQuery() {
@@ -97,7 +113,11 @@ export class RdfGraph extends LitElement {
                 }
                 const data = await resp.json()
                 if (data?.results?.bindings?.length) {
-                    this.graph = await this.buildGraph(data.results.bindings)
+                    const graph = await this.buildGraph(data.results.bindings)
+                    this.shadowRoot!.querySelector('.mount')?.replaceChildren(graph)
+                    requestAnimationFrame(() => {
+                        fitToView(graph)
+                    })
                 } else {
                     throw new Error('no results')
                 }
@@ -132,7 +152,7 @@ export class RdfGraph extends LitElement {
                     node.type = q.o.value
                     labelsToFetch.add(q.o.value)
                 } else {
-                    node.properties[q.p.value] = q.o.value
+                    (node.properties[q.p.value] ??= []).push(q.o.value)
                 }
             }
         }
@@ -221,18 +241,21 @@ export class RdfGraph extends LitElement {
         // nodes
         const node = scene.append("g")
             .attr("fill", "#888")
-            // .attr("stroke-linecap", "round")
-            // .attr("stroke-linejoin", "round")
             .selectAll("g")
             .data(nodeArray)
             .join("g")
             .attr("class", d => `node${d.id === this.rdfSubject ? ' root' : ''}${d.id === this.highlightSubject ? ' highlight' : ''}`)
             .call(drag(simulation) as any, undefined)
 
+        // pulse ring for highlighing animation
+        node.append("circle")
+            .attr("class", "pulse-ring")
+            .attr("r", 4)
+
         node.append("circle")
             .attr("stroke", "var(--background-color, white)")
             .attr("stroke-width", 0.5)
-            .attr("r", 4)
+            .attr("r", d => d.id === this.rdfSubject ? 7 : 4) // make root node larger
 
         // labels
         node.append("text")
@@ -244,17 +267,31 @@ export class RdfGraph extends LitElement {
             .attr("stroke", "var(--background-color, white)")
             .attr("stroke-width", 1)
 
-        const infoPane = d3.select(this.wrapper).append("div").style("opacity", 0).attr("class", "info-pane")
+        const infopane = d3.select(this.infopane)
 
-        node.on('mouseover', (_, d: Node) => {
-            let content = `<table><tr class="type"><td>ID</td><td>${d.id}</td></tr>`
-            for (const [key, value] of Object.entries(d.properties)) {
-                content += `<tr><td><b>${i18n[key] || key}:</b></td><td>${i18n[value] || value}</td></tr>`
-            }
-            content += '</table>'
-            infoPane.html(content).transition().duration(50).style("opacity", 1)
+        node.on("click", (e, d: Node) => {
+            e.stopPropagation();
+            renderInfo(d)
+            this.showInfoPane()
         })
-        node.on('mouseleave', () => { infoPane.transition().duration(50).style("opacity", 0) })
+        node.on("pointerdown", (e) => e.stopPropagation())
+
+        svg.on("click", e => {
+            e.stopPropagation()
+            this.hideInfoPane()
+        })
+
+        function renderInfo(d: Node) {
+            let content = `<h4>${i18n[d.id] || d.id}</h4><dl>`
+            for (const [key, values] of Object.entries(d.properties)) {
+                for (const value of values) {
+                content += `<dt>${i18n[key] || key}</dt>
+                            <dd>${i18n[value] || value}</dd>`
+                }
+            }
+            content += `</dl>`
+            infopane.html(content)
+        }
 
         simulation.on("tick", () => {
             link.attr("d", linkArc)
@@ -265,14 +302,15 @@ export class RdfGraph extends LitElement {
         for (let i = 0; i < 200; i++) {
             simulation.tick()
         }
-
+        
         return Object.assign(svg.node()!, { scales: { color }, zoomBehaviour: zoom })
     }
 
     render() {
         return html`
         <div class="wrapper">
-            ${this.graph}
+            <div class="mount"></div>
+            <div class="info-pane"></div>
         </div>`
     }
 }
@@ -308,19 +346,33 @@ function linkArc(d: Edge) {
 }
 
 const drag = (simulation: Simulation<Node, Edge>) => {
+    let startX = 0, startY = 0;
+
     function dragstarted(event: D3DragEvent<Element, undefined, undefined>, d: Node) {
-        if (!event.active) simulation.alphaTarget(0.3).restart()
-        d.fx = d.x
-        d.fy = d.y
+        const se = event.sourceEvent as PointerEvent | MouseEvent | undefined;
+        startX = se?.clientX ?? 0;
+        startY = se?.clientY ?? 0;
+        d.fx = d.x;
+        d.fy = d.y;
     }
 
     function dragged(event: D3DragEvent<Element, undefined, undefined>, d: Node) {
-        d.fx = event.x
-        d.fy = event.y
+        const se = event.sourceEvent as PointerEvent | MouseEvent | undefined;
+        const dx = (se?.clientX ?? 0) - startX;
+        const dy = (se?.clientY ?? 0) - startY;
+
+        // only “wake” simulation after a tiny move
+        if (Math.hypot(dx, dy) > 2) {
+            simulation.alphaTarget(0.3).restart();
+        }
+
+        d.fx = event.x;
+        d.fy = event.y;
     }
 
     function dragended(event: D3DragEvent<Element, undefined, undefined>, d: Node) {
         if (!event.active) simulation.alphaTarget(0)
+        simulation.stop()
         d.fx = null
         d.fy = null
     }

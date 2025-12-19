@@ -124,7 +124,7 @@ export class Viewer extends LitElement {
         return this.doc ? html`
             <div class="header">
             ${this.editMode ? html`
-                <rokit-button id="delete-button" dense @click="${this.delete}" ?disabled="${this.saving}"><span class="material-icons">delete</span>${i18n['delete']}</rokit-button>
+                <rokit-button id="delete-button" @click="${this.delete}" ?disabled="${this.saving}"><span class="material-icons">delete</span>${i18n['delete']}</rokit-button>
                 <div class="spacer"></div>
                 <rokit-button @click="${() => { this.editMode = false }}" ?disabled="${this.saving}">${i18n['cancel']}</rokit-button>
                 <rokit-button primary @click="${this.save}" ?disabled="${this.saving}" class="${this.saving ? 'loading' : ''}"><span class="material-icons">cloud_upload</span>${i18n['save']}</rokit-button>
@@ -133,9 +133,9 @@ export class Viewer extends LitElement {
                 <rokit-button ?primary="${!this.graphView}" text @click="${() => this.graphView = false}">Detail view</rokit-button>
                 <div class="spacer"></div>
                 ${!this.config?.authEnabled || (this.config?.authUser && this.config?.authUser == this.doc.creator) ? html`
-                    <rokit-button dense @click="${() => { this.editMode = true; this.graphView = false }}"><span class="material-icons">edit</span>Edit</rokit-button>
+                    <rokit-button @click="${() => { this.editMode = true; this.graphView = false }}"><span class="material-icons">edit</span>Edit</rokit-button>
                 ` : nothing }
-                <rokit-button dense @click="${() => { this.export() }}"><span class="material-icons">download</span>Export</rokit-button>
+                <rokit-button @click="${() => { this.export() }}"><span class="material-icons">download</span>Export</rokit-button>
             `}
             </div>
             <div class="main">

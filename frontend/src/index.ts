@@ -168,7 +168,7 @@ export class App extends LitElement {
         <div id="main">
             <rokit-progressbar class="progress"></rokit-progressbar>
             <div id="search-filter">
-                <rokit-input id="search-field" dense label="${i18n['fulltextsearch']}" placeholder="${i18n['fulltextsearchplaceholder']}" value="${this.searchTerm}" clearable>
+                <rokit-input id="search-field" label="${i18n['fulltextsearch']}" placeholder="${i18n['fulltextsearchplaceholder']}" value="${this.searchTerm}" clearable>
                     <span slot="prefix" class="material-icons icon">search</span>
                 </rokit-input>
                 ${this.config.authUser ? html`
@@ -204,7 +204,7 @@ export class App extends LitElement {
                         <div class="pager">
                             ${i18n['pages']}:
                             ${map(range(1, Math.ceil(this.totalHits / this.limit) + 1), (i) => html`
-                                <rokit-button variant="${this.offset == this.limit*(i - 1) ? 'filled' : 'text' }" disabled="${this.offset == this.limit*(i - 1) || nothing}" @click="${() => { this.offset=this.limit*(i - 1); this.filterChanged(true)}}">${i}</rokit-button>
+                                <rokit-button ?primary="${this.offset == this.limit*(i - 1)}" disabled="${this.offset == this.limit*(i - 1) || nothing}" @click="${() => { this.offset=this.limit*(i - 1); this.filterChanged(true)}}">${i}</rokit-button>
                             `)}
                         </div>
                         `}

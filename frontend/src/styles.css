@@ -26,7 +26,7 @@ layout-footer {
 .hit .header { font-weight: 600; }
 .hit:hover, .hit.active { background-color: #F5F5F5; }
 .hit:hover:after, .hit.active:after { content: '\21E8'; opacity: 0.3; font-size: 32px; position: absolute; right: 0; top: 0; bottom: 0; display: flex; align-items: center; }
-.pager { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; justify-content: end; margin: 20px 0; }
+.pager { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; justify-content: end; padding: 10px; }
 .error { color: red; white-space: pre; }
 .error:before { content: '\\26a0'; margin-right:8px; }
 .pr-1 { padding-right: 4px; }
