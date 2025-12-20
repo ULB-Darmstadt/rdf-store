@@ -31,8 +31,8 @@ const height = 400
 @customElement('rdf-graph')
 export class RdfGraph extends LitElement {
     static styles = css`
+        :host { position: relative; }
         svg { display: block; font-size: 12px; width: 100%; user-select: none; }
-        .wrapper { position: relative; height: 100%; }
         .type { font-size: 0.7em; color: #888; }
         .node.root circle { fill: black; }
         .node .pulse-ring { fill: none; stroke: currentColor; stroke-width: 6; opacity: 0; pointer-events: none; }
@@ -47,23 +47,20 @@ export class RdfGraph extends LitElement {
             100% { transform: scale(2.0); opacity: 0.0; }
         }
 
-        .info-pane {
+        #info-pane {
             position: absolute;
             right: 8px;
             top: 8px;
             width: 320px;
             max-height: 60%;
             overflow: auto;
-            color: white;
-            background: #0f172ad9;
-            backdrop-filter: blur(8px);
+            background-color: white;
             border-radius: 4px;
             padding: 14px;
-            box-shadow: 0 10px 30px #0007;
+            box-shadow: 0 10px 20px #0007;
             opacity: 0;
             h4 { margin: 0 0 8px; font-size: 13px; }
-            dl { margin: 0; }
-            dt { font-size: 11px; color: #9ca3af; margin-top: 6px; }
+            dt { font-size: 12px; color: #888; margin-top: 6px; }
             dd { margin: 0; font-size: 12px; }
         }
     `
@@ -74,15 +71,34 @@ export class RdfGraph extends LitElement {
     @property()
     highlightSubject = ''
 
-    @query('.info-pane')
+    @query('#info-pane')
     infopane!: HTMLElement
 
-    showInfoPane = () => { d3.select(this.infopane).transition().style('opacity', 1) }
-    hideInfoPane = () => { d3.select(this.infopane).transition().style('opacity', 0) }
-    keyListener = (event: KeyboardEvent) => { if (event.key === 'Escape') { this.hideInfoPane() }}
+    showInfoPane = (node: Node, pinned: boolean) => {
+        let content = `<h4>${i18n[node.id] || node.id}</h4><dl>`
+        if (i18n[node.id]) {
+            content += `<dt>ID</dt><dd>${node.id}</dd>`
+        }
+        for (const [key, values] of Object.entries(node.properties)) {
+            for (const value of values) {
+                content += `<dt>${i18n[key] || key}</dt><dd>${i18n[value] || value}</dd>`
+            }
+        }
+        content += `</dl>`
+        d3.select(this.infopane).html(content).transition().style('opacity', 1)
+        this.infopane.classList.toggle('pinned', pinned)
+    }
+    hideInfoPane = (_?: Event, force: boolean = true) => {
+        if (force || !this.infopane.classList.contains('pinned')) {
+            d3.select(this.infopane).transition().style('opacity', 0)
+            this.infopane.classList.remove('pinned')
+        }
+    }
+    keyListener = (event: KeyboardEvent) => { if (event.key === 'Escape') { this.hideInfoPane(undefined) }}
 
     updated(pv: PropertyValues) {
         if (pv.has('rdfSubject') || pv.has('highlightSubject')) {
+            this.hideInfoPane(undefined)
             this.executeQuery()
         }
     }
@@ -90,11 +106,13 @@ export class RdfGraph extends LitElement {
     connectedCallback() {
         super.connectedCallback()
         window.addEventListener('keydown', this.keyListener)
+        this.addEventListener('click', this.hideInfoPane)
     }
 
     disconnectedCallback() {
         super.disconnectedCallback()
         window.removeEventListener('keydown', this.keyListener)
+        this.removeEventListener('click', this.hideInfoPane)
     }
 
     async executeQuery() {
@@ -114,7 +132,7 @@ export class RdfGraph extends LitElement {
                 const data = await resp.json()
                 if (data?.results?.bindings?.length) {
                     const graph = await this.buildGraph(data.results.bindings)
-                    this.shadowRoot!.querySelector('.mount')?.replaceChildren(graph)
+                    this.shadowRoot!.querySelector('#mount')?.replaceChildren(graph)
                     requestAnimationFrame(() => {
                         fitToView(graph)
                     })
@@ -267,31 +285,19 @@ export class RdfGraph extends LitElement {
             .attr("stroke", "var(--background-color, white)")
             .attr("stroke-width", 1)
 
-        const infopane = d3.select(this.infopane)
-
+        node.on("mouseenter", (_, d: Node) => {
+            if (!this.infopane.classList.contains('pinned')) {
+                this.showInfoPane(d, false)
+            }
+        })
+        node.on("mouseleave", () => {
+            this.hideInfoPane(undefined, false)
+        })
         node.on("click", (e, d: Node) => {
-            e.stopPropagation();
-            renderInfo(d)
-            this.showInfoPane()
+            e.stopPropagation()
+            this.showInfoPane(d, true)
         })
         node.on("pointerdown", (e) => e.stopPropagation())
-
-        svg.on("click", e => {
-            e.stopPropagation()
-            this.hideInfoPane()
-        })
-
-        function renderInfo(d: Node) {
-            let content = `<h4>${i18n[d.id] || d.id}</h4><dl>`
-            for (const [key, values] of Object.entries(d.properties)) {
-                for (const value of values) {
-                content += `<dt>${i18n[key] || key}</dt>
-                            <dd>${i18n[value] || value}</dd>`
-                }
-            }
-            content += `</dl>`
-            infopane.html(content)
-        }
 
         simulation.on("tick", () => {
             link.attr("d", linkArc)
@@ -308,10 +314,9 @@ export class RdfGraph extends LitElement {
 
     render() {
         return html`
-        <div class="wrapper">
-            <div class="mount"></div>
-            <div class="info-pane"></div>
-        </div>`
+            <div id="mount"></div>
+            <div id="info-pane"></div>
+        `
     }
 }
 
