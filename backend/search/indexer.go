@@ -83,6 +83,7 @@ func IndexResource(id rdf2go.Term, profile *shacl.NodeShape, graph *rdf2go.Graph
 		"id":           id.RawValue(),
 		"creator":      metadata.Creator,
 		"lastModified": metadata.LastModified,
+		"label":        findLabels(id, graph),
 		"shape":        make([]string, 0),
 		"ref_shapes":   make([]string, 0),
 		"docType":      "main",
@@ -101,8 +102,6 @@ func buildDoc(subject rdf2go.Term, profileId rdf2go.Term, profile *shacl.NodeSha
 	if !denormalized {
 		(*current)["shape"] = append((*current)["shape"].([]string), profileId.RawValue())
 	}
-
-	(*current)["label"] = findLabels(subject, data)
 
 	for pathId, properties := range profile.Properties {
 		// validation is needed if node shape has multiple properties with the same path
@@ -127,6 +126,7 @@ func buildDoc(subject rdf2go.Term, profileId rdf2go.Term, profile *shacl.NodeSha
 							nested := document{
 								"id":         value.Object.RawValue(),
 								"shape":      property.QualifiedValueShapeDenormalized.ParentList(),
+								"label":      findLabels(value.Object, data),
 								"ref_shapes": make([]string, 0),
 							}
 							(*current)["ref_shapes"] = append((*current)["ref_shapes"].([]string), property.QualifiedValueShape)
@@ -144,6 +144,7 @@ func buildDoc(subject rdf2go.Term, profileId rdf2go.Term, profile *shacl.NodeSha
 								nested := document{
 									"id":         value.Object.RawValue(),
 									"shape":      make([]string, 0),
+									"label":      findLabels(value.Object, data),
 									"ref_shapes": make([]string, 0),
 								}
 								// data.Remove(value)
@@ -163,6 +164,7 @@ func buildDoc(subject rdf2go.Term, profileId rdf2go.Term, profile *shacl.NodeSha
 								nested := document{
 									"id":         value.Object.RawValue(),
 									"shape":      make([]string, 0),
+									"label":      findLabels(value.Object, data),
 									"ref_shapes": make([]string, 0),
 								}
 								data.Remove(value)
