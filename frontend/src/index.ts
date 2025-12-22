@@ -193,7 +193,7 @@ export class App extends LitElement {
                         ${this.searchHits.map((hit) => html`
                             <div class="hit${hit.id === this.viewDoc?.id ? ' active' : ''}" @click="${() => this.viewDoc = hit}">
                                 <div class="header">
-                                    ${hit.label?.length ? hit.label.join(',') : hit.id}
+                                    ${hit.label?.length ? hit.label.join(', ') : hit.id}
                                 </div>
                                 <div>${i18n['shape']}: ${hit.shape?.length ? (i18n[hit.shape[0]] ? i18n[hit.shape[0]] : hit.shape[0]) : 'No profile'}</div>
                                 ${!hit.lastModified ? nothing : html`<div>Last modified: ${new Date(hit.lastModified).toDateString()}</div>`}

@@ -7,6 +7,7 @@ import (
 	"rdf-store-backend/base"
 	"rdf-store-backend/shacl"
 	"rdf-store-backend/sparql"
+	"reflect"
 	"time"
 
 	"github.com/deiu/rdf2go"
@@ -70,26 +71,26 @@ func IndexResource(id rdf2go.Term, profile *shacl.NodeShape, graph *rdf2go.Graph
 	if err := graph.Serialize(&buf, "text/turtle"); err != nil {
 		return err
 	}
-	rdf := buf.String()
-
-	root := document{
-		"id":           "container_" + id.RawValue(),
-		"creator":      metadata.Creator,
-		"lastModified": metadata.LastModified,
-		"docType":      "container",
-	}
+	turtle := buf.String()
 
 	doc := document{
 		"id":           id.RawValue(),
 		"creator":      metadata.Creator,
 		"lastModified": metadata.LastModified,
 		"label":        findLabels(id, graph),
-		"shape":        make([]string, 0),
-		"ref_shapes":   make([]string, 0),
+		"shape":        make([]any, 0),
+		"ref_shapes":   make([]any, 0),
 		"docType":      "main",
 	}
-	root["_children_"] = []*document{&doc}
-	buildDoc(id, profile.Id, profile, graph, &rdf, &doc, false)
+	root := document{
+		"id":           "container_" + id.RawValue(),
+		"creator":      metadata.Creator,
+		"lastModified": metadata.LastModified,
+		"docType":      "container",
+		"_children_":   []*document{&doc},
+	}
+
+	buildDoc(id, profile.Id, profile, graph, &turtle, &doc, false)
 	return updateDoc(&root)
 }
 
@@ -97,15 +98,13 @@ func DeindexResource(id string) error {
 	return deleteDocs(id)
 }
 
-func buildDoc(subject rdf2go.Term, profileId rdf2go.Term, profile *shacl.NodeShape, data *rdf2go.Graph, dataRDF *string, current *document, denormalized bool) {
+func buildDoc(subject rdf2go.Term, profileId rdf2go.Term, profile *shacl.NodeShape, data *rdf2go.Graph, dataTurtle *string, current *document, denormalized bool) {
 	fmt.Println("--- build doc. subject=", subject.RawValue(), " profile=", profile.Id.RawValue(), "current=", (*current)["id"])
 	if !denormalized {
-		(*current)["shape"] = append((*current)["shape"].([]string), profileId.RawValue())
+		appendMultiValue("shape", profileId.RawValue(), current)
 	}
 
 	for pathId, properties := range profile.Properties {
-		// validation is needed if node shape has multiple properties with the same path
-		needsValidation := len(properties) > 0
 		path := rdf2go.NewResource(pathId)
 		for _, property := range properties {
 			values := data.All(subject, path, nil)
@@ -114,44 +113,40 @@ func buildDoc(subject rdf2go.Term, profileId rdf2go.Term, profile *shacl.NodeSha
 				array := make([]any, 0)
 				for _, value := range values {
 					if len(property.QualifiedValueShape) > 0 && property.QualifiedMinCount > 0 && property.QualifiedValueShapeDenormalized != nil {
-						valid := true
-						if needsValidation {
-							var err error
-							valid, err = shacl.Validate(string(*profile.RDF), property.QualifiedValueShape, *dataRDF, value.Object.RawValue())
-							if err != nil {
-								slog.Warn("error indexing resource because validation failed", "error", err)
-							}
-						}
-						if valid {
+						valid, err := shacl.Validate(string(*profile.RDF), property.QualifiedValueShape, *dataTurtle, value.Object.RawValue())
+						if err != nil {
+							slog.Warn("error indexing resource because validation failed", "error", err)
+						} else if valid {
+							// RDF graph conforms to this shape
 							nested := document{
 								"id":         value.Object.RawValue(),
 								"shape":      property.QualifiedValueShapeDenormalized.ParentList(),
 								"label":      findLabels(value.Object, data),
-								"ref_shapes": make([]string, 0),
+								"ref_shapes": make([]any, 0),
 							}
-							(*current)["ref_shapes"] = append((*current)["ref_shapes"].([]string), property.QualifiedValueShape)
+							appendMultiValue("ref_shapes", property.QualifiedValueShape, current)
 							data.Remove(value)
-							appendNested(current, &nested)
-							buildDoc(value.Object, rdf2go.NewResource(property.QualifiedValueShape), property.QualifiedValueShapeDenormalized, data, dataRDF, &nested, true)
+							appendMultiValue("_children_", &nested, current)
+							buildDoc(value.Object, rdf2go.NewResource(property.QualifiedValueShape), property.QualifiedValueShapeDenormalized, data, dataTurtle, &nested, true)
 						}
 					}
 					for nodeProfileId := range property.Or {
 						// validate value according to sh:or
 						if nodeProfile, ok := sparql.Profiles[nodeProfileId]; ok {
-							if valid, err := shacl.Validate(string(*nodeProfile.RDF), nodeProfileId, *dataRDF, value.Object.RawValue()); valid && err == nil {
-								fmt.Println("--- VALID OR")
-								// RDF graph conforms to this shape because error is nil
+							valid, err := shacl.Validate(string(*nodeProfile.RDF), nodeProfileId, *dataTurtle, value.Object.RawValue())
+							if err != nil {
+								slog.Warn("error indexing resource because validation failed", "error", err)
+							} else if valid {
+								// RDF graph conforms to this shape
 								nested := document{
 									"id":         value.Object.RawValue(),
-									"shape":      make([]string, 0),
+									"shape":      make([]any, 0),
 									"label":      findLabels(value.Object, data),
-									"ref_shapes": make([]string, 0),
+									"ref_shapes": make([]any, 0),
 								}
-								// data.Remove(value)
-								appendNested(current, &nested)
-								buildDoc(value.Object, nodeProfile.Id, nodeProfile, data, dataRDF, &nested, false)
-							} else {
-								fmt.Println("--- INVALID OR")
+								data.Remove(value)
+								appendMultiValue("_children_", &nested, current)
+								buildDoc(value.Object, nodeProfile.Id, nodeProfile, data, dataTurtle, &nested, false)
 							}
 						} else {
 							slog.Warn("property's node shape not found", "id", nodeProfileId, "path", property.Path)
@@ -163,13 +158,13 @@ func buildDoc(subject rdf2go.Term, profileId rdf2go.Term, profile *shacl.NodeSha
 							if nodeProfile, ok := sparql.Profiles[nodeProfileId]; ok {
 								nested := document{
 									"id":         value.Object.RawValue(),
-									"shape":      make([]string, 0),
+									"shape":      make([]any, 0),
 									"label":      findLabels(value.Object, data),
-									"ref_shapes": make([]string, 0),
+									"ref_shapes": make([]any, 0),
 								}
 								data.Remove(value)
-								appendNested(current, &nested)
-								buildDoc(value.Object, nodeProfile.Id, nodeProfile, data, dataRDF, &nested, false)
+								appendMultiValue("_children_", &nested, current)
+								buildDoc(value.Object, nodeProfile.Id, nodeProfile, data, dataTurtle, &nested, false)
 							} else {
 								slog.Warn("property's node shape not found", "id", nodeProfileId, "path", property.Path)
 							}
@@ -191,14 +186,10 @@ func buildDoc(subject rdf2go.Term, profileId rdf2go.Term, profile *shacl.NodeSha
 				}
 				if len(array) > 0 {
 					if ft == "t" {
-						(*current)["_text_"] = array
+						appendMultiValue("_text_", array, current)
 					} else {
 						field := base.CleanStringForSolr(profile.Id.RawValue()) + "." + base.CleanStringForSolr(property.Id.RawValue()) + "_" + ft
-						if _, ok := (*current)[field]; ok {
-							(*current)[field] = append((*current)[field].([]any), array...)
-						} else {
-							(*current)[field] = array
-						}
+						appendMultiValue(field, array, current)
 					}
 				}
 			}
@@ -208,7 +199,7 @@ func buildDoc(subject rdf2go.Term, profileId rdf2go.Term, profile *shacl.NodeSha
 	if !denormalized {
 		for parentId := range profile.Parents {
 			if parentProfile, ok := sparql.Profiles[parentId]; ok {
-				buildDoc(subject, parentProfile.Id, parentProfile, data, dataRDF, current, false)
+				buildDoc(subject, parentProfile.Id, parentProfile, data, dataTurtle, current, false)
 			} else {
 				slog.Warn("profile parent not found.", "id", parentId)
 			}
@@ -216,11 +207,16 @@ func buildDoc(subject rdf2go.Term, profileId rdf2go.Term, profile *shacl.NodeSha
 	}
 }
 
-func appendNested(parent *document, child *document) {
-	if _, ok := (*parent)["_children_"]; !ok {
-		(*parent)["_children_"] = make([]*document, 0)
+func appendMultiValue(field string, value any, doc *document) {
+	fmt.Println("--- FIELD", field, value)
+	if _, ok := (*doc)[field]; !ok {
+		(*doc)[field] = make([]any, 0)
 	}
-	(*parent)["_children_"] = append((*parent)["_children_"].([]*document), child)
+	if reflect.TypeOf(value).Kind() == reflect.Slice {
+		(*doc)[field] = append((*doc)[field].([]any), value.([]any)...)
+	} else {
+		(*doc)[field] = append((*doc)[field].([]any), value)
+	}
 }
 
 func findLabels(subject rdf2go.Term, data *rdf2go.Graph) (labels []string) {

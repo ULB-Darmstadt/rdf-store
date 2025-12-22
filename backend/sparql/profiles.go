@@ -30,13 +30,13 @@ func UpdateProfile(id string, profile []byte) (*rdf2go.Graph, error) {
 	if err := deleteProfileHash(id); err != nil {
 		return nil, err
 	}
-	// build hash before modifying profile
+	// build hash on original/unmodified profile
 	hash := base.Hash(profile)
 	// store profile with blank nodes replaced by proper IDs
 	if err := uploadGraph(profileDataset, id, buf.Bytes(), graph); err != nil {
 		return nil, err
 	}
-	if err = setProfileHash(id, hash); err != nil {
+	if err = saveProfileHash(id, hash); err != nil {
 		return nil, err
 	}
 	return graph, nil
@@ -73,7 +73,7 @@ func GetProfileHash(id string) (uint32, error) {
 	return 0, fmt.Errorf("hash not found for profile %s", id)
 }
 
-func setProfileHash(id string, hash uint32) error {
+func saveProfileHash(id string, hash uint32) error {
 	return updateDataset(profileDataset, fmt.Sprintf("INSERT DATA { <%s> %s %d . }", id, hashPredicate, hash))
 }
 
