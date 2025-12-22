@@ -7,7 +7,7 @@ import { i18n } from './i18n'
 import { RokitSnackbar, RokitSnackbarEvent, showSnackbarMessage } from '@ro-kit/ui-widgets'
 import { globalStyles } from './styles'
 
-@customElement('shacl-editor')
+@customElement('rdf-editor')
 export class Editor extends LitElement {
     static styles = [globalStyles, css`
         rokit-dialog::part(dialog) { min-height: min(434px, 90vh); width: min(90vw, 600px); }

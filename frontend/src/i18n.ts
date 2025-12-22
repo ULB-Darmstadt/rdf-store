@@ -19,6 +19,8 @@ const appLabels: Record<string, Literal[]> = {
     'cancel' : [ DataFactory.literal('Cancel', 'en'), DataFactory.literal('Abbrechen', 'de') ],
     'save' : [ DataFactory.literal('Save', 'en'), DataFactory.literal('Speichern', 'de') ],
     'delete' : [ DataFactory.literal('Delete', 'en'), DataFactory.literal('Löschen', 'de') ],
+    'edit' : [ DataFactory.literal('Edit', 'en'), DataFactory.literal('Bearbeiten', 'de') ],
+    'export' : [ DataFactory.literal('Export', 'en'), DataFactory.literal('Exportieren', 'de') ],
     'new' : [ DataFactory.literal('New', 'en'), DataFactory.literal('Neu:', 'de') ],
     'results' : [ DataFactory.literal('Results', 'en'), DataFactory.literal('Ergebnisse', 'de') ],
     'noresults' : [ DataFactory.literal('No results', 'en'), DataFactory.literal('Keine Ergebnisse', 'de') ],
@@ -34,6 +36,9 @@ const appLabels: Record<string, Literal[]> = {
     'resource_delete_failed' : [ DataFactory.literal('Failed deleting resource', 'en'), DataFactory.literal('Ressource konnte nicht gelöscht werden', 'de') ],
     'resource_delete_succeeded' : [ DataFactory.literal('Resource deleted', 'en'), DataFactory.literal('Ressource gelöscht', 'de') ],
     'search_filter_own' : [ DataFactory.literal('Only own resources', 'en'), DataFactory.literal('Nur eigene Ressourcen', 'de') ],
+    'click_hit_to_view' : [ DataFactory.literal('Click on a search result to display here', 'en'), DataFactory.literal('Suchergebnis zur Anzeige auswählen', 'de') ],
+    'graph_view' : [ DataFactory.literal('Graph view', 'en'), DataFactory.literal('Graphanzeige', 'de') ],
+    'detail_view' : [ DataFactory.literal('Detail view', 'en'), DataFactory.literal('Detailanzeige', 'de') ],
 }
 
 export async function fetchLabels(ids: string[], surroundWithBrackets = false, prependColon = false) {

@@ -130,7 +130,7 @@ export class App extends LitElement {
     }
 
     openEditor() {
-        const editor = this.shadowRoot!.querySelector<Editor>('shacl-editor')
+        const editor = this.shadowRoot!.querySelector<Editor>('rdf-editor')
         if (editor) {
             editor.open = true
         }
@@ -195,7 +195,7 @@ export class App extends LitElement {
                                 <div class="header">
                                     ${hit.label?.length ? hit.label.join(',') : hit.id}
                                 </div>
-                                <div>Profile: ${hit.shape?.length ? i18n[hit.shape[0]] : 'No profile'}</div>
+                                <div>${i18n['shape']}: ${hit.shape?.length ? (i18n[hit.shape[0]] ? i18n[hit.shape[0]] : hit.shape[0]) : 'No profile'}</div>
                                 ${!hit.lastModified ? nothing : html`<div>Last modified: ${new Date(hit.lastModified).toDateString()}</div>`}
                             </div>`
                         )}
@@ -203,8 +203,8 @@ export class App extends LitElement {
                         ${this.totalHits <= this.limit ? nothing : html`
                         <div class="pager">
                             ${i18n['pages']}:
-                            ${map(range(1, Math.ceil(this.totalHits / this.limit) + 1), (i) => html`
-                                <rokit-button ?primary="${this.offset == this.limit*(i - 1)}" disabled="${this.offset == this.limit*(i - 1) || nothing}" @click="${() => { this.offset=this.limit*(i - 1); this.filterChanged(true)}}">${i}</rokit-button>
+                            ${map(range(1, Math.ceil(this.totalHits / this.limit) + 1), i => html`
+                                <rokit-button ?primary="${this.offset == this.limit * (i - 1)}" disabled="${this.offset == this.limit * (i - 1) || nothing}" @click="${() => { this.offset = this.limit * (i - 1); this.filterChanged(true)}}">${i}</rokit-button>
                             `)}
                         </div>
                         `}
@@ -214,7 +214,7 @@ export class App extends LitElement {
                 <rdf-viewer slot="pane2" .doc="${this.viewDoc}" .config="${this.config}" @delete="${this.filterChanged}"></rdf-viewer>
             </rokit-splitpane>
         ${!this.config.authWriteAccess ?  nothing : html`
-            <shacl-editor .profiles="${this.config.profiles}" .rdfNamespace="${this.config.rdfNamespace}" @saved="${() => { this.filterChanged() }}"></shacl-editor>
+            <rdf-editor .profiles="${this.config.profiles}" .rdfNamespace="${this.config.rdfNamespace}" @saved="${() => { this.filterChanged() }}"></rdf-editor>
         `}
         </div>
         <layout-footer></layout-footer>

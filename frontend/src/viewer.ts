@@ -129,13 +129,13 @@ export class Viewer extends LitElement {
                 <rokit-button @click="${() => { this.editMode = false }}" ?disabled="${this.saving}">${i18n['cancel']}</rokit-button>
                 <rokit-button primary @click="${this.save}" ?disabled="${this.saving}" class="${this.saving ? 'loading' : ''}"><span class="material-icons">cloud_upload</span>${i18n['save']}</rokit-button>
             ` : html`
-                <rokit-button ?primary="${this.graphView}" text @click="${() => this.graphView = true}">Graph view</rokit-button>
-                <rokit-button ?primary="${!this.graphView}" text @click="${() => this.graphView = false}">Detail view</rokit-button>
+                <rokit-button ?primary="${this.graphView}" text @click="${() => this.graphView = true}">${i18n['graph_view']}</rokit-button>
+                <rokit-button ?primary="${!this.graphView}" text @click="${() => this.graphView = false}">${i18n['detail_view']}</rokit-button>
                 <div class="spacer"></div>
                 ${!this.config?.authEnabled || (this.config?.authUser && this.config?.authUser == this.doc.creator) ? html`
-                    <rokit-button @click="${() => { this.editMode = true; this.graphView = false }}"><span class="material-icons">edit</span>Edit</rokit-button>
+                    <rokit-button @click="${() => { this.editMode = true; this.graphView = false }}"><span class="material-icons">edit</span>${i18n['edit']}</rokit-button>
                 ` : nothing }
-                <rokit-button @click="${() => { this.export() }}"><span class="material-icons">download</span>Export</rokit-button>
+                <rokit-button @click="${() => { this.export() }}"><span class="material-icons">download</span>${i18n['export']}</rokit-button>
             `}
             </div>
             <div class="main">
@@ -156,7 +156,7 @@ export class Viewer extends LitElement {
         ` :
         html`
             <div class="placeholder">
-                <span class="arrow-left"></span> Click on a search result to view
+                <span class="arrow-left"></span> ${i18n['click_hit_to_view']}
             </div>
         `
     }
