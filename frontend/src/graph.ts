@@ -198,7 +198,8 @@ export class RdfGraph extends LitElement {
 
         const simulation = d3.forceSimulation<Node, Edge>(nodeArray)
             .force("link", d3.forceLink<Node, Edge>(links).id(d => d.id))
-            .force("charge", d3.forceManyBody().strength(-1500))
+            .force("charge", d3.forceManyBody().strength(-1200))
+            .force("collide", d3.forceCollide<Node>().radius(18).iterations(2))
             .force("x", d3.forceX())
             .force("y", d3.forceY())
             .alpha(1)
