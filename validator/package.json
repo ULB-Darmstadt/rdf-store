@@ -6,11 +6,11 @@
     "start": "npx ts-node ./server.ts"
   },
   "dependencies": {
-    "jsonld": "^8.3.3",
+    "jsonld": "^9.0.0",
     "n3": "^1.26.0",
     "node": "^25.1.0",
     "rdfxml-streaming-parser": "^3.2.0",
-    "shacl-engine": "^1.0.2"
+    "shacl-engine": "^1.1.0"
   },
   "devDependencies": {
     "@types/jsonld": "^1.5.15",
