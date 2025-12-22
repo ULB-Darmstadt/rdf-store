@@ -55,7 +55,7 @@ export class RdfGraph extends LitElement {
             max-height: 60%;
             overflow: auto;
             background-color: white;
-            border-radius: 4px;
+            border-radius: 3px;
             padding: 14px;
             box-shadow: 0 10px 20px #0007;
             opacity: 0;
@@ -103,10 +103,10 @@ export class RdfGraph extends LitElement {
         }
     }
 
-    connectedCallback() {
-        super.connectedCallback()
+    firstUpdated() {
         window.addEventListener('keydown', this.keyListener)
         this.addEventListener('click', this.hideInfoPane)
+        this.infopane.addEventListener('click', event => { event.stopPropagation() })
     }
 
     disconnectedCallback() {
@@ -330,7 +330,8 @@ function fitToView(svg: SVGSVGElement) {
             return
         }
         const pad = 20
-        const scale = Math.min((width - 2 * pad) / bbox.width, (height - 2 * pad) / bbox.height)
+        const unclampedScale = Math.min((width - 2 * pad) / bbox.width, (height - 2 * pad) / bbox.height)
+        const scale = Math.min(unclampedScale, 1)
         const transform = d3.zoomIdentity
             .translate(0, pad - height / 2)
             .scale(scale)
