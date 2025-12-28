@@ -6,7 +6,7 @@ import styles from './styles.css?inline'
 import { globalStyles } from './styles'
 import './editor'
 import './viewer'
-import { BACKEND_URL } from './constants'
+import { BACKEND_URL, BASE_URL } from './constants'
 import { RokitInput, showSnackbarMessage } from '@ro-kit/ui-widgets'
 import { initFacets } from './facets'
 import { search, SearchDocument } from './solr'
@@ -51,7 +51,11 @@ export class App extends LitElement {
     @state()
     totalHits = 0
     @state()
-    viewDoc?: SearchDocument
+    viewRdfSubject?: string
+    @state()
+    viewHiglightSubject?: string
+    @state()
+    viewRdfSubjectEditable = false
     @state()
     config: Config | undefined
 
@@ -61,6 +65,42 @@ export class App extends LitElement {
     searchOwn?: HTMLInputElement
 
     debounceTimeout: ReturnType<typeof setTimeout> | undefined
+    handleLocationChange = () => {
+        const index = window.location.pathname.indexOf('/resource/')
+        if (index > -1) {
+            const id = window.location.pathname.substring(index + 10)
+            if (id && this.config) {
+                this.viewRdfSubject = this.config.rdfNamespace + id
+            }
+        }
+    }
+
+    connectedCallback() {
+        super.connectedCallback();
+        window.addEventListener('popstate', this.handleLocationChange)
+    }
+
+    disconnectedCallback() {
+        super.disconnectedCallback();
+        window.removeEventListener('popstate', this.handleLocationChange)
+    }
+
+    viewResource(subject: string | SearchDocument | null) {
+        let path = BASE_URL
+        if (subject) {
+            path += 'resource/'
+            if (typeof subject === 'string') {
+                path += subject.replace(this.config?.rdfNamespace ?? '', '')
+                this.viewRdfSubjectEditable = false
+            } else {
+                path += subject._root_.replace('container_', '').replace(this.config?.rdfNamespace ?? '', '')
+                this.viewHiglightSubject = subject.id
+                this.viewRdfSubjectEditable = (!this.config?.authEnabled || (this.config?.authUser && this.config?.authUser === subject.creator)) ? true : false
+            }
+        }
+        history.pushState('', '', path)
+        this.handleLocationChange()
+    }
 
     async firstUpdated() {
         try {
@@ -89,6 +129,7 @@ export class App extends LitElement {
             }
             this.shadowRoot?.querySelector('#search-filter')?.addEventListener('change', () => this.filterChanged())
             this.filterChanged()
+            this.handleLocationChange()
         } catch(e) {
             console.error(e)
             showSnackbarMessage({ message: '' + e, ttl: 0, cssClass: 'error'})
@@ -151,17 +192,17 @@ export class App extends LitElement {
 
     render() {
         return html`
-        ${this.config === undefined ? nothing : html`
+        ${!this.config ? nothing : html`
         <layout-header>
             <div id="header-buttons">
             ${!this.config.authWriteAccess ? nothing : html `
                 <rokit-button primary @click="${() => { this.openEditor() }}"><span class="material-icons">add</span>${i18n['add_resource']}</rokit-button>
             `}
             ${!this.config.authEnabled || this.config.authUser  ? nothing : html `
-                <rokit-button primary href="./oauth2/sign_in"><span class="material-icons icon">login</span>${i18n['sign_in']}</rokit-button>
+                <rokit-button primary href="${BASE_URL}oauth2/sign_in"><span class="material-icons icon">login</span>${i18n['sign_in']}</rokit-button>
             `}
             ${!this.config.authEnabled || !this.config.authUser ? nothing : html`
-                <a id="sign-out" href="./oauth2/sign_out">${i18n['sign_out']} ${this.config.authEmail || this.config.authUser}</a>
+                <a id="sign-out" href="${BASE_URL}oauth2/sign_out">${i18n['sign_out']} ${this.config.authEmail || this.config.authUser}</a>
             `}
             </div>
         </layout-header>
@@ -171,9 +212,9 @@ export class App extends LitElement {
                 <rokit-input id="search-field" label="${i18n['fulltextsearch']}" placeholder="${i18n['fulltextsearchplaceholder']}" value="${this.searchTerm}" clearable>
                     <span slot="prefix" class="material-icons icon">search</span>
                 </rokit-input>
-                ${this.config.authUser ? html`
+                ${!this.config.authUser ? nothing : html`
                     <div class="own"><label><input id="search-own" type="checkbox">${i18n['search_filter_own']}</label></div>
-                ` : nothing}
+                `}
                 ${!this.facets ? nothing : Object.keys(this.facets.facets).sort((a, b) => i18n[a]?.localeCompare(i18n[b])).map(profile => !this.facets?.hasValidFacet(profile) ? nothing : html`
                     <div class="profile-wrapper">
                         <header>${i18n[profile]}</header>
@@ -186,12 +227,12 @@ export class App extends LitElement {
                     <div class="stats">
                         ${this.totalHits < 1 ?
                         html`<span>${i18n['noresults']}</span>` :
-                        html`${i18n['results']} <span class="secondary">${this.offset + 1}</span> - <span class="secondary">${this.offset+this.searchHits.length}</span> ${i18n['of']} <span class="secondary">${this.totalHits}</span>: <span class="loading">${i18n['loading']}...</span>`}
+                        html`${i18n['results']} <span class="secondary">${this.offset + 1}</span> - <span class="secondary">${this.offset + this.searchHits.length}</span> ${i18n['of']} <span class="secondary">${this.totalHits}</span>: <span class="loading">${i18n['loading']}...</span>`}
                     </div>
                     ${this.totalHits < 1 ? nothing : html`
                         <div class="hits">
                         ${this.searchHits.map((hit) => html`
-                            <div class="hit${hit.id === this.viewDoc?.id ? ' active' : ''}" @click="${() => this.viewDoc = hit}">
+                            <div class="hit${hit.id === this.viewRdfSubject ? ' active' : ''}" @click="${() => this.viewResource(hit)}">
                                 <div class="header">
                                     ${hit.label?.length ? hit.label.join(', ') : hit.id}
                                 </div>
@@ -211,10 +252,19 @@ export class App extends LitElement {
                     `
                     }
                 </div>
-                <rdf-viewer slot="pane2" .doc="${this.viewDoc}" .config="${this.config}" @delete="${this.filterChanged}"></rdf-viewer>
+                <rdf-viewer slot="pane2"
+                    rdfSubject="${this.viewRdfSubject}"
+                    highlightSubject="${this.viewHiglightSubject}"
+                    .editable="${this.viewRdfSubjectEditable}"
+                    @delete="${() => { this.viewResource(null); this.filterChanged() }}"
+                ></rdf-viewer>
             </rokit-splitpane>
         ${!this.config.authWriteAccess ?  nothing : html`
-            <rdf-editor .profiles="${this.config.profiles}" .rdfNamespace="${this.config.rdfNamespace}" @saved="${() => { this.filterChanged() }}"></rdf-editor>
+            <rdf-editor
+                .profiles="${this.config.profiles}"
+                rdfNamespace="${this.config.rdfNamespace}"
+                @saved="${(event: CustomEvent) => { this.filterChanged(); this.viewResource(event.detail.id) }}"
+            ></rdf-editor>
         `}
         </div>
         <layout-footer></layout-footer>

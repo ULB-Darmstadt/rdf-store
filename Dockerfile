@@ -3,6 +3,7 @@ ARG TZ=Europe/Berlin
 FROM node:lts-alpine AS build-frontend-stage
 WORKDIR /app
 ADD ./frontend .
+ADD .env .
 RUN npm install && npm run build
 
 FROM golang:1.24-alpine AS build-backend-stage

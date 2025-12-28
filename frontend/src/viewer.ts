@@ -4,8 +4,6 @@ import '@ulb-darmstadt/shacl-form/plugins/leaflet.js'
 import { BACKEND_URL } from './constants'
 import { globalStyles } from './styles'
 import './graph'
-import { SearchDocument } from './solr'
-import { Config } from '.'
 import { i18n } from './i18n'
 import { showSnackbarMessage } from '@ro-kit/ui-widgets'
 import { ShaclForm } from '@ulb-darmstadt/shacl-form'
@@ -25,15 +23,13 @@ export class Viewer extends LitElement {
         #delete-button { --rokit-light-background-color: #FEE; color: #F00; }
     `]
     @property()
-    doc?: SearchDocument
+    rdfSubject = ''
     @property()
-    config?: Config
+    highlightSubject = ''
+    @property()
+    editable = false
     @state()
     rdf = ''
-    @state()
-    rdfSubject = ''
-    @state()
-    highlightSubject = ''
     @state()
     graphView = true
     @state()
@@ -42,12 +38,20 @@ export class Viewer extends LitElement {
     saving = false
 
     updated(changedProperties: PropertyValues) {
-        if (changedProperties.has('doc') && this.doc) {
-            this.editMode = false
-            this.rdfSubject = this.doc._root_.replace('container_', '')
-            this.highlightSubject = this.doc.id;
+        if ((changedProperties.has('rdfSubject') || changedProperties.has('highlightSubject')) && this.rdfSubject) {
+            this.highlightSubject = this.highlightSubject ?? this.rdfSubject
+            this.editMode = false;
             (async() => {
-                this.rdf = await fetch(`${BACKEND_URL}/proxy?url=${this.rdfSubject}`).then(r => r.text())
+                try {
+                    const resp = await fetch(`${BACKEND_URL}/resource/${encodeURIComponent(this.rdfSubject)}`)
+                    if (resp.ok) {
+                        this.rdf = await resp.text()
+                    } else {
+                        throw new Error(i18n['noresults'])
+                    }
+                } catch(e) {
+                    showSnackbarMessage({message: '' + e, ttl: 0, cssClass: 'error' })
+                }
             })()
         }
     }
@@ -110,7 +114,8 @@ export class Viewer extends LitElement {
                 }
                 throw(message)
             }
-            this.doc = undefined
+            this.rdfSubject = ''
+            this.highlightSubject = ''
             this.rdf = ''
             this.editMode = false
             showSnackbarMessage({ message: i18n['resource_delete_succeeded'], cssClass: 'success' })
@@ -121,7 +126,7 @@ export class Viewer extends LitElement {
     }
 
     render() {
-        return this.doc ? html`
+        return this.rdf ? html`
             <div class="header">
             ${this.editMode ? html`
                 <rokit-button id="delete-button" @click="${this.delete}" ?disabled="${this.saving}"><span class="material-icons">delete</span>${i18n['delete']}</rokit-button>
@@ -132,14 +137,14 @@ export class Viewer extends LitElement {
                 <rokit-button ?primary="${this.graphView}" text @click="${() => this.graphView = true}">${i18n['graph_view']}</rokit-button>
                 <rokit-button ?primary="${!this.graphView}" text @click="${() => this.graphView = false}">${i18n['detail_view']}</rokit-button>
                 <div class="spacer"></div>
-                ${!this.config?.authEnabled || (this.config?.authUser && this.config?.authUser == this.doc.creator) ? html`
+                ${!this.editable ? nothing : html`
                     <rokit-button @click="${() => { this.editMode = true; this.graphView = false }}"><span class="material-icons">edit</span>${i18n['edit']}</rokit-button>
-                ` : nothing }
+                `}
                 <rokit-button @click="${() => { this.export() }}"><span class="material-icons">download</span>${i18n['export']}</rokit-button>
             `}
             </div>
             <div class="main">
-            ${!this.rdf ? nothing : this.graphView ? html`
+            ${this.graphView ? html`
                 <rdf-graph rdfSubject="${this.rdfSubject}" highlightSubject="${this.highlightSubject}"></rdf-graph>
             ` : html`
                 <shacl-form

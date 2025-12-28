@@ -79,7 +79,7 @@ export class Editor extends LitElement {
                 this.showErrorMessage(message)
             } else {
                 this.close()
-                this.dispatchEvent(new Event('saved'))
+                this.dispatchEvent(new CustomEvent('saved', { detail: { id: resp.headers.get('location') } }))
                 document.dispatchEvent(new RokitSnackbarEvent({ message: i18n['resource_save_succeeded'], cssClass: 'success' }))
             }
         } catch(e) {

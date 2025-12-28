@@ -129,6 +129,7 @@ func handleAddResource(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	c.Header("Location", resourceID.RawValue())
 	c.String(http.StatusNoContent, "")
 }
 

@@ -137,7 +137,7 @@ export class RdfGraph extends LitElement {
                         fitToView(graph)
                     })
                 } else {
-                    throw new Error('no results')
+                    throw new Error(i18n['noresults'])
                 }
             } catch (e) {
                 showSnackbarMessage({ message: '' + e, ttl: 0, cssClass: 'error' }, this.shadowRoot!.querySelector<RokitSnackbar>('rokit-snackbar') || undefined)
