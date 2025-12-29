@@ -76,11 +76,14 @@ func handleGetResource(c *gin.Context) {
 		return
 	}
 	did = strings.TrimPrefix(did, "/")
-	resource, _, err := sparql.LoadResource(did, false)
+	resource, metadata, err := sparql.LoadResource(did, false)
 	if err != nil {
 		slog.Error("failed loading resource", "id", did, "error", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
+	}
+	if metadata != nil && metadata.Creator != "" {
+		c.Header("X-Creator", metadata.Creator)
 	}
 	c.Data(http.StatusOK, "text/turtle", resource)
 }

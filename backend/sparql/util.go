@@ -1,7 +1,6 @@
 package sparql
 
 import (
-	"fmt"
 	"rdf-store-backend/base"
 	"rdf-store-backend/shacl"
 
@@ -34,7 +33,6 @@ func ParseAllProfiles() (map[string]*shacl.NodeShape, error) {
 				if err != nil {
 					return nil, err
 				}
-				fmt.Println("--- register sub shape", nodeShapeTriple.Subject.RawValue())
 				Profiles[nodeShapeTriple.Subject.RawValue()] = parsedSubProfile
 			}
 		}

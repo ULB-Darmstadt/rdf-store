@@ -10,6 +10,6 @@ export default defineConfig(({ mode}) => {
                 // Provide an explicit app-level constant derived from an env var.
                 __APP_ENV__: JSON.stringify(env.APP_ENV),
             },
-            base: env.BASE_URL ?? '/'
+            base: env.APP_PATH ?? '/'
         }
     })

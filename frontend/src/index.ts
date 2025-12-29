@@ -6,7 +6,7 @@ import styles from './styles.css?inline'
 import { globalStyles } from './styles'
 import './editor'
 import './viewer'
-import { BACKEND_URL, BASE_URL } from './constants'
+import { BACKEND_URL, APP_PATH } from './constants'
 import { RokitInput, showSnackbarMessage } from '@ro-kit/ui-widgets'
 import { initFacets } from './facets'
 import { search, SearchDocument } from './solr'
@@ -55,8 +55,6 @@ export class App extends LitElement {
     @state()
     viewHiglightSubject?: string
     @state()
-    viewRdfSubjectEditable = false
-    @state()
     config: Config | undefined
 
     @query('#search-field')
@@ -86,16 +84,14 @@ export class App extends LitElement {
     }
 
     viewResource(subject: string | SearchDocument | null) {
-        let path = BASE_URL
+        let path = APP_PATH
         if (subject) {
             path += 'resource/'
             if (typeof subject === 'string') {
                 path += subject.replace(this.config?.rdfNamespace ?? '', '')
-                this.viewRdfSubjectEditable = false
             } else {
                 path += subject._root_.replace('container_', '').replace(this.config?.rdfNamespace ?? '', '')
                 this.viewHiglightSubject = subject.id
-                this.viewRdfSubjectEditable = (!this.config?.authEnabled || (this.config?.authUser && this.config?.authUser === subject.creator)) ? true : false
             }
         }
         history.pushState('', '', path)
@@ -199,10 +195,10 @@ export class App extends LitElement {
                 <rokit-button primary @click="${() => { this.openEditor() }}"><span class="material-icons">add</span>${i18n['add_resource']}</rokit-button>
             `}
             ${!this.config.authEnabled || this.config.authUser  ? nothing : html `
-                <rokit-button primary href="${BASE_URL}oauth2/sign_in"><span class="material-icons icon">login</span>${i18n['sign_in']}</rokit-button>
+                <rokit-button primary href="${APP_PATH}oauth2/sign_in"><span class="material-icons icon">login</span>${i18n['sign_in']}</rokit-button>
             `}
             ${!this.config.authEnabled || !this.config.authUser ? nothing : html`
-                <a id="sign-out" href="${BASE_URL}oauth2/sign_out">${i18n['sign_out']} ${this.config.authEmail || this.config.authUser}</a>
+                <a id="sign-out" href="${APP_PATH}oauth2/sign_out">${i18n['sign_out']} ${this.config.authEmail || this.config.authUser}</a>
             `}
             </div>
         </layout-header>
@@ -255,7 +251,7 @@ export class App extends LitElement {
                 <rdf-viewer slot="pane2"
                     rdfSubject="${this.viewRdfSubject}"
                     highlightSubject="${this.viewHiglightSubject}"
-                    .editable="${this.viewRdfSubjectEditable}"
+                    .config="${this.config}"
                     @delete="${() => { this.viewResource(null); this.filterChanged() }}"
                 ></rdf-viewer>
             </rokit-splitpane>

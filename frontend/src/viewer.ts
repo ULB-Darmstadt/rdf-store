@@ -7,6 +7,7 @@ import './graph'
 import { i18n } from './i18n'
 import { showSnackbarMessage } from '@ro-kit/ui-widgets'
 import { ShaclForm } from '@ulb-darmstadt/shacl-form'
+import { Config } from '.'
 
 @customElement('rdf-viewer')
 export class Viewer extends LitElement {
@@ -27,6 +28,8 @@ export class Viewer extends LitElement {
     @property()
     highlightSubject = ''
     @property()
+    config?: Config
+    @state()
     editable = false
     @state()
     rdf = ''
@@ -46,6 +49,9 @@ export class Viewer extends LitElement {
                     const resp = await fetch(`${BACKEND_URL}/resource/${encodeURIComponent(this.rdfSubject)}`)
                     if (resp.ok) {
                         this.rdf = await resp.text()
+                        // check if editable
+                        const creator = resp.headers.get('X-Creator')
+                        this.editable = (!this.config?.authEnabled || (this.config?.authUser && this.config?.authUser === creator)) ? true : false
                     } else {
                         throw new Error(i18n['noresults'])
                     }
