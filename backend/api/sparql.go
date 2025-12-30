@@ -36,13 +36,13 @@ func init() {
 		return nil
 	}
 
-	Router.GET(basePath+"/resource/*id", handleGetResource)
-	Router.POST(basePath+"/resource", handleAddResource)
-	Router.PUT(basePath+"/resource/*id", handleUpdateResource)
-	Router.DELETE(basePath+"/resource/*id", handleDeleteResource)
-	Router.GET(basePath+"/profile/*id", handleGetProfile)
-	Router.POST(basePath+"/sparql/query", handleFusekiSparql)
-	Router.GET(basePath+"/sparql/query", handleFusekiSparql)
+	Router.GET(BasePath+"/resource/*id", handleGetResource)
+	Router.POST(BasePath+"/resource", handleAddResource)
+	Router.PUT(BasePath+"/resource/*id", handleUpdateResource)
+	Router.DELETE(BasePath+"/resource/*id", handleDeleteResource)
+	Router.GET(BasePath+"/profile/*id", handleGetProfile)
+	Router.POST(BasePath+"/sparql/query", handleFusekiSparql)
+	Router.GET(BasePath+"/sparql/query", handleFusekiSparql)
 	if base.ExposeFusekiFrontend {
 		Router.Any("/fuseki/*proxyPath", handleFusekiFrontend)
 	}

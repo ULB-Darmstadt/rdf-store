@@ -21,14 +21,14 @@ func init() {
 	}
 	solrProxy = httputil.NewSingleHostReverseProxy(solrProxyTarget)
 
-	Router.GET(basePath+"/solr/:collection/schema", handleSolr)
-	Router.GET(basePath+"/solr/:collection/select", handleSolr)
-	Router.GET(basePath+"/solr/:collection/query", handleSolr)
-	Router.POST(basePath+"/solr/:collection/query", handleSolr)
+	Router.GET(BasePath+"/solr/:collection/schema", handleSolr)
+	Router.GET(BasePath+"/solr/:collection/select", handleSolr)
+	Router.GET(BasePath+"/solr/:collection/query", handleSolr)
+	Router.POST(BasePath+"/solr/:collection/query", handleSolr)
 }
 
 func handleSolr(c *gin.Context) {
-	c.Request.URL.Path = strings.TrimPrefix(c.Request.URL.Path, basePath)
+	c.Request.URL.Path = strings.TrimPrefix(c.Request.URL.Path, BasePath)
 	c.Request.URL.Scheme = solrProxyTarget.Scheme
 	c.Request.URL.Host = solrProxyTarget.Host
 	c.Request.Host = solrProxyTarget.Host

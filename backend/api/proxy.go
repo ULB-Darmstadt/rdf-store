@@ -10,7 +10,7 @@ import (
 )
 
 func init() {
-	Router.GET(basePath+"/proxy", handleHttpProxy)
+	Router.GET(BasePath+"/proxy", handleHttpProxy)
 }
 
 func handleHttpProxy(c *gin.Context) {

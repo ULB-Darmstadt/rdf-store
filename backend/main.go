@@ -15,16 +15,26 @@ import (
 //go:embed frontend/*
 var frontend embed.FS
 
+//go:embed swagger/*
+var swagger embed.FS
+
 func main() {
-	fs, err := static.EmbedFolder(frontend, "frontend")
+	frontendFS, err := static.EmbedFolder(frontend, "frontend")
 	if err != nil {
 		log.Fatal(err)
 	}
-	api.Router.Use(static.Serve("/", fs))
+	api.Router.Use(static.Serve("/", frontendFS))
+
+	swaggerFS, err := static.EmbedFolder(swagger, "swagger")
+	if err != nil {
+		log.Fatal(err)
+	}
+	api.Router.Use(static.Serve(api.BasePath, swaggerFS))
+
 	api.Router.NoRoute(func(c *gin.Context) {
 		// only serve index.html for non-API routes
 		if !strings.HasPrefix(c.Request.RequestURI, "/api") {
-			index, err := fs.Open("index.html")
+			index, err := frontendFS.Open("index.html")
 			if err != nil {
 				log.Fatal(err)
 			}

@@ -10,7 +10,7 @@ import (
 )
 
 func init() {
-	Router.POST(basePath+"/labels", handleLabels)
+	Router.POST(BasePath+"/labels", handleLabels)
 }
 
 func handleLabels(c *gin.Context) {

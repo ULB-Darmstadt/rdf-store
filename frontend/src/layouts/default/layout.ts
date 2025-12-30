@@ -1,5 +1,6 @@
 import { css, html, LitElement } from "lit"
 import { customElement } from "lit/decorators.js"
+import { BACKEND_URL } from "../../constants"
 
 const style = document.createElement('style')
 style.innerText = `:root { --rokit-primary-color: #008877; }`
@@ -28,26 +29,33 @@ export class Header extends LitElement {
 @customElement('layout-footer')
 export class Footer extends LitElement {
     static styles = css`
-    :host {
+    .logos {
         display: flex;
-        justify-content: flex-end;
-        align-items: center;
+        flex-direction: column;
+        align-items: flex-end;
         padding: 10px;
         gap: 10px;
+
+        img { height: 60px; }
+        span { font-size: 12px; color: #0009; }
     }
-    img { height: 60px; }
-    span { font-size: 12px; color: #0009; }
     a { color: inherit; }
+    .legal-info { display: flex; background-color: #F5F5F5; padding: 3px 5px; font-size: 0.8em; }
+    .spacer { flex-grow: 1; }
     `
 
     render() {
         return html`
-        <div>
+        <div class="logos">
             <div>
                 <a href="https://www.ulb.tu-darmstadt.de"><img src="${new URL('../_shared/ULB_RGB-B9igTOm_.jpg', import.meta.url).href}" alt="ULB logo"></a>
                 <a href="https://www.tu-darmstadt.de"><img src="${new URL('../_shared/tud_logo-DY5K59Zv.png', import.meta.url).href}" alt="TUD logo"></a>
             </div>
             <span>This service is provided by University and State Library Darmstadt</span>
+        </div>
+        <div class="legal-info">
+            <span class="spacer"></span>
+            <rokit-button text href="${BACKEND_URL}/">API documentation</rokit-button>
         </div>
         `
     }

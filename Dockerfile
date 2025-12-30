@@ -6,12 +6,19 @@ ADD ./frontend .
 ADD .env .
 RUN npm install && npm run build
 
+FROM node:lts-alpine AS build-swagger-stage
+WORKDIR /app
+ADD ./swagger .
+ADD .env .
+RUN npm install && npm run build
+
 FROM golang:1.24-alpine AS build-backend-stage
 RUN apk update && apk add --no-cache git ca-certificates tzdata && update-ca-certificates
 WORKDIR /app
 ADD ./backend .
 # copy frontend
 COPY --from=build-frontend-stage /app/dist /app/frontend/
+COPY --from=build-swagger-stage /app/dist /app/swagger/
 # pull in and verify dependencies
 RUN go mod download && go mod verify
 # production build

@@ -14,7 +14,7 @@ type JSONError struct {
 }
 
 var Router = gin.Default()
-var basePath = "/api/v1"
+var BasePath = "/api/v1"
 
 func init() {
 	corsConfig := cors.New(cors.Config{
@@ -28,7 +28,7 @@ func init() {
 	Router.Use(corsConfig)
 	Router.SetTrustedProxies(nil)
 	Router.UseRawPath = true
-	Router.GET(basePath+"/config", handleConfig)
+	Router.GET(BasePath+"/config", handleConfig)
 }
 
 func handleConfig(c *gin.Context) {

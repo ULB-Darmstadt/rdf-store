@@ -16,7 +16,7 @@
     "leaflet": "^1.9.4",
     "leaflet.fullscreen": "^4.0.0",
     "leaflet.heat": "^0.2.0",
-    "lit": "^3.3.1",
+    "lit": "^3.3.2",
     "n3": "^1.26.0"
   },
   "devDependencies": {
