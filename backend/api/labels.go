@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"log/slog"
 	"net/http"
 	"rdf-store-backend/sparql"
@@ -22,11 +21,5 @@ func handleLabels(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	data, err := json.Marshal(labels)
-	if err != nil {
-		slog.Error("failed marshalling labels", "error", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	c.Writer.Write(data)
+	c.JSON(http.StatusOK, labels)
 }
