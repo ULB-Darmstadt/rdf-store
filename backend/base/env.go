@@ -7,6 +7,7 @@ import (
 	"strings"
 )
 
+var BackendUrl = EnvVar("BACKEND_URL", "http://localhost:3000")
 var AuthUserHeader = "X-User"
 var AuthEmailHeader = "X-Email"
 var AuthGroupsHeader = "X-Groups"

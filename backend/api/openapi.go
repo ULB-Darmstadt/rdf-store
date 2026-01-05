@@ -3,7 +3,7 @@ package api
 import (
 	"log/slog"
 	"net/http"
-	"path"
+	"rdf-store-backend/base"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/gin-gonic/gin"
@@ -14,13 +14,11 @@ var apispec = newApiSpec()
 
 func init() {
 	Router.GET(BasePath+"/openapi.json", func(c *gin.Context) {
-		setBackendUrl(c)
 		c.JSON(http.StatusOK, apispec)
 	})
 
 	Router.GET(BasePath+"/openapi.yaml", func(c *gin.Context) {
-		setBackendUrl(c)
-		data, err := yaml.Marshal(&apispec)
+		data, err := yaml.Marshal(apispec)
 		if err != nil {
 			slog.Error("failed marhaling openapi spec", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -31,31 +29,23 @@ func init() {
 	})
 }
 
-func setBackendUrl(c *gin.Context) {
-	apispec.Servers[0].URL = c.GetHeader("X-Forwarded-For") + path.Dir(c.Request.RequestURI)
-}
-
 // newApiSpec instantiates the OpenAPI specification for this service.
 func newApiSpec() *openapi3.T {
-	return &openapi3.T{
+	spec := &openapi3.T{
 		OpenAPI: "3.1.0",
 		Info: &openapi3.Info{
 			Title:       "RDF store API",
-			Description: "REST API for interacting with RDF store",
-			Version:     "0.0.1",
+			Description: "API for interacting with RDF store",
+			Version:     "v1",
 			License: &openapi3.License{
 				Name: "MIT License",
 				URL:  "https://opensource.org/licenses/MIT",
 			},
-			// Contact: &openapi3.Contact{
-			// 	Name:  "Contact",
-			// 	Email: "ingest@nfdi4ing.de",
-			// },
 		},
 		Servers: openapi3.Servers{
 			&openapi3.Server{
 				Description: "Production",
-				// URL:         base.BackendUrl,
+				URL:         base.BackendUrl + BasePath,
 			},
 		},
 		Security: openapi3.SecurityRequirements{
@@ -90,4 +80,11 @@ func newApiSpec() *openapi3.T {
 		},
 		Paths: &openapi3.Paths{},
 	}
+	if len(base.Configuration.ContactEmail) > 0 {
+		spec.Info.Contact = &openapi3.Contact{
+			Name:  base.Configuration.ContactEmail,
+			Email: base.Configuration.ContactEmail,
+		}
+	}
+	return spec
 }
