@@ -63,6 +63,7 @@ export class RdfGraph extends LitElement {
             dt { font-size: 12px; color: #888; margin-top: 6px; }
             dd { margin: 0; font-size: 12px; }
         }
+        #info-pane:not(.pinned) { pointer-events: none; }
     `
 
     @property()
