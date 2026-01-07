@@ -17,8 +17,9 @@ import (
 	"rdf-store-backend/base"
 	"strings"
 
-	"github.com/antchfx/xmlquery"
 	"github.com/deiu/rdf2go"
+	"github.com/knakk/rdf"
+	"github.com/knakk/sparql"
 )
 
 var Endpoint = base.EnvVar("FUSEKI_ENDPOINT", "http://localhost:3030")
@@ -54,44 +55,6 @@ func initDatasets() error {
 		defer resp.Body.Close()
 		if resp.StatusCode != 200 {
 			// dataset does not exist, so create it
-			/*
-							template := fmt.Sprintf(`
-				@prefix :       <http://base/#> .
-				@prefix fuseki: <http://jena.apache.org/fuseki#> .
-				@prefix tdb2: <http://jena.apache.org/2016/tdb#> .
-				@prefix rdf:    <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
-				@prefix rdfs:   <http://www.w3.org/2000/01/rdf-schema#> .
-
-				:tdb_dataset_readwrite a tdb2:DatasetTDB2 ;
-				tdb2:location "/fuseki/databases/%s" ;
-				tdb2:unionDefaultGraph true .
-
-				:service_tdb_all  rdf:type  fuseki:Service;
-				        rdfs:label       "TDB2 %s";
-				        fuseki:dataset   :tdb_dataset_readwrite;
-				        fuseki:endpoint  [ fuseki:name       "get";
-				                           fuseki:operation  fuseki:gsp-r
-				                         ];
-				        fuseki:endpoint  [ fuseki:name       "sparql";
-				                           fuseki:operation  fuseki:query
-				                         ];
-				        fuseki:endpoint  [ fuseki:operation  fuseki:update ];
-				        fuseki:endpoint  [ fuseki:operation  fuseki:query ];
-				        fuseki:endpoint  [ fuseki:operation  fuseki:gsp-rw ];
-				        fuseki:endpoint  [ fuseki:name       "data";
-				                           fuseki:operation  fuseki:gsp-rw
-				                         ];
-				        fuseki:endpoint  [ fuseki:name       "update";
-				                           fuseki:operation  fuseki:update
-				                         ];
-				        fuseki:endpoint  [ fuseki:name       "query";
-				                           fuseki:operation  fuseki:query
-				                         ];
-				        fuseki:name      "%s" .
-				`, dataset, dataset, dataset)
-
-							req, err = http.NewRequest(http.MethodPost, fmt.Sprintf("%s/$/datasets", Endpoint), strings.NewReader(template))
-			*/
 			req, err = http.NewRequest(http.MethodPost, fmt.Sprintf("%s/$/datasets?dbName=%s&dbType=TDB2", Endpoint, dataset), nil)
 			if err != nil {
 				return err
@@ -243,30 +206,48 @@ func checkGraphExists(dataset string, id string) (exists bool, err error) {
 }
 
 func getAllGraphIds(dataset string) ([]string, error) {
-	resp, err := queryDataset(dataset, "SELECT DISTINCT ?g WHERE { GRAPH ?g { } }")
+	bindings, err := queryDataset(dataset, "SELECT DISTINCT ?g WHERE { GRAPH ?g { } }")
 	if err != nil {
 		return nil, err
 	}
-	doc, err := xmlquery.Parse(bytes.NewReader(resp))
+	res, err := sparql.ParseJSON(bytes.NewReader(bindings))
 	if err != nil {
 		return nil, err
 	}
 	var ids []string
-	xmlquery.FindEach(doc, "//uri", func(ctr int, node *xmlquery.Node) {
-		ids = append(ids, node.InnerText())
-	})
+	for _, row := range res.Solutions() {
+		g, okG := row["g"].(rdf.Context)
+		if !okG {
+			return nil, fmt.Errorf("invalid binding: %v", row)
+		}
+		ids = append(ids, g.String())
+	}
 	return ids, nil
 }
 
 func queryDataset(dataset string, query string) (data []byte, err error) {
 	body := url.Values{}
 	body.Set("query", query)
-	resp, err := http.Post(fmt.Sprintf("%s/%s", Endpoint, dataset), "application/x-www-form-urlencoded", strings.NewReader(body.Encode()))
+	req, err := http.NewRequest("POST", fmt.Sprintf("%s/%s", Endpoint, dataset), strings.NewReader(body.Encode()))
+	if err != nil {
+		return
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return
 	}
 	defer resp.Body.Close()
-	data, err = io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 {
+		message := ""
+		if body, err := io.ReadAll(resp.Body); err == nil {
+			message = string(body)
+		}
+		err = fmt.Errorf(`failed querying dataset "%s" - status: %d, query: %s, message: '%s'`, dataset, resp.StatusCode, query, message)
+	} else {
+		data, err = io.ReadAll(resp.Body)
+	}
 	return
 }
 
@@ -292,4 +273,30 @@ func updateDataset(dataset string, query string) (err error) {
 		err = fmt.Errorf(`failed updating dataset "%s" - status: %d, query: %s, message: '%s'`, dataset, resp.StatusCode, query, message)
 	}
 	return
+}
+
+func sparqlResultToNQuads(bindings []byte) ([]byte, error) {
+	res, err := sparql.ParseJSON(bytes.NewReader(bindings))
+	if err != nil {
+		return nil, err
+	}
+	var result bytes.Buffer
+	enc := rdf.NewQuadEncoder(&result, rdf.NQuads)
+
+	for _, row := range res.Solutions() {
+		s, okS := row["s"].(rdf.Subject)
+		p, okP := row["p"].(rdf.Predicate)
+		o, okO := row["o"].(rdf.Object)
+		g, okG := row["g"].(rdf.Context)
+		if !okS || !okP || !okO || !okG {
+			return nil, fmt.Errorf("invalid quad: %v", row)
+		}
+		if err := enc.Encode(rdf.Quad{Triple: rdf.Triple{Subj: s, Pred: p, Obj: o}, Ctx: g}); err != nil {
+			return nil, err
+		}
+	}
+	if err := enc.Close(); err != nil {
+		return nil, err
+	}
+	return result.Bytes(), nil
 }

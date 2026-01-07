@@ -36,7 +36,7 @@ func Reindex() {
 	}
 	resourceCount := 0
 	for _, id := range resourceIds {
-		data, metadata, err := sparql.LoadResource(id, true)
+		data, metadata, err := sparql.LoadResource(id, false)
 		if err != nil {
 			slog.Error("failed loading resource", "id", id, "error", err)
 		} else {

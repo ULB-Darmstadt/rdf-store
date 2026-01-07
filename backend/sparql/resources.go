@@ -7,7 +7,8 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/antchfx/xmlquery"
+	"github.com/knakk/rdf"
+	"github.com/knakk/sparql"
 )
 
 var prefixDcTerms = "http://purl.org/dc/terms/%s"
@@ -16,7 +17,11 @@ var dcTermsModified = fmt.Sprintf(prefixDcTerms, "modified")
 
 func LoadResource(id string, union bool) (resource []byte, metadata *ResourceMetadata, err error) {
 	if union {
-		resource, err = queryDataset(ResourceDataset, fmt.Sprintf(`CONSTRUCT { ?s ?p ?o } WHERE { GRAPH <%s> { ?s (<>|!<>)* ?s . GRAPH ?g { ?s ?p ?o } } }`, id))
+		var bindings []byte
+		if bindings, err = queryDataset(ResourceDataset, fmt.Sprintf(`SELECT ?s ?p ?o ?g WHERE { GRAPH <%s> { ?s (<>|!<>)* ?s . GRAPH ?g { ?s ?p ?o } } }`, id)); err != nil {
+			return
+		}
+		resource, err = sparqlResultToNQuads(bindings)
 	} else {
 		resource, err = loadGraph(ResourceDataset, id)
 	}
@@ -80,17 +85,27 @@ type ResourceMetadata struct {
 
 func loadResourceMetadata(id string) (metadata *ResourceMetadata, err error) {
 	metadata = &ResourceMetadata{}
-	data, err := queryDataset(ResourceDataset, fmt.Sprintf(`SELECT ?p ?o WHERE { <%s> ?p ?o }`, id))
+	bindings, err := queryDataset(ResourceDataset, fmt.Sprintf(`SELECT ?p ?o WHERE { <%s> ?p ?o }`, id))
 	if err != nil {
 		return
 	}
-	doc, err := xmlquery.Parse(bytes.NewReader(data))
-	if node := xmlquery.FindOne(doc, "/sparql/results/result[binding[@name='p']/uri[text()='"+dcTermsCreator+"']]/binding[@name='o']/literal"); node != nil {
-		metadata.Creator = node.InnerText()
+	res, err := sparql.ParseJSON(bytes.NewReader(bindings))
+	if err != nil {
+		return nil, err
 	}
-	if node := xmlquery.FindOne(doc, "/sparql/results/result[binding[@name='p']/uri[text()='"+dcTermsModified+"']]/binding[@name='o']/literal"); node != nil {
-		if date, err := time.Parse(time.RFC3339, node.InnerText()); err == nil {
-			metadata.LastModified = date
+	for _, row := range res.Solutions() {
+		p, okP := row["p"].(rdf.Predicate)
+		o, okO := row["o"].(rdf.Object)
+		if !okP || !okO {
+			return nil, fmt.Errorf("invalid binding: %v", row)
+		}
+		switch p.String() {
+		case dcTermsCreator:
+			metadata.Creator = o.String()
+		case dcTermsModified:
+			if date, err := time.Parse(time.RFC3339, o.String()); err == nil {
+				metadata.LastModified = date
+			}
 		}
 	}
 	return

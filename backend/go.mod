@@ -5,12 +5,13 @@ go 1.24.0
 toolchain go1.24.1
 
 require (
-	github.com/antchfx/xmlquery v1.4.4
 	github.com/deiu/rdf2go v0.0.0-20241212211204-b661ba0dfd25
 	github.com/getkin/kin-openapi v0.133.0
 	github.com/gin-contrib/cors v1.7.6
 	github.com/gin-gonic/gin v1.10.1
 	github.com/google/uuid v1.6.0
+	github.com/knakk/rdf v0.0.0-20190304171630-8521bf4c5042
+	github.com/knakk/sparql v0.0.0-20240119140508-255b851aa040
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/stevenferrer/solr-go v0.4.0
 	golang.org/x/exp v0.0.0-20250819193227-8b4c13bb791b
@@ -18,7 +19,6 @@ require (
 )
 
 require (
-	github.com/antchfx/xpath v1.3.5 // indirect
 	github.com/bytedance/sonic v1.14.0 // indirect
 	github.com/bytedance/sonic/loader v0.3.0 // indirect
 	github.com/cloudwego/base64x v0.1.6 // indirect
@@ -31,11 +31,11 @@ require (
 	github.com/go-playground/universal-translator v0.18.1 // indirect
 	github.com/go-playground/validator/v10 v10.27.0 // indirect
 	github.com/goccy/go-json v0.10.5 // indirect
-	github.com/golang/groupcache v0.0.0-20241129210726-2c02b8208cf8 // indirect
 	github.com/jarcoal/httpmock v1.3.1 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
+	github.com/knakk/digest v0.0.0-20160404164910-fd45becddc49 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
 	github.com/linkeddata/gojsonld v0.0.0-20170418210642-4f5db6791326 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect

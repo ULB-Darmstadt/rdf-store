@@ -6,9 +6,10 @@ import (
 	"rdf-store-backend/base"
 	"strconv"
 
-	"github.com/antchfx/xmlquery"
 	"github.com/deiu/rdf2go"
 	"github.com/google/uuid"
+	"github.com/knakk/rdf"
+	"github.com/knakk/sparql"
 )
 
 var hashPredicate = "<spdx:checksumValue>"
@@ -54,21 +55,23 @@ func GetAllProfileIds() ([]string, error) {
 }
 
 func GetProfileHash(id string) (uint32, error) {
-	resp, err := queryDataset(profileDataset, fmt.Sprintf("SELECT ?hash WHERE { <%s> %s ?hash }", id, hashPredicate))
+	bindings, err := queryDataset(profileDataset, fmt.Sprintf("SELECT ?hash WHERE { <%s> %s ?hash }", id, hashPredicate))
 	if err != nil {
 		return 0, err
 	}
-	doc, err := xmlquery.Parse(bytes.NewReader(resp))
+	res, err := sparql.ParseJSON(bytes.NewReader(bindings))
 	if err != nil {
 		return 0, err
 	}
-	literal := xmlquery.FindOne(doc, "//literal")
-	if literal != nil {
-		hash, err := strconv.ParseUint(literal.InnerText(), 10, 32)
-		if err != nil {
-			return 0, err
+
+	if len(res.Results.Bindings) > 0 {
+		if hash, okHash := res.Solutions()[0]["hash"].(rdf.Literal); okHash {
+			parsed, err := strconv.ParseUint(hash.String(), 10, 32)
+			if err != nil {
+				return 0, err
+			}
+			return uint32(parsed), nil
 		}
-		return uint32(hash), nil
 	}
 	return 0, fmt.Errorf("hash not found for profile %s", id)
 }

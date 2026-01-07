@@ -43,22 +43,28 @@ export class Viewer extends LitElement {
     updated(changedProperties: PropertyValues) {
         if ((changedProperties.has('rdfSubject') || changedProperties.has('highlightSubject')) && this.rdfSubject) {
             this.highlightSubject = this.highlightSubject ?? this.rdfSubject
-            this.editMode = false;
-            (async() => {
-                try {
-                    const resp = await fetch(`${BACKEND_URL}/resource/${encodeURIComponent(this.rdfSubject)}`)
-                    if (resp.ok) {
-                        this.rdf = await resp.text()
-                        // check if editable
-                        const creator = resp.headers.get('X-Creator')
-                        this.editable = (!this.config?.authEnabled || (this.config?.authUser && this.config?.authUser === creator)) ? true : false
-                    } else {
-                        throw new Error(i18n['noresults'])
-                    }
-                } catch(e) {
-                    showSnackbarMessage({message: '' + e, ttl: 0, cssClass: 'error' })
+            this.editMode = false
+            this.editable = false
+            this.load()
+        }
+    }
+
+    private async load() {
+        if (this.rdfSubject) {
+            try {
+                const resp = await fetch(`${BACKEND_URL}/resource/${encodeURIComponent(this.rdfSubject)}`)
+                if (resp.ok) {
+                    this.rdf = await resp.text()
+                    console.log('--- rdf', this.rdf)
+                    // check if editable
+                    const creator = resp.headers.get('X-Creator')
+                    this.editable = (!this.config?.authEnabled || (this.config?.authUser && this.config?.authUser === creator)) ? true : false
+                } else {
+                    throw new Error(i18n['noresults'])
                 }
-            })()
+            } catch(e) {
+                showSnackbarMessage({message: '' + e, ttl: 0, cssClass: 'error' })
+            }
         }
     }
 
@@ -96,7 +102,7 @@ export class Viewer extends LitElement {
             } else {
                 showSnackbarMessage({ message: i18n['resource_save_succeeded'], cssClass: 'success' })
                 this.editMode = false
-                this.rdf = ttl
+                this.load()
             }
         } catch(e) {
             showSnackbarMessage({message: '' + e, ttl: 0, cssClass: 'error' })
@@ -151,7 +157,7 @@ export class Viewer extends LitElement {
             </div>
             <div class="main">
             ${this.graphView ? html`
-                <rdf-graph rdfSubject="${this.rdfSubject}" highlightSubject="${this.highlightSubject}"></rdf-graph>
+                <rdf-graph rdfSubject="${this.rdfSubject}" highlightSubject="${this.highlightSubject}" rdf="${this.rdf}"></rdf-graph>
             ` : html`
                 <shacl-form
                     id="form"

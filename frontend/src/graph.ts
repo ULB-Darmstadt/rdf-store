@@ -1,10 +1,10 @@
-import { RokitSnackbar, showSnackbarMessage } from '@ro-kit/ui-widgets'
 import { css, html, LitElement, type PropertyValues } from 'lit'
 import { customElement, property, query } from 'lit/decorators.js'
 import  * as d3 from 'd3'
 import { type D3DragEvent, type Simulation, type SimulationLinkDatum, type SimulationNodeDatum } from 'd3'
-import { BACKEND_URL, RDF_TYPE } from './constants'
+import { RDF_TYPE } from './constants'
 import { fetchLabels, i18n } from './i18n'
+import { Parser, Quad } from 'n3'
 
 type Node = SimulationNodeDatum & {
     id: string
@@ -16,13 +16,6 @@ type Node = SimulationNodeDatum & {
 type Edge = SimulationLinkDatum<Node> & {
     type: string
     label?: string
-}
-
-interface Quad {
-    s: { value: string, type: string }
-    p: { value: string, type: string }
-    o: { value: string, type: string }
-    g: { value: string, type: string }
 }
 
 const width = 400
@@ -68,9 +61,12 @@ export class RdfGraph extends LitElement {
 
     @property()
     rdfSubject = ''
-
     @property()
     highlightSubject = ''
+    @property()
+    rdf = ''
+
+    quads: Quad[] = []
 
     @query('#info-pane')
     infopane!: HTMLElement
@@ -98,9 +94,18 @@ export class RdfGraph extends LitElement {
     keyListener = (event: KeyboardEvent) => { if (event.key === 'Escape') { this.hideInfoPane(undefined) }}
 
     updated(pv: PropertyValues) {
-        if (pv.has('rdfSubject') || pv.has('highlightSubject')) {
-            this.hideInfoPane(undefined)
-            this.executeQuery()
+        if (pv.has('rdfSubject') || pv.has('highlightSubject') || pv.has('rdf')) {
+            if (pv.has('rdf')) {
+                this.quads = new Parser().parse(this.rdf)
+            }
+            this.hideInfoPane(undefined);
+            (async () => {
+                const graph = await this.buildGraph()
+                this.shadowRoot!.querySelector('#mount')?.replaceChildren(graph)
+                requestAnimationFrame(() => {
+                    fitToView(graph)
+                })
+            })()
         }
     }
 
@@ -116,62 +121,32 @@ export class RdfGraph extends LitElement {
         this.removeEventListener('click', this.hideInfoPane)
     }
 
-    async executeQuery() {
-        if (this.rdfSubject) {
-            try {
-                const url = `${BACKEND_URL}/sparql/query`
-                const body = new URLSearchParams()
-                body.append('query', `SELECT * WHERE { VALUES ?g { <${this.rdfSubject}> } GRAPH ?g { ?s ?p ?o }}`)
-                const resp = await fetch(url, {
-                    method: 'POST',
-                    headers: { 'Accept': 'application/sparql-results+json' },
-                    body: body
-                })
-                if (resp.status !== 200) {
-                    throw new Error('server returned status ' + resp.status)
-                }
-                const data = await resp.json()
-                if (data?.results?.bindings?.length) {
-                    const graph = await this.buildGraph(data.results.bindings)
-                    this.shadowRoot!.querySelector('#mount')?.replaceChildren(graph)
-                    requestAnimationFrame(() => {
-                        fitToView(graph)
-                    })
-                } else {
-                    throw new Error(i18n['noresults'])
-                }
-            } catch (e) {
-                showSnackbarMessage({ message: '' + e, ttl: 0, cssClass: 'error' }, this.shadowRoot!.querySelector<RokitSnackbar>('rokit-snackbar') || undefined)
-            }
-        }
-    }
-
-    async buildGraph(quads: Quad[]) {
+    async buildGraph() {
         const labelsToFetch = new Set<string>()
         const nodes: Record<string, Node> = {}
         const links: Edge[] = []
-        const subjects = new Set(quads.map(q => q.s.value))
-        for (const q of quads) {
-            labelsToFetch.add(q.s.value)
-            labelsToFetch.add(q.p.value)
+        const subjects = new Set(this.quads.map(q => q.subject.value))
+        for (const q of this.quads) {
+            labelsToFetch.add(q.subject.value)
+            labelsToFetch.add(q.predicate.value)
             // if object is not a literal, try to fetch label for it
-            if (q.o.type === 'uri') {
-                labelsToFetch.add(q.o.value)
+            if (q.object.termType === 'NamedNode') {
+                labelsToFetch.add(q.object.value)
             }
-            let node = nodes[q.s.value]
+            let node = nodes[q.subject.value]
             if (!node) {
-                node = { id: q.s.value, properties: {} }
-                nodes[q.s.value] = node
+                node = { id: q.subject.value, properties: {} }
+                nodes[q.subject.value] = node
             }
             // check if quad object is also a subject and if so, create a link
-            if (subjects.has(q.o.value)) {
-                links.push({ 'source': q.s.value, 'target': q.o.value, 'type': q.p.value })
+            if (subjects.has(q.object.value)) {
+                links.push({ 'source': q.subject.value, 'target': q.object.value, 'type': q.predicate.value })
             } else {
-                if (RDF_TYPE.value === q.p.value) {
-                    node.type = q.o.value
-                    labelsToFetch.add(q.o.value)
+                if (RDF_TYPE.value === q.predicate.value) {
+                    node.type = q.object.value
+                    labelsToFetch.add(q.object.value)
                 } else {
-                    (node.properties[q.p.value] ??= []).push(q.o.value)
+                    (node.properties[q.predicate.value] ??= []).push(q.object.value)
                 }
             }
         }

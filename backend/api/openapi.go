@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"net/http"
 	"rdf-store-backend/base"
+	"strings"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/gin-gonic/gin"
@@ -45,7 +46,7 @@ func newApiSpec() *openapi3.T {
 		Servers: openapi3.Servers{
 			&openapi3.Server{
 				Description: "Production",
-				URL:         base.BackendUrl + BasePath,
+				URL:         strings.TrimSuffix(base.BackendUrl, "/") + BasePath,
 			},
 		},
 		Security: openapi3.SecurityRequirements{

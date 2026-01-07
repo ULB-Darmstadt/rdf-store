@@ -51,8 +51,7 @@ export class Editor extends LitElement {
                         if (resp.status !== 200) {
                             throw new Error('server returned status ' + resp.status)
                         }
-                        const result = await resp.text()
-                        resolve(result)
+                        resolve(await resp.text())
                     } catch(e) {
                         reject(e)
                     }

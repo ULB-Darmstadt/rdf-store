@@ -10,8 +10,9 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/antchfx/xmlquery"
 	"github.com/deiu/rdf2go"
+	"github.com/knakk/rdf"
+	"github.com/knakk/sparql"
 	"golang.org/x/exp/slices"
 )
 
@@ -53,28 +54,34 @@ func GetLabels(language string, ids []string) (map[string]string, error) {
 		if err := labelsQueryTemplate.Execute(&query, labelsTmplInput); err != nil {
 			return nil, err
 		}
-		queryResult, err := queryDataset(labelDataset, query.String())
+
+		bindings, err := queryDataset(labelDataset, query.String())
 		if err != nil {
 			return nil, err
 		}
-		doc, err := xmlquery.Parse(bytes.NewReader(queryResult))
+		res, err := sparql.ParseJSON(bytes.NewReader(bindings))
 		if err != nil {
 			return nil, err
 		}
+
 		currentLabelPrios := make(map[string]int)
-		xmlquery.FindEach(doc, "//uri", func(ctr int, node *xmlquery.Node) {
-			id := "<" + node.InnerText() + ">"
-			label := xmlquery.FindOne(node.Parent.Parent, "binding[@name='label']/literal")
-			labelLang := label.SelectAttr("xml:lang")
+		for _, row := range res.Solutions() {
+			s, okS := row["id"].(rdf.Subject)
+			label, okO := row["label"].(rdf.Literal)
+			if !okS || !okO {
+				return nil, fmt.Errorf("invalid binding: %v", row)
+			}
+			id := "<" + s.String() + ">"
+			labelLang := label.Lang()
 			labelPrio := slices.Index(languagePrios, labelLang)
 			if labelPrio > -1 {
 				currentPrio, ok := currentLabelPrios[id]
 				if !ok || labelPrio < currentPrio {
-					result[id] = label.InnerText()
+					result[id] = label.String()
 					currentLabelPrios[id] = labelPrio
 				}
 			}
-		})
+		}
 	}
 	return result, nil
 }
