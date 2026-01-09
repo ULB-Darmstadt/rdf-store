@@ -7,6 +7,21 @@ import { i18n } from './i18n'
 import { RokitSnackbar, RokitSnackbarEvent, showSnackbarMessage } from '@ro-kit/ui-widgets'
 import { globalStyles } from './styles'
 
+export async function classInstanceProvider(clazz: string) {
+    return new Promise<string>(async (resolve, reject) => {
+        try {
+            const resp = await fetch(`${BACKEND_URL}/instances?class=${encodeURIComponent(clazz)}`)
+            if (resp.ok) {
+                resolve(await resp.text())
+            } else {
+                throw new Error(i18n['noresults'])
+            }
+        } catch(e) {
+            reject(e)
+        }
+    })
+}
+
 @customElement('rdf-editor')
 export class Editor extends LitElement {
     static styles = [globalStyles, css`
@@ -36,27 +51,7 @@ export class Editor extends LitElement {
             })
         }
         if (changedProperties.has('selectedShape') && this.selectedShape) {
-            this.form!.setClassInstanceProvider(clazz => {
-                const url = BACKEND_URL + '/sparql/query'
-                return new Promise<string>(async (resolve, reject) => {
-                    const formData = new URLSearchParams()
-                    // load class instances from all graphs
-                    formData.append('query', `CONSTRUCT { ?s ?p ?o } WHERE { GRAPH ?g { ?c a <${clazz}> . ?c (<>|!<>)* ?s . ?s ?p ?o }}`)
-                    try {
-                        const resp = await fetch(url, {
-                            method: "POST",
-                            cache: "no-cache",
-                            body: formData
-                        })
-                        if (resp.status !== 200) {
-                            throw new Error('server returned status ' + resp.status)
-                        }
-                        resolve(await resp.text())
-                    } catch(e) {
-                        reject(e)
-                    }
-                })
-            })
+            this.form!.setClassInstanceProvider(classInstanceProvider)
         }
     }
 

@@ -15,7 +15,7 @@ import (
 var hashPredicate = "<spdx:checksumValue>"
 var BlankNodeReplacement = "rdf-store:"
 
-func LoadProfile(id string) (profile []byte, err error) {
+func GetProfile(id string) (profile []byte, err error) {
 	return loadGraph(profileDataset, id)
 }
 

@@ -43,6 +43,7 @@ func init() {
 	Router.GET(BasePath+"/profile/*id", handleGetProfile)
 	Router.POST(BasePath+"/sparql/query", handleFusekiSparql)
 	Router.GET(BasePath+"/sparql/query", handleFusekiSparql)
+	Router.GET(BasePath+"/instances", handleGetClassInstances)
 	if base.ExposeFusekiFrontend {
 		Router.Any("/fuseki/*proxyPath", handleFusekiFrontend)
 	}
@@ -76,10 +77,10 @@ func handleGetResource(c *gin.Context) {
 		return
 	}
 	did = strings.TrimPrefix(did, "/")
-	resource, metadata, err := sparql.LoadResource(did, true)
+	resource, metadata, err := sparql.GetResource(did, true)
 	if err != nil {
 		slog.Error("failed loading resource", "id", did, "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	if metadata != nil && metadata.Creator != "" {
@@ -109,7 +110,7 @@ func handleAddResource(c *gin.Context) {
 		return
 	}
 	dataGraph, _ := readGraphBytesFromRequest(c)
-	shapesGraph, err := sparql.LoadProfile(profile.Id.RawValue())
+	shapesGraph, err := sparql.GetProfile(profile.Id.RawValue())
 	if err != nil {
 		slog.Error("failed loading shapes graph", "error", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -167,7 +168,7 @@ func handleUpdateResource(c *gin.Context) {
 	}
 	profileID := profile.Id.RawValue()
 	dataGraph, _ := readGraphBytesFromRequest(c)
-	shapesGraph, err := sparql.LoadProfile(profileID)
+	shapesGraph, err := sparql.GetProfile(profileID)
 	if err != nil {
 		slog.Error("failed loading shapes graph", "error", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -179,8 +180,7 @@ func handleUpdateResource(c *gin.Context) {
 		return
 	}
 
-	data, _ := readGraphBytesFromRequest(c)
-	metadata, err := sparql.UpdateResource(did, data, user)
+	metadata, err := sparql.UpdateResource(did, dataGraph, user)
 	if err != nil {
 		slog.Error("failed updating resource", "id", did, "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -230,13 +230,30 @@ func handleGetProfile(c *gin.Context) {
 		return
 	}
 	did = strings.TrimPrefix(did, "/")
-	graph, err := sparql.LoadProfile(did)
+	graph, err := sparql.GetProfile(did)
 	if err != nil {
 		slog.Error("failed loading profile", "id", did, "error", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 	c.Data(http.StatusOK, "text/turtle", graph)
+}
+
+func handleGetClassInstances(c *gin.Context) {
+	class := c.Query("class")
+	if len(class) == 0 {
+		slog.Warn("failed retrieving class instances, request parameter 'class' missing")
+		c.JSON(http.StatusBadRequest, gin.H{"error": "missing request parameter 'class'"})
+		return
+
+	}
+	instances, err := sparql.GetClassInstances(class)
+	if err != nil {
+		slog.Error("failed retrieving class instances", "class", class, "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.Data(http.StatusOK, "text/turtle", instances)
 }
 
 func readGraphFromRequest(c *gin.Context) (graph *rdf2go.Graph, err error) {

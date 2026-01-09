@@ -17,7 +17,7 @@ func ParseAllProfiles() (map[string]*shacl.NodeShape, error) {
 	Profiles = make(map[string]*shacl.NodeShape)
 	// first pass: parse profiles
 	for _, profileId := range profileIds {
-		profile, err := LoadProfile(profileId)
+		profile, err := GetProfile(profileId)
 		if err != nil {
 			return nil, err
 		}

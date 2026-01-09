@@ -15,7 +15,7 @@ var prefixDcTerms = "http://purl.org/dc/terms/%s"
 var dcTermsCreator = fmt.Sprintf(prefixDcTerms, "creator")
 var dcTermsModified = fmt.Sprintf(prefixDcTerms, "modified")
 
-func LoadResource(id string, union bool) (resource []byte, metadata *ResourceMetadata, err error) {
+func GetResource(id string, union bool) (resource []byte, metadata *ResourceMetadata, err error) {
 	if union {
 		var bindings []byte
 		if bindings, err = queryDataset(ResourceDataset, fmt.Sprintf(`SELECT ?s ?p ?o ?g WHERE { GRAPH <%s> { ?s (<>|!<>)* ?s . GRAPH ?g { ?s ?p ?o } } }`, id)); err != nil {
@@ -61,6 +61,14 @@ func DeleteResource(id string, creator string) error {
 
 func GetAllResourceIds() ([]string, error) {
 	return getAllGraphIds(ResourceDataset)
+}
+
+func GetClassInstances(class string) ([]byte, error) {
+	bindings, err := queryDataset(ResourceDataset, fmt.Sprintf(`SELECT ?s ?p ?o ?g WHERE  { GRAPH ?g { ?c a <%s> . ?c (<>|!<>)* ?s . ?s ?p ?o }}`, class))
+	if err != nil {
+		return nil, err
+	}
+	return sparqlResultToNQuads(bindings)
 }
 
 func validateCreator(id string, user string) error {
@@ -130,7 +138,7 @@ func updateResourceMetadata(id string, creator string) (metadata *ResourceMetada
 		Creator:      creator,
 		LastModified: time.Now().UTC(),
 	}
-	tmplInput := map[string]interface{}{
+	tmplInput := map[string]any{
 		"Id":       id,
 		"Metadata": metadata,
 	}

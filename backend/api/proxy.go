@@ -28,7 +28,7 @@ func handleHttpProxy(c *gin.Context) {
 	} else {
 		var err error
 		// check if url references a resource
-		data, _, err = sparql.LoadResource(url, true)
+		data, _, err = sparql.GetResource(url, true)
 		if err != nil {
 			// url refences no profile or resource, so try to load URL from cache or from the web
 			data, err = base.CacheLoad(url, &c.Request.Header)

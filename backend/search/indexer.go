@@ -36,7 +36,7 @@ func Reindex() {
 	}
 	resourceCount := 0
 	for _, id := range resourceIds {
-		data, metadata, err := sparql.LoadResource(id, false)
+		data, metadata, err := sparql.GetResource(id, false)
 		if err != nil {
 			slog.Error("failed loading resource", "id", id, "error", err)
 		} else {
@@ -208,7 +208,6 @@ func buildDoc(subject rdf2go.Term, profileId rdf2go.Term, profile *shacl.NodeSha
 }
 
 func appendMultiValue(field string, value any, doc *document) {
-	fmt.Println("--- FIELD", field, value)
 	if _, ok := (*doc)[field]; !ok {
 		(*doc)[field] = make([]any, 0)
 	}

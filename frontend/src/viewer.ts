@@ -8,6 +8,7 @@ import { i18n } from './i18n'
 import { showSnackbarMessage } from '@ro-kit/ui-widgets'
 import { ShaclForm } from '@ulb-darmstadt/shacl-form'
 import { Config } from '.'
+import { classInstanceProvider } from './editor'
 
 @customElement('rdf-viewer')
 export class Viewer extends LitElement {
@@ -47,6 +48,9 @@ export class Viewer extends LitElement {
             this.editable = false
             this.load()
         }
+        if ((changedProperties.has('graphView') || changedProperties.has('editMode')) && !this.graphView && this.editMode) {
+            (this.shadowRoot!.querySelector('shacl-form') as ShaclForm)?.setClassInstanceProvider(classInstanceProvider)
+        }
     }
 
     private async load() {
@@ -55,7 +59,6 @@ export class Viewer extends LitElement {
                 const resp = await fetch(`${BACKEND_URL}/resource/${encodeURIComponent(this.rdfSubject)}`)
                 if (resp.ok) {
                     this.rdf = await resp.text()
-                    console.log('--- rdf', this.rdf)
                     // check if editable
                     const creator = resp.headers.get('X-Creator')
                     this.editable = (!this.config?.authEnabled || (this.config?.authUser && this.config?.authUser === creator)) ? true : false
