@@ -11,13 +11,13 @@
     "@fontsource/material-icons": "^5.2.7",
     "@fontsource/roboto": "^5.2.9",
     "@ro-kit/ui-widgets": "1.0.34",
-    "@ulb-darmstadt/shacl-form": "^2.0.3",
+    "@ulb-darmstadt/shacl-form": "^2.0.4",
     "d3": "^7.9.0",
     "leaflet": "^1.9.4",
     "leaflet.fullscreen": "^4.0.0",
     "leaflet.heat": "^0.2.0",
     "lit": "^3.3.2",
-    "n3": "^2.0.0"
+    "n3": "^1.26.0"
   },
   "devDependencies": {
     "@types/d3": "^7.4.3",

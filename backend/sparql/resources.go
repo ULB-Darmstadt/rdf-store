@@ -17,6 +17,10 @@ var dcTermsModified = fmt.Sprintf(prefixDcTerms, "modified")
 
 func GetResource(id string, union bool) (resource []byte, metadata *ResourceMetadata, err error) {
 	if union {
+		if exists, err := checkGraphExists(ResourceDataset, id); err != nil || !exists {
+			err = fmt.Errorf("graph %s not found in dataset %s", id, ResourceDataset)
+			return nil, nil, err
+		}
 		var bindings []byte
 		if bindings, err = queryDataset(ResourceDataset, fmt.Sprintf(`SELECT ?s ?p ?o ?g WHERE { GRAPH <%s> { ?s (<>|!<>)* ?s . GRAPH ?g { ?s ?p ?o } } }`, id)); err != nil {
 			return
