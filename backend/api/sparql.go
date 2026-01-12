@@ -178,6 +178,9 @@ func handleUpdateResource(c *gin.Context) {
 		return
 	}
 	if valid, err := shacl.Validate(string(shapesGraph), profileID, string(dataGraph), did); !valid || err != nil {
+		if err == nil {
+			err = fmt.Errorf("data graph does not conform to shape %s", profile.Id.RawValue())
+		}
 		slog.Error("failed validating graph", "error", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
