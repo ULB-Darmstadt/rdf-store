@@ -218,7 +218,7 @@ export class App extends LitElement {
                     </div>
                 `)}
             </div>
-            <rokit-splitpane class="flex-grow-1">
+            <rokit-splitpane class="flex-grow-1" minPos="25">
                 <div id="search-result" slot="pane1">
                     <div class="stats">
                         ${this.totalHits < 1 ?

@@ -18,7 +18,7 @@ layout-footer {
 #search-filter .own input { margin: 0 6px; }
 #search-filter header:not(:empty) { font-size: 0.9rem; font-weight: 800; padding: 4px 8px 0 8px; color: var(--rokit-primary-color); }
 #search-filter .profile-wrapper > *:not(:last-child) { --rokit-light-background-darker-color: transparent; }
-#search-result { padding-top: 10px; flex-grow: 1; position: relative; }
+#search-result { padding-top: 10px; }
 .secondary { color: var(--secondary-color); }
 .stats { padding-left: 10px; margin-bottom: 10px; font-family: monospace; font-size: 14px; }
 .stats .loading { display: none; opacity: 0.4; }

@@ -52,7 +52,7 @@ export interface SearchDocument {
     shape: string[]
     rdf: string
     creator: string
-    lastModified: Date
+    lastModified: string
     _nest_parent_: string
     _root_: string
 }
@@ -80,11 +80,6 @@ export type AggregationFacet = {
     minY?: number
     maxY?: number
     counts_ints2D?: number[][]
-}
-
-export type Schema = { 
-    uniqueKey: string
-    fields: Field[]
 }
 
 export async function fetchSchema(index: string): Promise<string[]> {
@@ -117,7 +112,8 @@ export async function search(index: string, params?: SearchOptions): Promise<Sea
         query.filter.push(`creator:"${params.creator}"`)
     }
     if (params?.term) {
-        query.filter?.push(`_text_:*${params.term}*`)
+        query.filter = query.filter || []
+        query.filter.push(`_text_:*${params.term}*`)
     }
 
     const resp = await fetch(`${BACKEND_URL}/solr/${index}/query`, {
