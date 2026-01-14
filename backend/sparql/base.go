@@ -109,7 +109,11 @@ func createGraph(dataset string, id string, data []byte) error {
 }
 
 func loadGraph(dataset string, id string) (data []byte, err error) {
-	if exists, err := checkGraphExists(dataset, id); err != nil || !exists {
+	exists, err := checkGraphExists(dataset, id)
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
 		err = fmt.Errorf("graph %s not found in dataset %s", id, dataset)
 		return nil, err
 	}
@@ -181,6 +185,10 @@ func deleteGraph(dataset string, id string) (err error) {
 }
 
 func checkGraphExists(dataset string, id string) (exists bool, err error) {
+	// prevent SPARQL injection
+	if !isValidIRI(id) {
+		return false, fmt.Errorf("invalid id IRI: %v", id)
+	}
 	exists = false
 	body := url.Values{}
 	body.Set("query", fmt.Sprintf("ASK WHERE { GRAPH <%s> { ?s ?p ?o } }", id))

@@ -1,6 +1,7 @@
 package sparql
 
 import (
+	"net/url"
 	"rdf-store-backend/base"
 	"rdf-store-backend/shacl"
 
@@ -54,4 +55,9 @@ func ParseAllProfiles() (map[string]*shacl.NodeShape, error) {
 	}
 	base.Configuration.Profiles = profileIds
 	return Profiles, nil
+}
+
+func isValidIRI(value string) bool {
+	u, err := url.Parse(value)
+	return err == nil && u.Scheme != "" && u.Host != ""
 }

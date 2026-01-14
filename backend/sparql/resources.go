@@ -17,7 +17,11 @@ var dcTermsModified = fmt.Sprintf(prefixDcTerms, "modified")
 
 func GetResource(id string, union bool) (resource []byte, metadata *ResourceMetadata, err error) {
 	if union {
-		if exists, err := checkGraphExists(ResourceDataset, id); err != nil || !exists {
+		exists, err2 := checkGraphExists(ResourceDataset, id)
+		if err2 != nil {
+			return nil, nil, err2
+		}
+		if !exists {
 			err = fmt.Errorf("graph %s not found in dataset %s", id, ResourceDataset)
 			return nil, nil, err
 		}
@@ -68,6 +72,10 @@ func GetAllResourceIds() ([]string, error) {
 }
 
 func GetClassInstances(class string) ([]byte, error) {
+	// prevent SPARQL injection
+	if !isValidIRI(class) {
+		return nil, fmt.Errorf("invalid class IRI: %v", class)
+	}
 	bindings, err := queryDataset(ResourceDataset, fmt.Sprintf(`SELECT ?s ?p ?o ?g WHERE  { GRAPH ?g { ?c a <%s> . ?c (<>|!<>)* ?s . ?s ?p ?o }}`, class))
 	if err != nil {
 		return nil, err
