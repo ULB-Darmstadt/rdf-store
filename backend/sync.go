@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -82,6 +83,15 @@ func synchronizeProfiles() (changed bool, err error) {
 			return
 		}
 		defer resp.Body.Close()
+		if resp.StatusCode < 200 || resp.StatusCode > 299 {
+			message := ""
+			if body, err := io.ReadAll(resp.Body); err == nil {
+				message = string(body)
+			}
+			err = fmt.Errorf("loading remote profiles from %s - status: %v, response: '%v'", base.MPSUrl, resp.StatusCode, message)
+			return
+		}
+
 		var data []byte
 		data, err = io.ReadAll(resp.Body)
 		if err != nil {
