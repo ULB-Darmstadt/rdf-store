@@ -113,7 +113,8 @@ export async function search(index: string, params?: SearchOptions): Promise<Sea
     }
     if (params?.term) {
         query.filter = query.filter || []
-        query.filter.push(`_text_:*${params.term}*`)
+        // escape ":" character
+        query.filter.push(`_text_:*${params.term.replace(':', '\\:')}*`)
     }
 
     const resp = await fetch(`${BACKEND_URL}/solr/${index}/query`, {
