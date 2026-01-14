@@ -27,6 +27,8 @@ export class Viewer extends LitElement {
     @property()
     rdfSubject = ''
     @property()
+    rdfNamespace = ''
+    @property()
     highlightSubject = ''
     @property()
     config?: Config
@@ -166,6 +168,7 @@ export class Viewer extends LitElement {
                     id="form"
                     data-values="${this.rdf}"
                     data-values-subject="${this.rdfSubject}"
+                    data-values-namespace="${this.rdfNamespace}"
                     data-proxy="${BACKEND_URL}/proxy?url="
                     data-hierarchy-colors
                     ?data-view=${!this.editMode}

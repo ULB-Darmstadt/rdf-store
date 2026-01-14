@@ -1,4 +1,4 @@
-import { search, fetchSchema } from '../solr'
+import { search, fetchFields } from '../solr'
 import { Facet, Facets } from './base'
 import { KeywordFacet } from './keyword'
 import { GeoLocationFacet } from './geo-location'
@@ -29,8 +29,8 @@ export function facetFactory(field: string, solrMaxAggregations: number): Facet 
 }
 
 export async function initFacets(index: string, solrMaxAggregations: number): Promise<Facets> {
-    // derive facets from schema
-    const fieldList = await fetchSchema(index)
+    // derive facets from field types
+    const fieldList = await fetchFields(index)
     
     const facets = new Facets()
     facets.add('', new ProfileFacet(solrMaxAggregations))

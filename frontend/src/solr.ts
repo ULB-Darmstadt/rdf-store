@@ -82,7 +82,7 @@ export type AggregationFacet = {
     counts_ints2D?: number[][]
 }
 
-export async function fetchSchema(index: string): Promise<string[]> {
+export async function fetchFields(index: string): Promise<string[]> {
     const fieldList = await fetch(`${BACKEND_URL}/solr/${index}/select?fl=*&q=*&rows=0&wt=csv`).then(r => r.text())
     return fieldList.split(',').map(field => field.trim())
 }

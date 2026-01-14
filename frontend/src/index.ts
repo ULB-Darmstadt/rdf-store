@@ -250,6 +250,7 @@ export class App extends LitElement {
                 </div>
                 <rdf-viewer slot="pane2"
                     rdfSubject="${this.viewRdfSubject}"
+                    rdfNamespace="${this.config.rdfNamespace}"
                     highlightSubject="${this.viewHiglightSubject}"
                     .config="${this.config}"
                     @delete="${() => { this.viewResource(null); this.filterChanged() }}"
