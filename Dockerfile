@@ -22,7 +22,8 @@ COPY --from=build-swagger-stage /app/dist /app/swagger/
 # pull in and verify dependencies
 RUN go mod download && go mod verify
 # production build
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-w -s" -o main .
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-w -s" -o rdf-store-backend .
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-w -s" -o rdf-store-cli ./cli/main.go
 
 FROM scratch
 ARG TZ
@@ -33,7 +34,9 @@ COPY --from=build-backend-stage /usr/share/zoneinfo /usr/share/zoneinfo
 COPY --from=build-backend-stage /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 
 WORKDIR /app
-COPY --from=build-backend-stage /app/main .
+COPY --from=build-backend-stage /app/rdf-store-backend .
+COPY --from=build-backend-stage /app/rdf-store-cli .
 ENV TZ=$TZ
+ENV PATH=/app
 EXPOSE 3000
-CMD ["./main"] 
+CMD ["./rdf-store-backend"] 
