@@ -3,6 +3,7 @@ package shacl
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -31,6 +32,14 @@ func Validate(shapesGraph string, shapeID string, dataGraph string, dataID strin
 		return false, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		message := ""
+		if body, err := io.ReadAll(resp.Body); err == nil {
+			message = string(body)
+		}
+		return false, fmt.Errorf("failed validating graph %s - status: %v, response: '%v'", dataID, resp.StatusCode, message)
+	}
+
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return false, err

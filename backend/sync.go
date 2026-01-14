@@ -78,7 +78,10 @@ func synchronizeProfiles() (changed bool, err error) {
 	if base.MPSEnabled {
 		var resp *http.Response
 		slog.Debug("loading remote profiles", "endpoint", base.MPSUrl)
-		resp, err = http.Get(base.MPSUrl)
+		client := http.Client{
+			Timeout: 20 * time.Second,
+		}
+		resp, err = client.Get(base.MPSUrl)
 		if err != nil {
 			return
 		}
@@ -88,7 +91,7 @@ func synchronizeProfiles() (changed bool, err error) {
 			if body, err := io.ReadAll(resp.Body); err == nil {
 				message = string(body)
 			}
-			err = fmt.Errorf("loading remote profiles from %s - status: %v, response: '%v'", base.MPSUrl, resp.StatusCode, message)
+			err = fmt.Errorf("failed loading remote profiles from %s - status: %v, response: '%v'", base.MPSUrl, resp.StatusCode, message)
 			return
 		}
 
