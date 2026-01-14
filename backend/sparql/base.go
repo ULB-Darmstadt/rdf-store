@@ -265,7 +265,7 @@ func updateDataset(dataset string, query string) (err error) {
 		return
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		message := ""
 		if body, err := io.ReadAll(resp.Body); err == nil {
 			message = string(body)
