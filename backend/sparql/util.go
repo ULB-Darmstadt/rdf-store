@@ -59,5 +59,5 @@ func ParseAllProfiles() (map[string]*shacl.NodeShape, error) {
 
 func isValidIRI(value string) bool {
 	u, err := url.Parse(value)
-	return err == nil && u.Scheme != "" && u.Host != ""
+	return err == nil && u.Scheme != ""
 }
