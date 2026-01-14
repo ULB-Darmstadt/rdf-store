@@ -60,6 +60,7 @@ func serveStaticFiles() func(c *gin.Context) {
 					c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 					return
 				}
+				filename = "index.html"
 				headers["Cache-Control"] = "no-cache"
 			}
 			defer file.Close()
