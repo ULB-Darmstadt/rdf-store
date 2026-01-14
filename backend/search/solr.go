@@ -69,6 +69,7 @@ func patchLocationField() error {
 	if err != nil {
 		return err
 	}
+	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
 		return fmt.Errorf("failed patching solr schema. status was %d", resp.StatusCode)
 	}
