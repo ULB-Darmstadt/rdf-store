@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"rdf-store-backend/base"
 	"rdf-store-backend/sparql"
+	"slices"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -16,19 +17,17 @@ func init() {
 
 var allowedContentTypes = []string{"text/turtle", "application/trig", "application/n-triples", "application/n-quads", "text/n3", "application/ld+json"}
 
-func intersectPreserveOrder[T comparable](a, b []T) []T {
-	setB := make(map[T]struct{}, len(b))
-	for _, v := range b {
-		setB[v] = struct{}{}
-	}
-
-	var result []T
-	for _, v := range a {
-		if _, ok := setB[v]; ok {
-			result = append(result, v)
+func filterClientAccept(req *http.Request) string {
+	var result []string
+	for _, mime := range strings.Split(req.Header.Get("Accept"), ",") {
+		if slices.Index(allowedContentTypes, strings.Split(mime, ";")[0]) > 0 {
+			result = append(result, mime)
 		}
 	}
-	return result
+	if len(result) == 0 {
+		result = allowedContentTypes
+	}
+	return strings.Join(result, ",")
 }
 
 func handleHttpProxy(c *gin.Context) {
@@ -49,8 +48,7 @@ func handleHttpProxy(c *gin.Context) {
 		data, _, err = sparql.GetResource(url, true)
 		if err != nil {
 			// URL refences no profile or resource, so try to load URL from cache or from the web
-			accept := strings.Join(intersectPreserveOrder(allowedContentTypes, strings.Split(c.Request.Header.Get("Accept"), ",")), ",")
-			data, err = base.CacheLoad(url, accept)
+			data, err = base.CacheLoad(url, filterClientAccept(c.Request))
 			if err != nil {
 				slog.Error("failed proxying", "url", url, "error", err)
 				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
