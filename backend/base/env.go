@@ -51,7 +51,10 @@ func EnvVarAsStringSlice(key string) []string {
 	var result []string
 	if val, present := os.LookupEnv(key); present {
 		for _, v := range strings.Split(val, ",") {
-			result = append(result, strings.TrimSpace(v))
+			value := strings.TrimSpace(v)
+			if value != "" {
+				result = append(result, value)
+			}
 		}
 	}
 	return result
