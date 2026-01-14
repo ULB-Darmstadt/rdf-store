@@ -98,7 +98,11 @@ func importLocalResources() error {
 }
 
 func createGraph(dataset string, id string, data []byte) error {
-	if exists, err := checkGraphExists(dataset, id); err != nil || exists {
+	exists, err := checkGraphExists(dataset, id)
+	if err != nil {
+		return err
+	}
+	if exists {
 		return fmt.Errorf("graph %s already exists in dataset %s", id, dataset)
 	}
 	return uploadGraph(dataset, id, data, nil)
@@ -200,7 +204,9 @@ func checkGraphExists(dataset string, id string) (exists bool, err error) {
 		return
 	}
 	if val, ok := response["boolean"]; ok {
-		exists = val.(bool)
+		if exists, ok = val.(bool); !ok {
+			err = fmt.Errorf("got non boolean response")
+		}
 	}
 	return
 }
