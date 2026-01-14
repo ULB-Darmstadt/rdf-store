@@ -1,9 +1,10 @@
 package base
 
 import (
+	"fmt"
 	"hash/fnv"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"path"
@@ -26,7 +27,7 @@ func ParseGraph(reader io.Reader) (graph *rdf2go.Graph, err error) {
 	return
 }
 
-func CacheLoad(url string, header *http.Header) ([]byte, error) {
+func CacheLoad(url string, accept string) ([]byte, error) {
 	cacheFilename := path.Join("local", "cache", strings.ReplaceAll(url, "/", "🐴"))
 	data, err := os.ReadFile(cacheFilename)
 	if err != nil {
@@ -34,27 +35,32 @@ func CacheLoad(url string, header *http.Header) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		if header != nil {
-			req.Header = *header
-		}
+		req.Header.Set("Accept", accept)
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			return nil, err
 		}
 		defer resp.Body.Close()
 
-		// ignore reponses with no content type or with text/html (mostly 404 pages) by writing an empty cache file
-		contentType := resp.Header.Get("Content-Type")
-		if len(contentType) > 0 && !strings.HasPrefix(contentType, "text/html") {
+		if resp.StatusCode < 200 || resp.StatusCode > 299 {
+			message := ""
+			if body, err := io.ReadAll(resp.Body); err == nil {
+				message = string(body)
+			}
+			return nil, fmt.Errorf("failed retrieving URL %s - status: %v, response: '%v'", url, resp.StatusCode, message)
+		}
+		// remove e.g. "; charset=utf-8" from content type
+		contentType := strings.Split(resp.Header.Get("Content-Type"), ";")[0]
+		// ignore reponses with no content type or non accepted content types (e.g. HTML error pages) by writing an empty cache file
+		if len(contentType) > 0 && strings.Contains(accept, contentType) {
 			data, err = io.ReadAll(resp.Body)
 			if err != nil {
 				return nil, err
 			}
 		}
-
 		// write data to cache
 		if err = os.WriteFile(cacheFilename, data, 0600); err != nil {
-			log.Printf("failed caching response for url %s. reason: %v", url, err)
+			slog.Warn("failed caching response for", "url", url, "error", err)
 		}
 	}
 	return data, nil
