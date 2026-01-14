@@ -8,6 +8,7 @@ import (
 )
 
 var BackendUrl = EnvVar("BACKEND_URL", "http://localhost:3000")
+var AllowedOrigins = append([]string{BackendUrl}, EnvVarAsStringSlice("ALLOWED_ORIGINS")...)
 var AuthUserHeader = "X-User"
 var AuthEmailHeader = "X-Email"
 var AuthGroupsHeader = "X-Groups"

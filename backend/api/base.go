@@ -18,7 +18,7 @@ var BasePath = "/api/v1"
 
 func init() {
 	corsConfig := cors.New(cors.Config{
-		AllowOrigins:     []string{"*"},
+		AllowOrigins:     base.AllowedOrigins,
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Length", "Content-Type"},
 		ExposeHeaders:    []string{"Content-Length", "Location"},

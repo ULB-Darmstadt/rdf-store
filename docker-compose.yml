@@ -107,7 +107,8 @@ services:
       - ./backend/local:/app/local
     environment:
       - GIN_MODE=release
-      - BACKEND_URL=${APP_URL}${APP_PATH}
+      - BACKEND_URL=${APP_URL}${APP_PATH:-}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-}
       - SOLR_ENDPOINT=http://solr:8983
       - SOLR_INDEX=${SOLR_INDEX:-rdf}
       - FUSEKI_ENDPOINT=http://fuseki:3030
