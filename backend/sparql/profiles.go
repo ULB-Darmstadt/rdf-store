@@ -91,10 +91,8 @@ func deleteProfileHash(id string) error {
 	return updateDataset(profileDataset, fmt.Sprintf(`DELETE WHERE { <%s> %s ?hash . }`, id, hashPredicate))
 }
 
-/*
-We need to convert blank nodes to proper named nodes so that they can be referred to (e.g. by the search facets or for validating against specific qualifiedValueShapes).
-*/
 // replaceBlankNodes substitutes blank nodes with stable resource identifiers.
+// We need to convert blank nodes to proper named nodes so that they can be referred to (e.g. by the search facets or for validating against specific qualifiedValueShapes).
 func replaceBlankNodes(profile []byte) (graph *rdf2go.Graph, err error) {
 	input, err := base.ParseGraph(bytes.NewReader(profile))
 	if err != nil {

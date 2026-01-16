@@ -123,7 +123,7 @@ func handleAddResource(c *gin.Context) {
 	}
 	if valid, err := shacl.Validate(string(shapesGraph), profile.Id.RawValue(), string(dataGraph), resourceID.RawValue()); !valid || err != nil {
 		if err == nil {
-			err = fmt.Errorf("data graph does not conform to shape %s", profile.Id.RawValue())
+			err = fmt.Errorf("resource graph does not conform to shape %s", profile.Id.RawValue())
 		}
 		slog.Error("failed validating graph", "error", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -185,7 +185,7 @@ func handleUpdateResource(c *gin.Context) {
 	}
 	if valid, err := shacl.Validate(string(shapesGraph), profileID, string(dataGraph), did); !valid || err != nil {
 		if err == nil {
-			err = fmt.Errorf("data graph does not conform to shape %s", profile.Id.RawValue())
+			err = fmt.Errorf("resource graph does not conform to shape %s", profile.Id.RawValue())
 		}
 		slog.Error("failed validating graph", "error", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})

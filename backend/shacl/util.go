@@ -17,6 +17,9 @@ func FindResourceProfile(graph *rdf2go.Graph, id *rdf2go.Term, profiles map[stri
 		refs = graph.All(*id, DCTERMS_CONFORMS_TO, nil)
 		refs = append(refs, graph.All(*id, RDF_TYPE, nil)...)
 	}
+	if len(refs) == 0 {
+		return nil, nil, errors.New("resource graph has no relation " + DCTERMS_CONFORMS_TO.String() + " or " + RDF_TYPE.String() + " to a known SHACL profile")
+	}
 	for _, triple := range refs {
 		if profileRef, ok := profiles[triple.Object.RawValue()]; ok {
 			if resourceID != nil {
@@ -26,8 +29,11 @@ func FindResourceProfile(graph *rdf2go.Graph, id *rdf2go.Term, profiles map[stri
 			profile = profileRef
 		}
 	}
+	if profile == nil {
+		return nil, nil, errors.New("no relation to an existing SHACL shape found in resource graph")
+	}
 	if resourceID == nil {
-		return nil, nil, errors.New("graph has no relation " + DCTERMS_CONFORMS_TO.String() + " or " + RDF_TYPE.String() + " to a known SHACL profile")
+		return nil, nil, errors.New("resource graph has no relation " + DCTERMS_CONFORMS_TO.String() + " or " + RDF_TYPE.String() + " to a known SHACL profile")
 	}
 	return
 }

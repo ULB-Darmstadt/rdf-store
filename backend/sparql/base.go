@@ -86,7 +86,7 @@ func importLocalResources() error {
 	if files, err := os.ReadDir(baseDir); err == nil {
 		for _, file := range files {
 			if !file.IsDir() && strings.HasSuffix(file.Name(), ".ttl") {
-				slog.Info("importing data graph", "file", file.Name())
+				slog.Info("importing resource graph", "file", file.Name())
 				data, err := os.ReadFile(path.Join(baseDir, file.Name()))
 				if err != nil {
 					return err
