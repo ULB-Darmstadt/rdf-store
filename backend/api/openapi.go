@@ -34,7 +34,6 @@ func init() {
 	})
 }
 
-// newApiSpec instantiates the OpenAPI specification for this service.
 // newApiSpec constructs the OpenAPI specification for this service.
 func newApiSpec() *openapi3.T {
 	spec := &openapi3.T{
@@ -251,6 +250,54 @@ func addPaths(spec *openapi3.T) {
 		}),
 		Tags: []string{TAG_RDF},
 	}})
+
+	spec.Paths.Set("/solr/{collection}/schema", &openapi3.PathItem{Get: &openapi3.Operation{
+		Summary:     "Proxy Solr schema request",
+		OperationID: "solrSchema",
+		Parameters:  openapi3.Parameters{pathParam("collection")},
+		Responses: responses(map[string]*openapi3.Response{
+			"200": openapi3.NewResponse().WithDescription("Solr schema response"),
+			"500": errorResponse(),
+		}),
+		Tags: []string{TAG_SOLR},
+	}})
+
+	spec.Paths.Set("/solr/{collection}/select", &openapi3.PathItem{Get: &openapi3.Operation{
+		Summary:     "Proxy Solr select request",
+		OperationID: "solrSelect",
+		Parameters:  openapi3.Parameters{pathParam("collection")},
+		Responses: responses(map[string]*openapi3.Response{
+			"200": openapi3.NewResponse().WithDescription("Solr select response"),
+			"500": errorResponse(),
+		}),
+		Tags: []string{TAG_SOLR},
+	}})
+
+	spec.Paths.Set("/solr/{collection}/query", &openapi3.PathItem{
+		Get: &openapi3.Operation{
+			Summary:     "Proxy Solr query request",
+			OperationID: "solrQueryGet",
+			Parameters: openapi3.Parameters{&openapi3.ParameterRef{
+				Value: openapi3.NewQueryParameter("query").WithRequired(true),
+			}, pathParam("collection")},
+			Responses: responses(map[string]*openapi3.Response{
+				"200": openapi3.NewResponse().WithDescription("Solr query response"),
+				"500": errorResponse(),
+			}),
+			Tags: []string{TAG_SOLR},
+		},
+		Post: &openapi3.Operation{
+			Summary:     "Proxy Solr query request",
+			OperationID: "solrQueryPost",
+			RequestBody: &openapi3.RequestBodyRef{Value: formRequestBody("query")},
+			Parameters:  openapi3.Parameters{pathParam("collection")},
+			Responses: responses(map[string]*openapi3.Response{
+				"200": openapi3.NewResponse().WithDescription("Solr query response"),
+				"500": errorResponse(),
+			}),
+			Tags: []string{TAG_SOLR},
+		},
+	})
 }
 
 func formRequestBody(fields ...string) *openapi3.RequestBody {
