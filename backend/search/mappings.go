@@ -30,6 +30,7 @@ var datatypeMappings = map[string]string{
 	base.Configuration.GeoDataType:          "srpt",
 }
 
+// fieldType maps SHACL property settings to a Solr field suffix.
 func fieldType(property *shacl.Property) string {
 	if property.HasValue && property.MaxCount == 1 {
 		// ignore fixed value properties
@@ -48,6 +49,7 @@ func fieldType(property *shacl.Property) string {
 	return "t"
 }
 
+// createCollectionSchema defines the Solr schema fields for the collection.
 func createCollectionSchema() (fields []solr.Field) {
 	fields = append(fields, solr.Field{Name: "label", Type: "string", Indexed: true, Stored: true, MultiValued: true})
 	fields = append(fields, solr.Field{Name: "shape", Type: "string", Indexed: true, Stored: true, MultiValued: true})

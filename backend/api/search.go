@@ -12,6 +12,7 @@ import (
 var solrProxy *httputil.ReverseProxy
 var solrProxyTarget *url.URL
 
+// init wires up the Solr proxy routes.
 func init() {
 	var err error
 	// init solr proxy
@@ -27,6 +28,7 @@ func init() {
 	Router.POST(BasePath+"/solr/:collection/query", handleSolr)
 }
 
+// handleSolr proxies Solr query and schema requests.
 func handleSolr(c *gin.Context) {
 	c.Request.URL.Path = strings.TrimPrefix(c.Request.URL.Path, BasePath)
 	c.Request.URL.Scheme = solrProxyTarget.Scheme

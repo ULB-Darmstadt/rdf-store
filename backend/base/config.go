@@ -56,6 +56,7 @@ var solrRegexReplacement = "_"
 var solrStringReplacer = regexp.MustCompile(solrRegex)
 var logLevel = EnvVar("LOG_LEVEL", "INFO")
 
+// init configures log level from environment configuration.
 func init() {
 	// set log level
 	var level slog.Level
@@ -64,6 +65,7 @@ func init() {
 	}
 }
 
+// CleanStringForSolr normalizes strings to safe Solr field identifiers.
 func CleanStringForSolr(s string) string {
 	return solrStringReplacer.ReplaceAllString(strings.ToLower(s), solrRegexReplacement)
 }

@@ -17,10 +17,12 @@ import (
 
 var allowedContentTypes = []string{"text/turtle", "application/trig", "application/n-triples", "application/n-quads", "text/n3", "application/ld+json"}
 
+// init registers the RDF proxy endpoint.
 func init() {
 	Router.GET(BasePath+"/rdfproxy", handleRdfProxy)
 }
 
+// handleRdfProxy proxies RDF content after validating target URLs.
 func handleRdfProxy(c *gin.Context) {
 	url := c.Query("url")
 	if len(url) == 0 {
@@ -56,6 +58,7 @@ func handleRdfProxy(c *gin.Context) {
 	c.Writer.Write(data)
 }
 
+// filterClientAccept narrows Accept headers to RDF-friendly content types.
 func filterClientAccept(req *http.Request) string {
 	var result []string
 	for mime := range strings.SplitSeq(req.Header.Get("Accept"), ",") {
@@ -69,6 +72,7 @@ func filterClientAccept(req *http.Request) string {
 	return strings.Join(result, ",")
 }
 
+// isSafeURL validates that a URL resolves to public, globally routable IPs.
 func isSafeURL(raw string) error {
 	parsedURL, err := url.Parse(raw)
 	if err != nil || parsedURL.Scheme == "" || parsedURL.Hostname() == "" {

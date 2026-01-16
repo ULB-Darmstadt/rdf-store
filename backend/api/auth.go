@@ -7,6 +7,7 @@ import (
 	"strings"
 )
 
+// writeAccessGranted checks headers to determine write access and username.
 func writeAccessGranted(h http.Header) (granted bool, user string) {
 	if !base.Configuration.AuthEnabled {
 		granted = true

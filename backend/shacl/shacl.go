@@ -16,6 +16,7 @@ type NodeShape struct {
 	Graph      *rdf2go.Graph
 }
 
+// Parse loads a NodeShape from RDF data into the NodeShape struct.
 func (node *NodeShape) Parse(id rdf2go.Term, rdf *[]byte) (*NodeShape, error) {
 	node.Id = id
 	node.Parents = make(map[string]bool)
@@ -49,6 +50,7 @@ func (node *NodeShape) Parse(id rdf2go.Term, rdf *[]byte) (*NodeShape, error) {
 	return node, nil
 }
 
+// AddProperty registers a property, merging where appropriate.
 func (node *NodeShape) AddProperty(property *Property) {
 	if len(property.Path) > 0 {
 		// there can be multiple properties with same path. we merge them into one property (except qualifiedValueShapes)
@@ -66,6 +68,7 @@ func (node *NodeShape) AddProperty(property *Property) {
 	}
 }
 
+// ParentList returns the IDs of parent node shapes.
 func (node *NodeShape) ParentList() (list []string) {
 	// list = append(list, node.Id.RawValue())
 	for parent := range node.Parents {
@@ -74,6 +77,7 @@ func (node *NodeShape) ParentList() (list []string) {
 	return
 }
 
+// findPropertyWithoutQualifiedValueShape finds a property without a qualified shape.
 func (node *NodeShape) findPropertyWithoutQualifiedValueShape(path string) *Property {
 	if props, ok := node.Properties[path]; ok {
 		for _, prop := range props {
@@ -85,6 +89,7 @@ func (node *NodeShape) findPropertyWithoutQualifiedValueShape(path string) *Prop
 	return nil
 }
 
+// findPropertiesWithQualifiedValueShape filters properties by qualifiedValueShape.
 func (node *NodeShape) findPropertiesWithQualifiedValueShape(qualifiedMinCount int) []*Property {
 	result := make([]*Property, 0)
 	for _, props := range node.Properties {
@@ -97,6 +102,7 @@ func (node *NodeShape) findPropertiesWithQualifiedValueShape(qualifiedMinCount i
 	return result
 }
 
+// Print logs a human-readable representation of the node shape.
 func (node *NodeShape) Print() {
 	fmt.Println("Id: " + node.Id.RawValue())
 	fmt.Println("Parents:")
@@ -131,6 +137,7 @@ type Property struct {
 	Facet                           *bool
 }
 
+// Print logs a human-readable representation of the property.
 func (prop *Property) Print() {
 	fmt.Printf("\tPath: %v\n", prop.Path)
 	fmt.Printf("\tDatatype: %v\n", prop.Datatype)
@@ -145,6 +152,7 @@ func (prop *Property) Print() {
 	}
 }
 
+// Parse loads property constraints from a SHACL graph.
 func (prop *Property) Parse(id rdf2go.Term, parent *NodeShape, graph *rdf2go.Graph) (*Property, error) {
 	prop.Id = id
 	prop.Parent = parent
@@ -203,6 +211,7 @@ func (prop *Property) Parse(id rdf2go.Term, parent *NodeShape, graph *rdf2go.Gra
 	return prop, nil
 }
 
+// Merge combines constraint settings from another property definition.
 func (prop *Property) Merge(other *Property) {
 	prop.In = prop.In || other.In
 	prop.Class = prop.Class || other.Class
@@ -224,6 +233,7 @@ func (prop *Property) Merge(other *Property) {
 	}
 }
 
+// parseList traverses an RDF list into a slice of terms.
 func parseList(head rdf2go.Term, graph *rdf2go.Graph) []rdf2go.Term {
 	result := make([]rdf2go.Term, 0)
 	first := graph.One(head, RDF_LIST_FIRST, nil)

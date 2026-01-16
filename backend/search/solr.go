@@ -19,12 +19,14 @@ var client = solr.NewJSONClient(Endpoint)
 
 type document map[string]any
 
+// checkCollectionExists determines whether the Solr collection is reachable.
 func checkCollectionExists() bool {
 	query := solr.Query{}
 	_, err := client.Query(context.Background(), base.SolrIndex, &query)
 	return err == nil
 }
 
+// recreateCollection drops and rebuilds the Solr collection and schema.
 func recreateCollection() (err error) {
 	slog.Debug("recreating solr collection", "endpoint", Endpoint, "collection", base.SolrIndex)
 	if err := client.DeleteCollection(context.Background(), solr.NewCollectionParams().Name(base.SolrIndex)); err != nil {
@@ -47,6 +49,7 @@ func recreateCollection() (err error) {
 
 // This enables WKT polygon indexing. Note that we have installed "jts-core" in our docker image.
 // See https://solr.apache.org/guide/solr/latest/query-guide/spatial-search.html#jts-and-polygons-flat
+// patchLocationField enables spatial WKT indexing for the location field.
 func patchLocationField() error {
 	body := map[string]any{
 		"replace-field-type": map[string]any{
@@ -76,6 +79,7 @@ func patchLocationField() error {
 	return nil
 }
 
+// updateDoc submits a document update and commits it in Solr.
 func updateDoc(doc *document) error {
 	data, err := json.MarshalIndent(map[string]any{"add": map[string]interface{}{"doc": doc}}, "", "   ")
 	if err != nil {
@@ -94,6 +98,7 @@ func updateDoc(doc *document) error {
 	return nil
 }
 
+// deleteDocs deletes all documents beneath a root container id.
 func deleteDocs(root string) error {
 	data, err := json.Marshal(map[string]any{"delete": map[string]any{"query": "_root_:\"container_" + root + "\""}})
 	if err != nil {

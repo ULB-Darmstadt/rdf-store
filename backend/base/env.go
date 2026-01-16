@@ -14,6 +14,7 @@ var AuthEmailHeader = "X-Email"
 var AuthGroupsHeader = "X-Groups"
 var AuthWriteAccessGroup = EnvVar("WRITE_ACCESS_GROUP", "")
 
+// EnvVar returns an environment variable or a default value.
 func EnvVar(key string, defaultValue string) string {
 	if val, present := os.LookupEnv(key); present {
 		return val
@@ -21,6 +22,7 @@ func EnvVar(key string, defaultValue string) string {
 	return defaultValue
 }
 
+// EnvVarAsInt parses an environment variable into an integer with fallback.
 func EnvVarAsInt(key string, defaultValue int) int {
 	if val, present := os.LookupEnv(key); present {
 		res, err := strconv.Atoi(val)
@@ -34,6 +36,7 @@ func EnvVarAsInt(key string, defaultValue int) int {
 	return defaultValue
 }
 
+// EnvVarAsBool parses an environment variable into a boolean with fallback.
 func EnvVarAsBool(key string, defaultValue bool) bool {
 	if val, present := os.LookupEnv(key); present {
 		res, err := strconv.ParseBool(val)
@@ -47,6 +50,7 @@ func EnvVarAsBool(key string, defaultValue bool) bool {
 	return defaultValue
 }
 
+// EnvVarAsStringSlice splits a comma-separated env var into trimmed values.
 func EnvVarAsStringSlice(key string) []string {
 	var result []string
 	if val, present := os.LookupEnv(key); present {

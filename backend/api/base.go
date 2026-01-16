@@ -16,6 +16,7 @@ type JSONError struct {
 var Router = gin.Default()
 var BasePath = "/api/v1"
 
+// init configures CORS and base routes for the API router.
 func init() {
 	corsConfig := cors.New(cors.Config{
 		AllowOrigins:     base.AllowedOrigins,
@@ -31,6 +32,7 @@ func init() {
 	Router.GET(BasePath+"/config", handleConfig)
 }
 
+// handleConfig returns runtime configuration and auth context to the client.
 func handleConfig(c *gin.Context) {
 	writeAccess, user := writeAccessGranted(c.Request.Header)
 	config := base.AuthenticatedConfig{

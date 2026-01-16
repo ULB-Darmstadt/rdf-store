@@ -37,6 +37,7 @@ WHERE {
 `
 var labelsQueryTemplate = template.Must(template.New("listQuery").Funcs(template.FuncMap{}).Parse(labelsQuery))
 
+// GetLabels retrieves preferred labels for IDs in the given language.
 func GetLabels(language string, ids []string) (map[string]string, error) {
 	var result = make(map[string]string)
 	if len(ids) > 0 {
@@ -86,10 +87,12 @@ func GetLabels(language string, ids []string) (map[string]string, error) {
 	return result, nil
 }
 
+// CheckLabelsExist checks whether labels for a URL were already imported.
 func CheckLabelsExist(url string) (bool, error) {
 	return checkGraphExists(labelDataset, url)
 }
 
+// ExtractLabels stores label triples and optional SHACL-derived labels.
 func ExtractLabels(id string, graph *rdf2go.Graph, convertShaclProperties bool) error {
 	var result bytes.Buffer
 	var profileLables map[string]string
@@ -131,6 +134,7 @@ func ExtractLabels(id string, graph *rdf2go.Graph, convertShaclProperties bool) 
 	return nil
 }
 
+// ImportLabelsFromUrl loads an RDF graph from a URL and extracts labels.
 func ImportLabelsFromUrl(url string) (*rdf2go.Graph, error) {
 	slog.Info("importing labels from", "url", url)
 	header := http.Header{}
@@ -149,6 +153,7 @@ func ImportLabelsFromUrl(url string) (*rdf2go.Graph, error) {
 	return graph, nil
 }
 
+// findProfileLabels gathers label literals for a profile resource.
 func findProfileLabels(id rdf2go.Term, graph *rdf2go.Graph) map[string]string {
 	labels := make(map[string]string)
 	for labelPredicate := range LabelPredicates {
@@ -167,6 +172,7 @@ func findProfileLabels(id rdf2go.Term, graph *rdf2go.Graph) map[string]string {
 	return labels
 }
 
+// importLabelsFromStandardTaxonomies loads labels from configured taxonomies.
 func importLabelsFromStandardTaxonomies() error {
 	for _, url := range base.RdfStandardTaxonomies {
 		url = strings.TrimSpace(url)

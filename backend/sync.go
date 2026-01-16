@@ -29,6 +29,7 @@ type MPSSearchResultItem struct {
 var findBaseRegex = regexp.MustCompile(`@base <(.*)>`)
 var lock sync.Mutex
 
+// startSyncProfiles loads profiles and starts optional scheduled sync.
 func startSyncProfiles() error {
 	profiles, err := sparql.ParseAllProfiles()
 	if err != nil {
@@ -48,6 +49,7 @@ func startSyncProfiles() error {
 	return nil
 }
 
+// synchronize runs profile sync and triggers reindexing when changed.
 func synchronize() {
 	if lock.TryLock() {
 		defer lock.Unlock()
@@ -67,6 +69,7 @@ func synchronize() {
 	}
 }
 
+// synchronizeProfiles fetches profiles from sources and updates datasets.
 func synchronizeProfiles() (changed bool, err error) {
 	slog.Info("syncing profiles...")
 	start := time.Now()
@@ -181,6 +184,7 @@ func synchronizeProfiles() (changed bool, err error) {
 	return
 }
 
+// extractLabelsFromOwlImports recursively imports labels from owl:imports.
 func extractLabelsFromOwlImports(graph *rdf2go.Graph, profileIds map[string]bool) {
 	for _, importsStatement := range graph.All(nil, shacl.OWL_IMPORTS, nil) {
 		url := importsStatement.Object.RawValue()

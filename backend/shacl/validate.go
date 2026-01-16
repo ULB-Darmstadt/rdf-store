@@ -15,6 +15,7 @@ type validationResponse struct {
 	Conforms bool `json:"conforms"`
 }
 
+// Validate posts data and shapes to the SHACL validator service.
 func Validate(shapesGraph string, shapeID string, dataGraph string, dataID string) (bool, error) {
 	form := url.Values{}
 	form.Add("shapesGraph", shapesGraph)

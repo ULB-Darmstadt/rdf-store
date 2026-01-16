@@ -7,6 +7,7 @@ import (
 	"github.com/deiu/rdf2go"
 )
 
+// FindResourceProfile identifies the profile matching a resource graph.
 func FindResourceProfile(graph *rdf2go.Graph, id *rdf2go.Term, profiles map[string]*NodeShape) (resourceID rdf2go.Term, profile *NodeShape, err error) {
 	var refs []*rdf2go.Triple
 	if id == nil {
@@ -31,6 +32,7 @@ func FindResourceProfile(graph *rdf2go.Graph, id *rdf2go.Term, profiles map[stri
 	return
 }
 
+// DenormalizeQualifiedValueShapes expands qualified value shapes into properties.
 func (node *NodeShape) DenormalizeQualifiedValueShapes(shapes map[string]*NodeShape) {
 	for _, prop := range node.findPropertiesWithQualifiedValueShape(1) {
 		denormalizedShape := new(NodeShape)
@@ -48,6 +50,7 @@ func (node *NodeShape) DenormalizeQualifiedValueShapes(shapes map[string]*NodeSh
 	}
 }
 
+// DenormalizePropertyNodeShapes expands node shapes for properties.
 func (node *NodeShape) DenormalizePropertyNodeShapes(shapes map[string]*NodeShape) {
 	for _, props := range node.Properties {
 		for _, prop := range props {
@@ -69,6 +72,7 @@ func (node *NodeShape) DenormalizePropertyNodeShapes(shapes map[string]*NodeShap
 	}
 }
 
+// denormalizeShape flattens parent properties into the target shape.
 func denormalizeShape(current *NodeShape, target *NodeShape, shapes map[string]*NodeShape) {
 	target.Parents[current.Id.RawValue()] = true
 	for _, props := range current.Properties {

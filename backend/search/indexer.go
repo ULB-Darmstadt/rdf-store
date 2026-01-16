@@ -13,6 +13,7 @@ import (
 	"github.com/deiu/rdf2go"
 )
 
+// Init prepares the Solr collection and schema.
 func Init(forceRecreate bool) error {
 	if forceRecreate || !checkCollectionExists() {
 		if err := recreateCollection(); err != nil {
@@ -22,6 +23,7 @@ func Init(forceRecreate bool) error {
 	return nil
 }
 
+// Reindex rebuilds the Solr index from all resources.
 func Reindex() {
 	slog.Info("reindexing...")
 	start := time.Now()
@@ -61,6 +63,7 @@ func Reindex() {
 	slog.Info("reindexing finished", "resources", resourceCount, "duration", time.Since(start))
 }
 
+// IndexResource builds and submits search documents for a resource.
 func IndexResource(id rdf2go.Term, profile *shacl.NodeShape, graph *rdf2go.Graph, metadata *sparql.ResourceMetadata) error {
 	if err := DeindexResource(id.RawValue()); err != nil {
 		return err
@@ -94,10 +97,12 @@ func IndexResource(id rdf2go.Term, profile *shacl.NodeShape, graph *rdf2go.Graph
 	return updateDoc(&root)
 }
 
+// DeindexResource removes documents associated with a resource.
 func DeindexResource(id string) error {
 	return deleteDocs(id)
 }
 
+// buildDoc recursively constructs Solr documents from RDF graph data.
 func buildDoc(subject rdf2go.Term, profileId rdf2go.Term, profile *shacl.NodeShape, data *rdf2go.Graph, dataTurtle *string, current *document, denormalized bool) {
 	fmt.Println("--- build doc. subject=", subject.RawValue(), " profile=", profile.Id.RawValue(), "current=", (*current)["id"])
 	if !denormalized {
@@ -207,6 +212,7 @@ func buildDoc(subject rdf2go.Term, profileId rdf2go.Term, profile *shacl.NodeSha
 	}
 }
 
+// appendMultiValue appends values to a multi-value Solr field.
 func appendMultiValue(field string, value any, doc *document) {
 	if _, ok := (*doc)[field]; !ok {
 		(*doc)[field] = make([]any, 0)
@@ -218,6 +224,7 @@ func appendMultiValue(field string, value any, doc *document) {
 	}
 }
 
+// findLabels collects literal labels for a subject in the graph.
 func findLabels(subject rdf2go.Term, data *rdf2go.Graph) (labels []string) {
 	for _, triple := range data.All(subject, nil, nil) {
 		if _, ok := sparql.LabelPredicates[triple.Predicate.RawValue()]; ok {

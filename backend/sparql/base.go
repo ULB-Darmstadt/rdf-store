@@ -28,6 +28,7 @@ var ResourceDataset = base.EnvVar("FUSEKI_RESOURCE_DATASET", "resource")
 var profileDataset = base.EnvVar("FUSEKI_PROFILE_DATASET", "profile")
 var labelDataset = base.EnvVar("FUSEKI_LABEL_DATASET", "label")
 
+// init prepares datasets and imports local resources/labels.
 func init() {
 	if err := initDatasets(); err != nil {
 		log.Fatal("failed initializing datasets", err)
@@ -40,6 +41,7 @@ func init() {
 	}
 }
 
+// initDatasets ensures required Fuseki datasets exist.
 func initDatasets() error {
 	for _, dataset := range []string{ResourceDataset, profileDataset, labelDataset} {
 		// check if dataset exists
@@ -78,6 +80,7 @@ func initDatasets() error {
 	return nil
 }
 
+// importLocalResources loads local RDF graphs into the resource dataset.
 func importLocalResources() error {
 	baseDir := path.Join("local", "datagraph")
 	if files, err := os.ReadDir(baseDir); err == nil {
@@ -97,6 +100,7 @@ func importLocalResources() error {
 	return nil
 }
 
+// createGraph creates a new named graph in the target dataset.
 func createGraph(dataset string, id string, data []byte) error {
 	exists, err := checkGraphExists(dataset, id)
 	if err != nil {
@@ -108,6 +112,7 @@ func createGraph(dataset string, id string, data []byte) error {
 	return uploadGraph(dataset, id, data, nil)
 }
 
+// loadGraph fetches a graph's triples from a dataset.
 func loadGraph(dataset string, id string) (data []byte, err error) {
 	exists, err := checkGraphExists(dataset, id)
 	if err != nil {
@@ -120,6 +125,7 @@ func loadGraph(dataset string, id string) (data []byte, err error) {
 	return queryDataset(dataset, fmt.Sprintf(`CONSTRUCT { ?s ?p ?o } WHERE { GRAPH <%s> { ?s ?p ?o } }`, id))
 }
 
+// uploadGraph replaces a named graph and optionally extracts labels.
 func uploadGraph(dataset string, id string, data []byte, graph *rdf2go.Graph) (err error) {
 	if err = deleteGraph(dataset, id); err != nil {
 		return
@@ -172,6 +178,7 @@ func uploadGraph(dataset string, id string, data []byte, graph *rdf2go.Graph) (e
 	return
 }
 
+// deleteGraph removes a named graph and associated labels.
 func deleteGraph(dataset string, id string) (err error) {
 	err = updateDataset(dataset, fmt.Sprintf(`DROP GRAPH <%s>`, id))
 	if err != nil {
@@ -184,6 +191,7 @@ func deleteGraph(dataset string, id string) (err error) {
 	return
 }
 
+// checkGraphExists asks the dataset whether a named graph exists.
 func checkGraphExists(dataset string, id string) (exists bool, err error) {
 	// prevent SPARQL injection
 	if !isValidIRI(id) {
@@ -219,6 +227,7 @@ func checkGraphExists(dataset string, id string) (exists bool, err error) {
 	return
 }
 
+// getAllGraphIds lists graph identifiers in a dataset.
 func getAllGraphIds(dataset string) ([]string, error) {
 	bindings, err := queryDataset(dataset, "SELECT DISTINCT ?g WHERE { GRAPH ?g { } }")
 	if err != nil {
@@ -239,6 +248,7 @@ func getAllGraphIds(dataset string) ([]string, error) {
 	return ids, nil
 }
 
+// queryDataset executes a SPARQL query and returns the JSON response bytes.
 func queryDataset(dataset string, query string) (data []byte, err error) {
 	body := url.Values{}
 	body.Set("query", query)
@@ -265,6 +275,7 @@ func queryDataset(dataset string, query string) (data []byte, err error) {
 	return
 }
 
+// updateDataset executes a SPARQL update query.
 func updateDataset(dataset string, query string) (err error) {
 	form := url.Values{}
 	form.Set("update", query)
@@ -289,6 +300,7 @@ func updateDataset(dataset string, query string) (err error) {
 	return
 }
 
+// sparqlResultToNQuads converts SPARQL JSON results into N-Quads.
 func sparqlResultToNQuads(bindings []byte) ([]byte, error) {
 	res, err := sparql.ParseJSON(bytes.NewReader(bindings))
 	if err != nil {

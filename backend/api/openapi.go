@@ -13,6 +13,7 @@ import (
 
 var apispec = newApiSpec()
 
+// init registers endpoints for OpenAPI JSON and YAML specs.
 func init() {
 	Router.GET(BasePath+"/openapi.json", func(c *gin.Context) {
 		c.JSON(http.StatusOK, apispec)
@@ -31,6 +32,7 @@ func init() {
 }
 
 // newApiSpec instantiates the OpenAPI specification for this service.
+// newApiSpec constructs the OpenAPI specification for this service.
 func newApiSpec() *openapi3.T {
 	spec := &openapi3.T{
 		OpenAPI: "3.1.0",

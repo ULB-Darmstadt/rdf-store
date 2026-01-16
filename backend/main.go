@@ -14,6 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// main starts background tasks and serves the HTTP API.
 func main() {
 	// handle non-API requests by trying to serve embedded static files (frontend and swagger UI)
 	api.Router.NoRoute(serveStaticFiles())
@@ -36,6 +37,7 @@ var frontend embed.FS
 //go:embed swagger/*
 var swagger embed.FS
 
+// serveStaticFiles returns a handler for embedded frontend and swagger UI assets.
 func serveStaticFiles() func(c *gin.Context) {
 	frontendFS, err := fs.Sub(frontend, "frontend")
 	if err != nil {
