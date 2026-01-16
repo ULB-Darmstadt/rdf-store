@@ -101,7 +101,7 @@ export class Editor extends LitElement {
                     data-shape-subject="${this.selectedShape}"
                     data-shapes-url="${this.selectedShape}"
                     data-values-namespace="${this.rdfNamespace}"
-                    data-proxy="${BACKEND_URL}/proxy?url="
+                    data-proxy="${BACKEND_URL}/rdfproxy?url="
                     data-hierarchy-colors
                 ></shacl-form>
                 <div class="buttons">

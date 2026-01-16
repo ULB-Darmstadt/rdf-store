@@ -45,7 +45,7 @@ export class Viewer extends LitElement {
 
     updated(changedProperties: PropertyValues) {
         if ((changedProperties.has('rdfSubject') || changedProperties.has('highlightSubject')) && this.rdfSubject) {
-            this.highlightSubject = this.highlightSubject ?? this.rdfSubject
+            this.highlightSubject = this.highlightSubject || this.rdfSubject
             this.editMode = false
             this.editable = false
             this.load()
@@ -169,7 +169,7 @@ export class Viewer extends LitElement {
                     data-values="${this.rdf}"
                     data-values-subject="${this.rdfSubject}"
                     data-values-namespace="${this.rdfNamespace}"
-                    data-proxy="${BACKEND_URL}/proxy?url="
+                    data-proxy="${BACKEND_URL}/rdfproxy?url="
                     data-hierarchy-colors
                     ?data-view=${!this.editMode}
                     data-show-root-shape-label
