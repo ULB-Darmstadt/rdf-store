@@ -10,6 +10,7 @@ import (
 
 var Profiles map[string]*shacl.NodeShape
 
+// ParseAllProfiles loads all profiles, parses shapes, and populates cache.
 func ParseAllProfiles() (map[string]*shacl.NodeShape, error) {
 	profileIds, err := GetAllProfileIds()
 	if err != nil {
@@ -57,6 +58,7 @@ func ParseAllProfiles() (map[string]*shacl.NodeShape, error) {
 	return Profiles, nil
 }
 
+// isValidIRI validates that a value is a URL-like IRI.
 func isValidIRI(value string) bool {
 	u, err := url.Parse(value)
 	return err == nil && u.Scheme != ""

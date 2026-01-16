@@ -7,6 +7,7 @@ import (
 	"rdf-store-backend/sparql"
 )
 
+// main runs command-line utilities for administration tasks.
 func main() {
 	if len(os.Args) < 2 {
 		fmt.Println("missing command argument")

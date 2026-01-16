@@ -15,6 +15,7 @@ var prefixDcTerms = "http://purl.org/dc/terms/%s"
 var dcTermsCreator = fmt.Sprintf(prefixDcTerms, "creator")
 var dcTermsModified = fmt.Sprintf(prefixDcTerms, "modified")
 
+// GetResource fetches an RDF resource graph and optional metadata.
 func GetResource(id string, union bool) (resource []byte, metadata *ResourceMetadata, err error) {
 	if union {
 		exists, err2 := checkGraphExists(ResourceDataset, id)
@@ -40,6 +41,7 @@ func GetResource(id string, union bool) (resource []byte, metadata *ResourceMeta
 	return
 }
 
+// CreateResource stores a new resource and updates metadata.
 func CreateResource(id string, resource []byte, creator string) (*ResourceMetadata, error) {
 	if err := createGraph(ResourceDataset, id, resource); err != nil {
 		return nil, err
@@ -47,6 +49,7 @@ func CreateResource(id string, resource []byte, creator string) (*ResourceMetada
 	return updateResourceMetadata(id, creator)
 }
 
+// UpdateResource validates permissions, updates the graph, and metadata.
 func UpdateResource(id string, resource []byte, creator string) (*ResourceMetadata, error) {
 	if err := validateCreator(id, creator); err != nil {
 		return nil, err
@@ -57,6 +60,7 @@ func UpdateResource(id string, resource []byte, creator string) (*ResourceMetada
 	return updateResourceMetadata(id, creator)
 }
 
+// DeleteResource removes a resource graph and metadata.
 func DeleteResource(id string, creator string) error {
 	if err := validateCreator(id, creator); err != nil {
 		return err
@@ -67,10 +71,12 @@ func DeleteResource(id string, creator string) error {
 	return deleteResourceMetadata(id)
 }
 
+// GetAllResourceIds lists all resource graph IDs.
 func GetAllResourceIds() ([]string, error) {
 	return getAllGraphIds(ResourceDataset)
 }
 
+// GetClassInstances retrieves all instances of a given RDF class.
 func GetClassInstances(class string) ([]byte, error) {
 	// prevent SPARQL injection
 	if !isValidIRI(class) {
@@ -83,6 +89,7 @@ func GetClassInstances(class string) ([]byte, error) {
 	return sparqlResultToNQuads(bindings)
 }
 
+// validateCreator ensures the requester matches stored creator metadata.
 func validateCreator(id string, user string) error {
 	if user == "" {
 		return nil
@@ -103,6 +110,7 @@ type ResourceMetadata struct {
 	LastModified time.Time
 }
 
+// loadResourceMetadata reads resource metadata triples.
 func loadResourceMetadata(id string) (metadata *ResourceMetadata, err error) {
 	metadata = &ResourceMetadata{}
 	bindings, err := queryDataset(ResourceDataset, fmt.Sprintf(`SELECT ?p ?o WHERE { <%s> ?p ?o }`, id))
@@ -144,6 +152,7 @@ var metadataUpdateTemplate = template.Must(template.New("").Funcs(template.FuncM
 	}
 `))
 
+// updateResourceMetadata writes updated creator and modified timestamp triples.
 func updateResourceMetadata(id string, creator string) (metadata *ResourceMetadata, err error) {
 	deleteResourceMetadata(id)
 	metadata = &ResourceMetadata{
@@ -162,6 +171,7 @@ func updateResourceMetadata(id string, creator string) (metadata *ResourceMetada
 	return
 }
 
+// deleteResourceMetadata removes all metadata triples for a resource.
 func deleteResourceMetadata(id string) error {
 	return updateDataset(ResourceDataset, fmt.Sprintf("DELETE WHERE { <%s> ?p ?o }", id))
 }

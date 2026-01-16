@@ -20,6 +20,7 @@ import (
 var fusekiProxy *httputil.ReverseProxy
 var fusekiProxyTarget *url.URL
 
+// init configures the Fuseki proxy and registers RDF API routes.
 func init() {
 	var err error
 	// init fuseki proxy
@@ -49,6 +50,7 @@ func init() {
 	}
 }
 
+// handleFusekiSparql proxies SPARQL queries to Fuseki with auth header.
 func handleFusekiSparql(c *gin.Context) {
 	c.Request.URL.Path = fmt.Sprintf("/%s/query", sparql.ResourceDataset)
 	c.Request.URL.Scheme = fusekiProxyTarget.Scheme
@@ -59,6 +61,7 @@ func handleFusekiSparql(c *gin.Context) {
 	fusekiProxy.ServeHTTP(c.Writer, c.Request)
 }
 
+// handleFusekiFrontend proxies the Fuseki UI when exposed.
 func handleFusekiFrontend(c *gin.Context) {
 	c.Request.URL.Path = fusekiProxyTarget.Path + c.Param("proxyPath")
 	c.Request.URL.Scheme = fusekiProxyTarget.Scheme
@@ -68,6 +71,7 @@ func handleFusekiFrontend(c *gin.Context) {
 	fusekiProxy.ServeHTTP(c.Writer, c.Request)
 }
 
+// handleGetResource retrieves a resource and returns it as Turtle.
 func handleGetResource(c *gin.Context) {
 	id := c.Param("id")
 	did, err := url.QueryUnescape(id)
@@ -89,6 +93,7 @@ func handleGetResource(c *gin.Context) {
 	c.Data(http.StatusOK, "text/turtle", resource)
 }
 
+// handleAddResource validates and stores a new RDF resource.
 func handleAddResource(c *gin.Context) {
 	granted, user := writeAccessGranted(c.Request.Header)
 	if !granted {
@@ -140,6 +145,7 @@ func handleAddResource(c *gin.Context) {
 	c.String(http.StatusNoContent, "")
 }
 
+// handleUpdateResource validates and updates an existing RDF resource.
 func handleUpdateResource(c *gin.Context) {
 	granted, user := writeAccessGranted(c.Request.Header)
 	if !granted {
@@ -200,6 +206,7 @@ func handleUpdateResource(c *gin.Context) {
 	c.String(http.StatusNoContent, "")
 }
 
+// handleDeleteResource deletes a resource and updates the search index.
 func handleDeleteResource(c *gin.Context) {
 	granted, user := writeAccessGranted(c.Request.Header)
 	if !granted {
@@ -227,6 +234,7 @@ func handleDeleteResource(c *gin.Context) {
 	c.String(http.StatusNoContent, "")
 }
 
+// handleGetProfile returns a profile graph in Turtle.
 func handleGetProfile(c *gin.Context) {
 	id := c.Param("id")
 	did, err := url.QueryUnescape(id)
@@ -245,6 +253,7 @@ func handleGetProfile(c *gin.Context) {
 	c.Data(http.StatusOK, "text/turtle", graph)
 }
 
+// handleGetClassInstances returns instances of a given RDF class.
 func handleGetClassInstances(c *gin.Context) {
 	class := c.Query("class")
 	if len(class) == 0 {
@@ -262,6 +271,7 @@ func handleGetClassInstances(c *gin.Context) {
 	c.Data(http.StatusOK, "text/turtle", instances)
 }
 
+// readGraphFromRequest parses RDF Turtle from a form parameter.
 func readGraphFromRequest(c *gin.Context) (graph *rdf2go.Graph, err error) {
 	if ttl := c.PostForm("ttl"); ttl != "" {
 		graph, err = base.ParseGraph(strings.NewReader(ttl))
@@ -271,6 +281,7 @@ func readGraphFromRequest(c *gin.Context) (graph *rdf2go.Graph, err error) {
 	return
 }
 
+// readGraphBytesFromRequest reads raw RDF Turtle bytes from a form parameter.
 func readGraphBytesFromRequest(c *gin.Context) (data []byte, err error) {
 	if ttl := c.PostForm("ttl"); ttl != "" {
 		data = []byte(ttl)

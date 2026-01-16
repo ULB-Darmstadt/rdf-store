@@ -17,16 +17,19 @@ import (
 var fixBooleanRegex = regexp.MustCompile(`(true|false)(\s*)]`)
 
 // dirty fix for buggy boolean parsing in rdf2go
+// FixBooleansInRDF normalizes boolean list syntax for rdf2go parsing.
 func FixBooleansInRDF(profile []byte) []byte {
 	return fixBooleanRegex.ReplaceAll(profile, []byte("${1} ; ]"))
 }
 
+// ParseGraph parses RDF Turtle content into a graph.
 func ParseGraph(reader io.Reader) (graph *rdf2go.Graph, err error) {
 	graph = rdf2go.NewGraph("")
 	err = graph.Parse(reader, "text/turtle")
 	return
 }
 
+// CacheLoad retrieves a URL and caches the response body on disk.
 func CacheLoad(url string, accept string) ([]byte, error) {
 	cacheFilename := path.Join("local", "cache", strings.ReplaceAll(url, "/", "🐴"))
 	data, err := os.ReadFile(cacheFilename)
@@ -66,6 +69,7 @@ func CacheLoad(url string, accept string) ([]byte, error) {
 	return data, nil
 }
 
+// Hash computes a stable hash for the provided bytes.
 func Hash(data []byte) uint32 {
 	h := fnv.New32a()
 	h.Write(data)

@@ -15,10 +15,12 @@ import (
 var hashPredicate = "<spdx:checksumValue>"
 var BlankNodeReplacement = "rdf-store:"
 
+// GetProfile loads a profile graph from the profile dataset.
 func GetProfile(id string) (profile []byte, err error) {
 	return loadGraph(profileDataset, id)
 }
 
+// UpdateProfile stores a profile after replacing blank nodes and hashing.
 func UpdateProfile(id string, profile []byte) (*rdf2go.Graph, error) {
 	graph, err := replaceBlankNodes(profile)
 	if err != nil {
@@ -43,6 +45,7 @@ func UpdateProfile(id string, profile []byte) (*rdf2go.Graph, error) {
 	return graph, nil
 }
 
+// DeleteProfile removes a profile graph and its hash metadata.
 func DeleteProfile(id string) error {
 	if err := deleteProfileHash(id); err != nil {
 		return err
@@ -50,10 +53,12 @@ func DeleteProfile(id string) error {
 	return deleteGraph(profileDataset, id)
 }
 
+// GetAllProfileIds lists all profile graph IDs.
 func GetAllProfileIds() ([]string, error) {
 	return getAllGraphIds(profileDataset)
 }
 
+// GetProfileHash reads the stored hash for a profile.
 func GetProfileHash(id string) (uint32, error) {
 	bindings, err := queryDataset(profileDataset, fmt.Sprintf("SELECT ?hash WHERE { <%s> %s ?hash }", id, hashPredicate))
 	if err != nil {
@@ -76,10 +81,12 @@ func GetProfileHash(id string) (uint32, error) {
 	return 0, fmt.Errorf("hash not found for profile %s", id)
 }
 
+// saveProfileHash stores the hash value for a profile.
 func saveProfileHash(id string, hash uint32) error {
 	return updateDataset(profileDataset, fmt.Sprintf("INSERT DATA { <%s> %s %d . }", id, hashPredicate, hash))
 }
 
+// deleteProfileHash removes the stored hash for a profile.
 func deleteProfileHash(id string) error {
 	return updateDataset(profileDataset, fmt.Sprintf(`DELETE WHERE { <%s> %s ?hash . }`, id, hashPredicate))
 }
@@ -87,6 +94,7 @@ func deleteProfileHash(id string) error {
 /*
 We need to convert blank nodes to proper named nodes so that they can be referred to (e.g. by the search facets or for validating against specific qualifiedValueShapes).
 */
+// replaceBlankNodes substitutes blank nodes with stable resource identifiers.
 func replaceBlankNodes(profile []byte) (graph *rdf2go.Graph, err error) {
 	input, err := base.ParseGraph(bytes.NewReader(profile))
 	if err != nil {
