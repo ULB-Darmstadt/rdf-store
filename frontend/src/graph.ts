@@ -72,25 +72,43 @@ export class RdfGraph extends LitElement {
     infopane!: HTMLElement
 
     showInfoPane = (node: Node, pinned: boolean) => {
-        let content = `<h4>${i18n[node.id] || node.id}</h4><dl>`
+        const pane = this.infopane
+        pane.replaceChildren()
+
+        const title = document.createElement('h4')
+        title.textContent = i18n[node.id] || node.id
+        pane.appendChild(title)
+
+        const list = document.createElement('dl')
         if (i18n[node.id]) {
-            content += `<dt>ID</dt><dd>${node.id}</dd>`
+            const dt = document.createElement('dt')
+            dt.textContent = 'ID'
+            const dd = document.createElement('dd')
+            dd.textContent = node.id
+            list.append(dt, dd)
         }
         for (const [key, values] of Object.entries(node.properties)) {
             for (const value of values) {
-                content += `<dt>${i18n[key] || key}</dt><dd>${i18n[value] || value}</dd>`
+            const dt = document.createElement('dt')
+            dt.textContent = i18n[key] || key
+            const dd = document.createElement('dd')
+            dd.textContent = i18n[value] || value
+            list.append(dt, dd)
             }
         }
-        content += `</dl>`
-        d3.select(this.infopane).html(content).transition().style('opacity', 1)
+        pane.appendChild(list)
+
+        d3.select(pane).transition().style('opacity', 1)
         this.infopane.classList.toggle('pinned', pinned)
     }
+
     hideInfoPane = (_?: Event, force: boolean = true) => {
         if (force || !this.infopane.classList.contains('pinned')) {
             d3.select(this.infopane).transition().style('opacity', 0)
             this.infopane.classList.remove('pinned')
         }
     }
+    
     keyListener = (event: KeyboardEvent) => { if (event.key === 'Escape') { this.hideInfoPane(undefined) }}
 
     updated(pv: PropertyValues) {
