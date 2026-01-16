@@ -25,18 +25,15 @@ RUN go mod download && go mod verify
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-w -s" -o rdf-store-backend .
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-w -s" -o rdf-store-cli ./cli/main.go
 
-FROM scratch
+FROM busybox:1.37
 ARG TZ
-# COPY --from=build-backend-stage /etc/passwd /etc/
-# COPY --from=build-backend-stage /etc/group /etc/
 COPY --from=build-backend-stage /usr/share/zoneinfo /usr/share/zoneinfo
-# copy ca certificates -> otherwise go panics when trying to make https requests
 COPY --from=build-backend-stage /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 
 WORKDIR /app
 COPY --from=build-backend-stage /app/rdf-store-backend .
 COPY --from=build-backend-stage /app/rdf-store-cli .
 ENV TZ=$TZ
-ENV PATH=/app
+ENV PATH=$PATH:/app
 EXPOSE 3000
 CMD ["./rdf-store-backend"] 

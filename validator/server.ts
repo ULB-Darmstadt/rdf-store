@@ -10,6 +10,11 @@ function checkSingleFormParamExists(form: Record<string, string | string[] | und
 
 const server = http.createServer()
 server.on('request', (req, res) => {
+    if (req.method === 'GET' && req.url === '/healthz') {
+        res.writeHead(200)
+        res.end('ok')
+        return
+    }
     if (req.method === 'POST') {
         let body = ''
         req.on('data', chunk => {

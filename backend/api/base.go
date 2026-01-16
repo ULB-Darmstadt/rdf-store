@@ -29,7 +29,13 @@ func init() {
 	Router.Use(corsConfig)
 	Router.SetTrustedProxies(nil)
 	Router.UseRawPath = true
+	Router.GET(BasePath+"/healthz", handleHealthz)
 	Router.GET(BasePath+"/config", handleConfig)
+}
+
+// handleHealthz returns a lightweight health response for liveness checks.
+func handleHealthz(c *gin.Context) {
+	c.String(http.StatusOK, "ok")
 }
 
 // handleConfig returns runtime configuration and auth context to the client.
