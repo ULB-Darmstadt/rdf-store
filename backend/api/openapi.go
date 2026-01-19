@@ -240,9 +240,12 @@ func addPaths(spec *openapi3.T) {
 	spec.Paths.Set("/rdfproxy", &openapi3.PathItem{Get: &openapi3.Operation{
 		Summary:     "Proxy RDF content by URL",
 		OperationID: "rdfProxy",
-		Parameters: openapi3.Parameters{&openapi3.ParameterRef{
-			Value: openapi3.NewQueryParameter("url").WithRequired(true),
-		}},
+		Parameters: openapi3.Parameters{
+			&openapi3.ParameterRef{
+				Value: openapi3.NewQueryParameter("url").WithRequired(true),
+			},
+			rdfProxyAcceptHeaderParam(),
+		},
 		Responses: responses(map[string]*openapi3.Response{
 			"200": openapi3.NewResponse().WithDescription("RDF content"),
 			"400": errorResponse(),
@@ -339,5 +342,17 @@ func responses(items map[string]*openapi3.Response) *openapi3.Responses {
 func pathParam(name string) *openapi3.ParameterRef {
 	return &openapi3.ParameterRef{
 		Value: openapi3.NewPathParameter(name).WithRequired(true),
+	}
+}
+
+func rdfProxyAcceptHeaderParam() *openapi3.ParameterRef {
+	values := make([]interface{}, 0, len(allowedContentTypes))
+	for _, value := range allowedContentTypes {
+		values = append(values, value)
+	}
+	return &openapi3.ParameterRef{
+		Value: openapi3.NewHeaderParameter("Accept").
+			WithDescription("Allowed RDF content types for rdfproxy responses.").
+			WithSchema(openapi3.NewStringSchema().WithEnum(values...)),
 	}
 }
