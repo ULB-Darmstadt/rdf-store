@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"rdf-store-backend/profilesync"
 	"rdf-store-backend/search"
 	"rdf-store-backend/sparql"
 )
@@ -17,6 +18,8 @@ func main() {
 	case "reindex":
 		sparql.ParseAllProfiles()
 		search.Reindex()
+	case "sync":
+		profilesync.Synchronize()
 	default:
 		fmt.Println("unknown command", os.Args[1])
 		os.Exit(-1)
