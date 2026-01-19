@@ -25,6 +25,7 @@ import (
 var Endpoint = base.EnvVar("FUSEKI_ENDPOINT", "http://localhost:3030")
 var AuthHeader = fmt.Sprintf("Basic %s", base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s:%s", base.EnvVar("FUSEKI_USER", "admin"), base.EnvVar("FUSEKI_PASSWORD", "secret")))))
 var ResourceDataset = base.EnvVar("FUSEKI_RESOURCE_DATASET", "resource")
+var resourceMetaDataset = base.EnvVar("FUSEKI_RESOURCE_META_DATASET", "resourcemeta")
 var profileDataset = base.EnvVar("FUSEKI_PROFILE_DATASET", "profile")
 var labelDataset = base.EnvVar("FUSEKI_LABEL_DATASET", "label")
 
@@ -43,7 +44,7 @@ func init() {
 
 // initDatasets ensures required Fuseki datasets exist.
 func initDatasets() error {
-	for _, dataset := range []string{ResourceDataset, profileDataset, labelDataset} {
+	for _, dataset := range []string{ResourceDataset, resourceMetaDataset, profileDataset, labelDataset} {
 		// check if dataset exists
 		req, err := http.NewRequest("GET", fmt.Sprintf("%s/$/stats/%s", Endpoint, dataset), nil)
 		if err != nil {
@@ -161,8 +162,8 @@ func uploadGraph(dataset string, id string, data []byte, graph *rdf2go.Graph) (e
 		}
 		return fmt.Errorf("failed uploading graph %s in dataset %s - status: %v, response: '%v'", id, dataset, resp.StatusCode, message)
 	}
-	// extract labels from graph
-	if dataset != labelDataset {
+	// extract labels from profiles and resources
+	if dataset == profileDataset || dataset == ResourceDataset {
 		if graph == nil {
 			graph, err = base.ParseGraph(bytes.NewReader(data))
 			if err != nil {
@@ -178,15 +179,21 @@ func uploadGraph(dataset string, id string, data []byte, graph *rdf2go.Graph) (e
 	return
 }
 
-// deleteGraph removes a named graph and associated labels.
+// deleteGraph removes a named graph, associated labels and resource metadata.
 func deleteGraph(dataset string, id string) (err error) {
 	err = updateDataset(dataset, fmt.Sprintf(`DROP GRAPH <%s>`, id))
 	if err != nil {
 		return
 	}
 	// delete labels that were sourced from the deleted graph
-	if dataset != labelDataset {
-		err = deleteGraph(labelDataset, id)
+	if dataset == profileDataset || dataset == ResourceDataset {
+		if err = deleteGraph(labelDataset, id); err != nil {
+			slog.Warn("failed deleting labels extracted from", "id", id)
+		}
+	}
+	if dataset == ResourceDataset {
+		// delete resource metadata that were sourced from the deleted graph
+		err = deleteGraph(resourceMetaDataset, id)
 	}
 	return
 }
