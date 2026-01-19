@@ -13,8 +13,9 @@ type JSONError struct {
 	Error string `json:"error"`
 }
 
-var Router = gin.Default()
+var Router = gin.New()
 var BasePath = "/api/v1"
+var livelinessEndpoint = "/healthz"
 
 // init configures CORS and base routes for the API router.
 func init() {
@@ -26,10 +27,15 @@ func init() {
 		AllowCredentials: true,
 		MaxAge:           12 * time.Hour,
 	})
+	// exclude liveliness checks from access logs
+	Router.Use(gin.LoggerWithConfig(gin.LoggerConfig{
+		SkipPaths: []string{BasePath + livelinessEndpoint},
+	}))
+	Router.Use(gin.Recovery())
 	Router.Use(corsConfig)
 	Router.SetTrustedProxies(nil)
 	Router.UseRawPath = true
-	Router.GET(BasePath+"/healthz", handleHealthz)
+	Router.GET(BasePath+livelinessEndpoint, handleHealthz)
 	Router.GET(BasePath+"/config", handleConfig)
 }
 
