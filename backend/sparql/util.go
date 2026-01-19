@@ -1,9 +1,13 @@
 package sparql
 
 import (
+	"fmt"
+	"io"
+	"net/http"
 	"net/url"
 	"rdf-store-backend/base"
 	"rdf-store-backend/shacl"
+	"strings"
 
 	"github.com/deiu/rdf2go"
 )
@@ -62,4 +66,29 @@ func ParseAllProfiles() (map[string]*shacl.NodeShape, error) {
 func isValidIRI(value string) bool {
 	u, err := url.Parse(value)
 	return err == nil && u.Scheme != ""
+}
+
+func doRequest(req *http.Request) (int, []byte, error) {
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return 0, nil, err
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return resp.StatusCode, nil, err
+	}
+	return resp.StatusCode, data, nil
+}
+
+func newHTTPError(context string, status int, body []byte) error {
+	message := strings.TrimSpace(string(body))
+	if message == "" {
+		return fmt.Errorf("%s - status: %d", context, status)
+	}
+	return fmt.Errorf("%s - status: %d, response: %q", context, status, message)
+}
+
+func statusIsOK(status int) bool {
+	return status >= 200 && status <= 299
 }

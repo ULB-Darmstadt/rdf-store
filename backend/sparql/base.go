@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"log/slog"
 	"mime/multipart"
@@ -51,12 +50,11 @@ func initDatasets() error {
 			return err
 		}
 		req.Header.Set("Authorization", AuthHeader)
-		resp, err := http.DefaultClient.Do(req)
+		status, body, err := doRequest(req)
 		if err != nil {
 			return err
 		}
-		defer resp.Body.Close()
-		if resp.StatusCode != 200 {
+		if status != http.StatusOK {
 			// dataset does not exist, so create it
 			req, err = http.NewRequest(http.MethodPost, fmt.Sprintf("%s/$/datasets?dbName=%s&dbType=TDB2", Endpoint, dataset), nil)
 			if err != nil {
@@ -64,17 +62,12 @@ func initDatasets() error {
 			}
 			req.Header.Set("Authorization", AuthHeader)
 			// req.Header.Set("Content-Type", "text/turtle")
-			resp, err = http.DefaultClient.Do(req)
+			status, body, err = doRequest(req)
 			if err != nil {
 				return err
 			}
-			defer resp.Body.Close()
-			if resp.StatusCode != 200 {
-				data, err := io.ReadAll(resp.Body)
-				if err != nil {
-					return err
-				}
-				return fmt.Errorf("failed creating dataset. status: %v, response: %v", resp.StatusCode, string(data))
+			if !statusIsOK(status) {
+				return newHTTPError(fmt.Sprintf("failed creating dataset %s", dataset), status, body)
 			}
 		}
 	}
@@ -150,17 +143,12 @@ func uploadGraph(dataset string, id string, data []byte, graph *rdf2go.Graph) (e
 	req.Header.Add("Content-Type", writer.FormDataContentType())
 	req.Header.Set("Authorization", AuthHeader)
 
-	resp, err := http.DefaultClient.Do(req)
+	status, responseBody, err := doRequest(req)
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		message := ""
-		if body, err := io.ReadAll(resp.Body); err == nil {
-			message = string(body)
-		}
-		return fmt.Errorf("failed uploading graph %s in dataset %s - status: %v, response: '%v'", id, dataset, resp.StatusCode, message)
+	if !statusIsOK(status) {
+		return newHTTPError(fmt.Sprintf("failed uploading graph %s in dataset %s", id, dataset), status, responseBody)
 	}
 	// extract labels from profiles and resources
 	if dataset == profileDataset || dataset == ResourceDataset {
@@ -213,13 +201,12 @@ func checkGraphExists(dataset string, id string) (exists bool, err error) {
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
-	resp, err := http.DefaultClient.Do(req)
+	status, data, err := doRequest(req)
 	if err != nil {
 		return
 	}
-	defer resp.Body.Close()
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
+	if status != http.StatusOK {
+		err = newHTTPError(fmt.Sprintf("failed checking graph %s in dataset %s", id, dataset), status, data)
 		return
 	}
 	var response map[string]interface{}
@@ -265,20 +252,15 @@ func queryDataset(dataset string, query string) (data []byte, err error) {
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	resp, err := http.DefaultClient.Do(req)
+	status, responseBody, err := doRequest(req)
 	if err != nil {
 		return
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		message := ""
-		if body, err := io.ReadAll(resp.Body); err == nil {
-			message = string(body)
-		}
-		err = fmt.Errorf(`failed querying dataset "%s" - status: %d, query: %s, message: '%s'`, dataset, resp.StatusCode, query, message)
-	} else {
-		data, err = io.ReadAll(resp.Body)
+	if status != http.StatusOK {
+		err = newHTTPError(fmt.Sprintf(`failed querying dataset "%s" with query: %s`, dataset, query), status, responseBody)
+		return
 	}
+	data = responseBody
 	return
 }
 
@@ -292,17 +274,12 @@ func updateDataset(dataset string, query string) (err error) {
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Authorization", AuthHeader)
-	resp, err := http.DefaultClient.Do(req)
+	status, responseBody, err := doRequest(req)
 	if err != nil {
 		return
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		message := ""
-		if body, err := io.ReadAll(resp.Body); err == nil {
-			message = string(body)
-		}
-		err = fmt.Errorf(`failed updating dataset "%s" - status: %d, query: %s, message: '%s'`, dataset, resp.StatusCode, query, message)
+	if !statusIsOK(status) {
+		err = newHTTPError(fmt.Sprintf(`failed updating dataset "%s" with query: %s`, dataset, query), status, responseBody)
 	}
 	return
 }
