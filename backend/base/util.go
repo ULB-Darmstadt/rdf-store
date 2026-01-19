@@ -45,7 +45,8 @@ func CacheLoad(url string, accept string) ([]byte, error) {
 		}
 		defer resp.Body.Close()
 
-		if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		// we explicitly allow and cache 404 results in order to not request them again
+		if (resp.StatusCode < 200 || resp.StatusCode > 299) && resp.StatusCode != 404 {
 			message := ""
 			if body, err := io.ReadAll(resp.Body); err == nil {
 				message = string(body)
