@@ -4,17 +4,22 @@ import (
 	"embed"
 	"io/fs"
 	"log"
+	"log/slog"
 	"mime"
 	"net/http"
 	"path/filepath"
 	"rdf-store-backend/api"
+	"rdf-store-backend/base"
+	"rdf-store-backend/profilesync"
 	"rdf-store-backend/search"
+	"rdf-store-backend/sparql"
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/robfig/cron/v3"
 )
 
-// main starts background tasks and serves the HTTP API.
+// main starts background tasks, serves the HTTP API and static files (frontend and swagger).
 func main() {
 	// handle non-API requests by trying to serve embedded static files (frontend and swagger UI)
 	api.Router.NoRoute(serveStaticFiles())
@@ -29,6 +34,26 @@ func main() {
 	if err := api.Router.Run(":3000"); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// startSyncProfiles loads profiles and starts optional scheduled sync.
+func startSyncProfiles() error {
+	profiles, err := sparql.ParseAllProfiles()
+	if err != nil {
+		return err
+	}
+
+	if len(base.SyncSchedule) > 0 {
+		c := cron.New()
+		c.AddFunc(base.SyncSchedule, profilesync.Synchronize)
+		c.Start()
+		slog.Info("started scheduled profile sync", "cron", base.SyncSchedule, "details", c.Entries())
+	}
+	// sync immediately if we start with no profiles (empty database) or no schedule
+	if len(base.SyncSchedule) == 0 || len(profiles) == 0 {
+		profilesync.Synchronize()
+	}
+	return nil
 }
 
 //go:embed frontend/*
