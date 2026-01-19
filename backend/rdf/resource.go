@@ -76,7 +76,7 @@ func GetClassInstances(class string) ([]byte, error) {
 	if !isValidIRI(class) {
 		return nil, fmt.Errorf("invalid class IRI: %v", class)
 	}
-	bindings, err := queryDataset(ResourceDataset, fmt.Sprintf(`SELECT ?s ?p ?o ?g WHERE  { GRAPH ?g { ?c a <%s> . ?c (<>|!<>)* ?s . ?s ?p ?o }}`, class))
+	bindings, err := queryDataset(ResourceDataset, fmt.Sprintf(`SELECT ?s ?p ?o ?g WHERE  { GRAPH ?g { ?instance a <%s> . ?instance (<>|!<>)* ?s . ?s ?p ?o }}`, class))
 	if err != nil {
 		return nil, err
 	}
