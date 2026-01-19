@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 	"rdf-store-backend/base"
+	"rdf-store-backend/rdf"
 	"rdf-store-backend/shacl"
-	"rdf-store-backend/sparql"
 	"reflect"
 	"time"
 
@@ -31,14 +31,14 @@ func Reindex() {
 		slog.Error("reindexing failed.", "error", err)
 		return
 	}
-	resourceIds, err := sparql.GetAllResourceIds()
+	resourceIds, err := rdf.GetAllResourceIds()
 	if err != nil {
 		slog.Error("reindexing failed.", "error", err)
 		return
 	}
 	resourceCount := 0
 	for _, id := range resourceIds {
-		data, metadata, err := sparql.GetResource(id, false)
+		data, metadata, err := rdf.GetResource(id, false)
 		if err != nil {
 			slog.Error("failed loading resource", "id", id, "error", err)
 		} else {
@@ -47,7 +47,7 @@ func Reindex() {
 				slog.Error(err.Error())
 			} else {
 				resourceID := rdf2go.NewResource(id)
-				_, profile, err := shacl.FindResourceProfile(graph, &resourceID, sparql.Profiles)
+				_, profile, err := shacl.FindResourceProfile(graph, &resourceID, rdf.Profiles)
 				if err != nil {
 					slog.Error(err.Error())
 				} else {
@@ -64,7 +64,7 @@ func Reindex() {
 }
 
 // IndexResource builds and submits search documents for a resource.
-func IndexResource(id rdf2go.Term, profile *shacl.NodeShape, graph *rdf2go.Graph, metadata *sparql.ResourceMetadata) error {
+func IndexResource(id rdf2go.Term, profile *shacl.NodeShape, graph *rdf2go.Graph, metadata *rdf.ResourceMetadata) error {
 	if err := DeindexResource(id.RawValue()); err != nil {
 		return err
 	}
@@ -137,7 +137,7 @@ func buildDoc(subject rdf2go.Term, profileId rdf2go.Term, profile *shacl.NodeSha
 					}
 					for nodeProfileId := range property.Or {
 						// validate value according to sh:or
-						if nodeProfile, ok := sparql.Profiles[nodeProfileId]; ok {
+						if nodeProfile, ok := rdf.Profiles[nodeProfileId]; ok {
 							valid, err := shacl.Validate(string(*nodeProfile.RDF), nodeProfileId, *dataTurtle, value.Object.RawValue())
 							if err != nil {
 								slog.Warn("error indexing resource because validation failed", "error", err)
@@ -160,7 +160,7 @@ func buildDoc(subject rdf2go.Term, profileId rdf2go.Term, profile *shacl.NodeSha
 
 					if len(property.NodeShapes) > 0 {
 						for nodeProfileId := range property.NodeShapes {
-							if nodeProfile, ok := sparql.Profiles[nodeProfileId]; ok {
+							if nodeProfile, ok := rdf.Profiles[nodeProfileId]; ok {
 								nested := document{
 									"id":         value.Object.RawValue(),
 									"shape":      make([]any, 0),
@@ -203,7 +203,7 @@ func buildDoc(subject rdf2go.Term, profileId rdf2go.Term, profile *shacl.NodeSha
 
 	if !denormalized {
 		for parentId := range profile.Parents {
-			if parentProfile, ok := sparql.Profiles[parentId]; ok {
+			if parentProfile, ok := rdf.Profiles[parentId]; ok {
 				buildDoc(subject, parentProfile.Id, parentProfile, data, dataTurtle, current, false)
 			} else {
 				slog.Warn("profile parent not found.", "id", parentId)
@@ -227,7 +227,7 @@ func appendMultiValue(field string, value any, doc *document) {
 // findLabels collects literal labels for a subject in the graph.
 func findLabels(subject rdf2go.Term, data *rdf2go.Graph) (labels []string) {
 	for _, triple := range data.All(subject, nil, nil) {
-		if _, ok := sparql.LabelPredicates[triple.Predicate.RawValue()]; ok {
+		if _, ok := rdf.LabelPredicates[triple.Predicate.RawValue()]; ok {
 			labels = append(labels, triple.Object.RawValue())
 		}
 	}

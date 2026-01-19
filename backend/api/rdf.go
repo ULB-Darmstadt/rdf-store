@@ -8,9 +8,9 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"rdf-store-backend/base"
+	"rdf-store-backend/rdf"
 	"rdf-store-backend/search"
 	"rdf-store-backend/shacl"
-	"rdf-store-backend/sparql"
 	"strings"
 
 	"github.com/deiu/rdf2go"
@@ -24,7 +24,7 @@ var fusekiProxyTarget *url.URL
 func init() {
 	var err error
 	// init fuseki proxy
-	fusekiProxyTarget, err = url.Parse(sparql.Endpoint)
+	fusekiProxyTarget, err = url.Parse(rdf.FusekiEndpoint)
 	if err != nil {
 		panic(err)
 	}
@@ -52,12 +52,12 @@ func init() {
 
 // handleFusekiSparql proxies SPARQL queries to Fuseki with auth header.
 func handleFusekiSparql(c *gin.Context) {
-	c.Request.URL.Path = fmt.Sprintf("/%s/query", sparql.ResourceDataset)
+	c.Request.URL.Path = fmt.Sprintf("/%s/query", rdf.ResourceDataset)
 	c.Request.URL.Scheme = fusekiProxyTarget.Scheme
 	c.Request.URL.Host = fusekiProxyTarget.Host
 	c.Request.Host = fusekiProxyTarget.Host
 	c.Request.Header.Set("X-Forwarded-Host", c.Request.Header.Get("Host"))
-	c.Request.Header.Set("Authorization", sparql.AuthHeader)
+	c.Request.Header.Set("Authorization", rdf.AuthHeader)
 	fusekiProxy.ServeHTTP(c.Writer, c.Request)
 }
 
@@ -81,7 +81,7 @@ func handleGetResource(c *gin.Context) {
 		return
 	}
 	did = strings.TrimPrefix(did, "/")
-	resource, metadata, err := sparql.GetResource(did, true)
+	resource, metadata, err := rdf.GetResource(did, true)
 	if err != nil {
 		slog.Error("failed loading resource", "id", did, "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -108,14 +108,14 @@ func handleAddResource(c *gin.Context) {
 		return
 	}
 
-	resourceID, profile, err := shacl.FindResourceProfile(graph, nil, sparql.Profiles)
+	resourceID, profile, err := shacl.FindResourceProfile(graph, nil, rdf.Profiles)
 	if err != nil {
 		slog.Error("could not determine shacl shape", "error", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 	dataGraph, _ := readGraphBytesFromRequest(c)
-	shapesGraph, err := sparql.GetProfile(profile.Id.RawValue())
+	shapesGraph, err := rdf.GetProfile(profile.Id.RawValue())
 	if err != nil {
 		slog.Error("failed loading shapes graph", "error", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -130,7 +130,7 @@ func handleAddResource(c *gin.Context) {
 		return
 	}
 
-	metadata, err := sparql.CreateResource(resourceID.RawValue(), dataGraph, user)
+	metadata, err := rdf.CreateResource(resourceID.RawValue(), dataGraph, user)
 	if err != nil {
 		slog.Error("failed creating resource", "id", resourceID, "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -169,7 +169,7 @@ func handleUpdateResource(c *gin.Context) {
 	}
 
 	resourceID := rdf2go.NewResource(did)
-	_, profile, err := shacl.FindResourceProfile(graph, &resourceID, sparql.Profiles)
+	_, profile, err := shacl.FindResourceProfile(graph, &resourceID, rdf.Profiles)
 	if err != nil {
 		slog.Error("could not determine shacl shape", "error", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -177,7 +177,7 @@ func handleUpdateResource(c *gin.Context) {
 	}
 	profileID := profile.Id.RawValue()
 	dataGraph, _ := readGraphBytesFromRequest(c)
-	shapesGraph, err := sparql.GetProfile(profileID)
+	shapesGraph, err := rdf.GetProfile(profileID)
 	if err != nil {
 		slog.Error("failed loading shapes graph", "error", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -192,7 +192,7 @@ func handleUpdateResource(c *gin.Context) {
 		return
 	}
 
-	metadata, err := sparql.UpdateResource(did, dataGraph, user)
+	metadata, err := rdf.UpdateResource(did, dataGraph, user)
 	if err != nil {
 		slog.Error("failed updating resource", "id", did, "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -221,7 +221,7 @@ func handleDeleteResource(c *gin.Context) {
 		return
 	}
 	did = strings.TrimPrefix(did, "/")
-	if err := sparql.DeleteResource(did, user); err != nil {
+	if err := rdf.DeleteResource(did, user); err != nil {
 		slog.Error("failed deleting resource", "id", did, "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -244,7 +244,7 @@ func handleGetProfile(c *gin.Context) {
 		return
 	}
 	did = strings.TrimPrefix(did, "/")
-	graph, err := sparql.GetProfile(did)
+	graph, err := rdf.GetProfile(did)
 	if err != nil {
 		slog.Error("failed loading profile", "id", did, "error", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -262,7 +262,7 @@ func handleGetClassInstances(c *gin.Context) {
 		return
 
 	}
-	instances, err := sparql.GetClassInstances(class)
+	instances, err := rdf.GetClassInstances(class)
 	if err != nil {
 		slog.Error("failed retrieving class instances", "class", class, "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

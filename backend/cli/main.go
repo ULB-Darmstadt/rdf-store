@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 	"rdf-store-backend/profilesync"
+	"rdf-store-backend/rdf"
 	"rdf-store-backend/search"
-	"rdf-store-backend/sparql"
 )
 
 // main runs command-line utilities for administration tasks.
@@ -16,7 +16,7 @@ func main() {
 	}
 	switch os.Args[1] {
 	case "reindex":
-		sparql.ParseAllProfiles()
+		rdf.ParseAllProfiles()
 		search.Reindex()
 	case "sync":
 		profilesync.Synchronize()

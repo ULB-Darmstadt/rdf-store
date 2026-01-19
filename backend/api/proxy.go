@@ -8,7 +8,7 @@ import (
 	"net/netip"
 	"net/url"
 	"rdf-store-backend/base"
-	"rdf-store-backend/sparql"
+	"rdf-store-backend/rdf"
 	"slices"
 	"strings"
 
@@ -39,12 +39,12 @@ func handleRdfProxy(c *gin.Context) {
 	}
 	var data []byte
 	// check if URL references a profile
-	if profile, ok := sparql.Profiles[url]; ok {
+	if profile, ok := rdf.Profiles[url]; ok {
 		data = *profile.RDF
 	} else {
 		var err error
 		// check if URL references a resource
-		data, _, err = sparql.GetResource(url, true)
+		data, _, err = rdf.GetResource(url, true)
 		if err != nil {
 			// URL refences no profile or resource, so try to load URL from cache or from the web
 			data, err = base.CacheLoad(url, filterClientAccept(c.Request))

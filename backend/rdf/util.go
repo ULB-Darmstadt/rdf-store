@@ -1,4 +1,4 @@
-package sparql
+package rdf
 
 import (
 	"fmt"

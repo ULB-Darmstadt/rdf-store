@@ -9,9 +9,9 @@ import (
 	"os"
 	"path"
 	"rdf-store-backend/base"
+	"rdf-store-backend/rdf"
 	"rdf-store-backend/search"
 	"rdf-store-backend/shacl"
-	"rdf-store-backend/sparql"
 	"regexp"
 	"strings"
 	"sync"
@@ -36,7 +36,7 @@ func Synchronize() {
 		if err != nil {
 			slog.Error("failed syncing profiles", "error", err)
 		} else if changed {
-			_, err := sparql.ParseAllProfiles()
+			_, err := rdf.ParseAllProfiles()
 			if err != nil {
 				slog.Error("failed parsing profiles", "error", err)
 			} else {
@@ -124,11 +124,11 @@ func synchronizeProfiles() (changed bool, err error) {
 		profileData := []byte(profile.Definition)
 		profileData = base.FixBooleansInRDF(profileData)
 		inputHash := base.Hash(profileData)
-		existingHash, hashErr := sparql.GetProfileHash(profile.BaseUrl)
+		existingHash, hashErr := rdf.GetProfileHash(profile.BaseUrl)
 		if hashErr != nil || inputHash != existingHash {
 			changed = true
 			// store profile
-			graph, err := sparql.UpdateProfile(profile.BaseUrl, profileData)
+			graph, err := rdf.UpdateProfile(profile.BaseUrl, profileData)
 			if err != nil {
 				return changed, err
 			}
@@ -137,7 +137,7 @@ func synchronizeProfiles() (changed bool, err error) {
 	}
 
 	// second pass: delete profiles that do not exist anymore
-	existingProfileIds, err := sparql.GetAllProfileIds()
+	existingProfileIds, err := rdf.GetAllProfileIds()
 	if err != nil {
 		slog.Error("failed loading profile IDs", "error", err)
 	} else {
@@ -145,7 +145,7 @@ func synchronizeProfiles() (changed bool, err error) {
 			if _, ok := profileIds[existingProfileId]; !ok {
 				changed = true
 				slog.Info("deleting existing profile", "id", existingProfileId)
-				if err := sparql.DeleteProfile(existingProfileId); err != nil {
+				if err := rdf.DeleteProfile(existingProfileId); err != nil {
 					slog.Error("failed deleting existing profile", "id", existingProfileId, "error", err)
 				}
 			}
@@ -170,9 +170,9 @@ func extractLabelsFromOwlImports(graph *rdf2go.Graph, profileIds map[string]bool
 		// ignore owl:imports that reference profiles
 		if _, ok := profileIds[url]; !ok {
 			// load owl:imports only once
-			if exist, err := sparql.CheckLabelsExist(url); err == nil && !exist {
+			if exist, err := rdf.CheckLabelsExist(url); err == nil && !exist {
 				slog.Debug("loading owl:imports", "url", url)
-				graph, err := sparql.ImportLabelsFromUrl(url)
+				graph, err := rdf.ImportLabelsFromUrl(url)
 				if err != nil {
 					slog.Debug("failed loading owl:imports", "url", url, "error", err)
 				} else {

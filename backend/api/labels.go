@@ -3,7 +3,7 @@ package api
 import (
 	"log/slog"
 	"net/http"
-	"rdf-store-backend/sparql"
+	"rdf-store-backend/rdf"
 
 	"github.com/gin-gonic/gin"
 )
@@ -17,7 +17,7 @@ func init() {
 func handleLabels(c *gin.Context) {
 	language := c.PostForm("lang")
 	ids := c.PostFormArray("id")
-	labels, err := sparql.GetLabels(language, ids)
+	labels, err := rdf.GetLabels(language, ids)
 	if err != nil {
 		slog.Error("failed getting labels", "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

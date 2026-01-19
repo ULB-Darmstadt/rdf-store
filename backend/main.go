@@ -11,8 +11,8 @@ import (
 	"rdf-store-backend/api"
 	"rdf-store-backend/base"
 	"rdf-store-backend/profilesync"
+	"rdf-store-backend/rdf"
 	"rdf-store-backend/search"
-	"rdf-store-backend/sparql"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -38,7 +38,7 @@ func main() {
 
 // startSyncProfiles loads profiles and starts optional scheduled sync.
 func startSyncProfiles() error {
-	profiles, err := sparql.ParseAllProfiles()
+	profiles, err := rdf.ParseAllProfiles()
 	if err != nil {
 		return err
 	}

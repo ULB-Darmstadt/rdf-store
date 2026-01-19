@@ -1,4 +1,4 @@
-package sparql
+package rdf
 
 import (
 	"bytes"
@@ -21,7 +21,7 @@ import (
 	"github.com/knakk/sparql"
 )
 
-var Endpoint = base.EnvVar("FUSEKI_ENDPOINT", "http://localhost:3030")
+var FusekiEndpoint = base.EnvVar("FUSEKI_ENDPOINT", "http://localhost:3030")
 var AuthHeader = fmt.Sprintf("Basic %s", base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s:%s", base.EnvVar("FUSEKI_USER", "admin"), base.EnvVar("FUSEKI_PASSWORD", "secret")))))
 var ResourceDataset = base.EnvVar("FUSEKI_RESOURCE_DATASET", "resource")
 var resourceMetaDataset = base.EnvVar("FUSEKI_RESOURCE_META_DATASET", "resourcemeta")
@@ -45,7 +45,7 @@ func init() {
 func initDatasets() error {
 	for _, dataset := range []string{ResourceDataset, resourceMetaDataset, profileDataset, labelDataset} {
 		// check if dataset exists
-		req, err := http.NewRequest("GET", fmt.Sprintf("%s/$/stats/%s", Endpoint, dataset), nil)
+		req, err := http.NewRequest("GET", fmt.Sprintf("%s/$/stats/%s", FusekiEndpoint, dataset), nil)
 		if err != nil {
 			return err
 		}
@@ -56,7 +56,7 @@ func initDatasets() error {
 		}
 		if status != http.StatusOK {
 			// dataset does not exist, so create it
-			req, err = http.NewRequest(http.MethodPost, fmt.Sprintf("%s/$/datasets?dbName=%s&dbType=TDB2", Endpoint, dataset), nil)
+			req, err = http.NewRequest(http.MethodPost, fmt.Sprintf("%s/$/datasets?dbName=%s&dbType=TDB2", FusekiEndpoint, dataset), nil)
 			if err != nil {
 				return err
 			}
@@ -136,7 +136,7 @@ func uploadGraph(dataset string, id string, data []byte, graph *rdf2go.Graph) (e
 	part.Write(data)
 	writer.Close()
 
-	req, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/%s/data?graph=%s", Endpoint, dataset, id), body)
+	req, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/%s/data?graph=%s", FusekiEndpoint, dataset, id), body)
 	if err != nil {
 		return err
 	}
@@ -195,7 +195,7 @@ func checkGraphExists(dataset string, id string) (exists bool, err error) {
 	exists = false
 	body := url.Values{}
 	body.Set("query", fmt.Sprintf("ASK WHERE { GRAPH <%s> { ?s ?p ?o } }", id))
-	req, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/%s", Endpoint, dataset), strings.NewReader(body.Encode()))
+	req, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/%s", FusekiEndpoint, dataset), strings.NewReader(body.Encode()))
 	if err != nil {
 		return
 	}
@@ -246,7 +246,7 @@ func getAllGraphIds(dataset string) ([]string, error) {
 func queryDataset(dataset string, query string) (data []byte, err error) {
 	body := url.Values{}
 	body.Set("query", query)
-	req, err := http.NewRequest("POST", fmt.Sprintf("%s/%s", Endpoint, dataset), strings.NewReader(body.Encode()))
+	req, err := http.NewRequest("POST", fmt.Sprintf("%s/%s", FusekiEndpoint, dataset), strings.NewReader(body.Encode()))
 	if err != nil {
 		return
 	}
@@ -268,7 +268,7 @@ func queryDataset(dataset string, query string) (data []byte, err error) {
 func updateDataset(dataset string, query string) (err error) {
 	form := url.Values{}
 	form.Set("update", query)
-	req, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/%s/update", Endpoint, dataset), strings.NewReader(form.Encode()))
+	req, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/%s/update", FusekiEndpoint, dataset), strings.NewReader(form.Encode()))
 	if err != nil {
 		return err
 	}
