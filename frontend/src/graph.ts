@@ -203,7 +203,7 @@ export class RdfGraph extends LitElement {
         
         const svg = d3.create("svg").attr("viewBox", `${-width/2} ${-height/2} ${width} ${height}`)
         const scene = svg.append("g").attr("id", "scene")
-        const zoom = d3.zoom<SVGSVGElement, unknown>().scaleExtent([0.05, 8]).on("zoom", event => scene.attr("transform", event.transform))
+        const zoom = d3.zoom<SVGSVGElement, unknown>().scaleExtent([0.3, 1.3]).on("zoom", event => scene.attr("transform", event.transform))
         svg.call(zoom as any)
 
         // arrow heads
