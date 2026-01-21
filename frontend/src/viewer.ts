@@ -88,31 +88,39 @@ export class Viewer extends LitElement {
             showSnackbarMessage({message: 'form not found', cssClass: 'error' })
             return
         }
-        const ttl = form.serialize()
-        this.saving = true
-        const formData = new URLSearchParams()
-        formData.append('ttl', ttl)
-        try {
-            const resp = await fetch(`${BACKEND_URL}/resource/${encodeURIComponent(this.rdfSubject)}`, { method: 'PUT', cache: 'no-cache', body: formData })
-            if (!resp.ok) {
-                let message = i18n['resource_save_failed'] + '<br><small>Status: ' + resp.status + '</small>'
-                const contentType = resp.headers.get('content-type')
-                if (contentType?.includes('application/json')) {
-                    const data = await resp.json()
-                    if (data.error) {
-                        message += '<br><small>' + i18n['error'] + ': ' + data.error + '</small>'
+        if (form.form.reportValidity()) {
+            const report = await form.validate() as any
+            const ttl = form.serialize()
+            if (report.conforms) {
+                this.saving = true
+                const formData = new URLSearchParams()
+                formData.append('ttl', ttl)
+                try {
+                    const resp = await fetch(`${BACKEND_URL}/resource/${encodeURIComponent(this.rdfSubject)}`, { method: 'PUT', cache: 'no-cache', body: formData })
+                    if (!resp.ok) {
+                        let message = i18n['resource_save_failed'] + '<br><small>Status: ' + resp.status + '</small>'
+                        const contentType = resp.headers.get('content-type')
+                        if (contentType?.includes('application/json')) {
+                            const data = await resp.json()
+                            if (data.error) {
+                                message += '<br><small>' + i18n['error'] + ': ' + data.error + '</small>'
+                            }
+                        }
+                        showSnackbarMessage({message: message, ttl: 0, cssClass: 'error' })
+                    } else {
+                        showSnackbarMessage({ message: i18n['resource_save_succeeded'], cssClass: 'success' })
+                        this.editMode = false
+                        this.load()
                     }
+                } catch(e) {
+                    showSnackbarMessage({message: '' + e, ttl: 0, cssClass: 'error' })
+                } finally {
+                    this.saving = false
                 }
-                showSnackbarMessage({message: message, ttl: 0, cssClass: 'error' })
             } else {
-                showSnackbarMessage({ message: i18n['resource_save_succeeded'], cssClass: 'success' })
-                this.editMode = false
-                this.load()
+                console.log(ttl)
+                console.warn(report)
             }
-        } catch(e) {
-            showSnackbarMessage({message: '' + e, ttl: 0, cssClass: 'error' })
-        } finally {
-            this.saving = false
         }
     }
 
