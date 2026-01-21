@@ -2,11 +2,9 @@ package search
 
 import (
 	"bytes"
-	"fmt"
 	"log/slog"
 	"rdf-store-backend/base"
 	"rdf-store-backend/rdf"
-	"rdf-store-backend/shacl"
 	"reflect"
 	"time"
 
@@ -46,16 +44,10 @@ func Reindex() {
 			if err != nil {
 				slog.Error(err.Error())
 			} else {
-				resourceID := rdf2go.NewResource(id)
-				_, profile, err := shacl.FindResourceProfile(graph, &resourceID, rdf.Profiles)
-				if err != nil {
-					slog.Error(err.Error())
+				if err = IndexResource(graph, metadata); err != nil {
+					slog.Error("failed indexing resource", "id", id, "error", err)
 				} else {
-					if err = IndexResource(resourceID, profile, graph, metadata); err != nil {
-						slog.Error("failed indexing resource", "id", id, "error", err)
-					} else {
-						resourceCount = resourceCount + 1
-					}
+					resourceCount = resourceCount + 1
 				}
 			}
 		}
@@ -64,37 +56,46 @@ func Reindex() {
 }
 
 // IndexResource builds and submits search documents for a resource.
-func IndexResource(id rdf2go.Term, profile *shacl.NodeShape, graph *rdf2go.Graph, metadata *rdf.ResourceMetadata) error {
-	if err := DeindexResource(id.RawValue()); err != nil {
+func IndexResource(resource *rdf2go.Graph, metadata *rdf.ResourceMetadata) error {
+	if err := DeindexResource(metadata.Id.RawValue()); err != nil {
 		return err
 	}
-	slog.Debug("indexing", "resource", id.RawValue(), "creator", metadata.Creator, "profile", profile.Id.RawValue())
 
-	var buf bytes.Buffer
-	if err := graph.Serialize(&buf, "text/turtle"); err != nil {
-		return err
+	rootProfile, ok := metadata.Conformance[metadata.Id.RawValue()]
+	if !ok {
+		slog.Warn("not indexing because root profile not found", "resource", metadata.Id.RawValue(), "creator", metadata.Creator)
+		return nil
 	}
-	turtle := buf.String()
+	slog.Debug("indexing", "resource", metadata.Id.RawValue(), "creator", metadata.Creator)
 
-	doc := document{
-		"id":           id.RawValue(),
+	mainDocument := document{
+		"id":           metadata.Id.RawValue(),
 		"creator":      metadata.Creator,
 		"lastModified": metadata.LastModified,
-		"label":        findLabels(id, graph),
-		"shape":        make([]any, 0),
-		"ref_shapes":   make([]any, 0),
+		"label":        findLabels(metadata.Id, resource),
 		"docType":      "main",
 	}
-	root := document{
-		"id":           "container_" + id.RawValue(),
+	containerDocument := document{
+		"id":           "container_" + metadata.Id.RawValue(),
 		"creator":      metadata.Creator,
 		"lastModified": metadata.LastModified,
 		"docType":      "container",
-		"_children_":   []*document{&doc},
+		"_children_":   []*document{&mainDocument},
 	}
 
-	buildDoc(id, profile.Id, profile, graph, &turtle, &doc, false)
-	return updateDoc(&root)
+	buildDoc(metadata.Id, rootProfile, resource, &mainDocument)
+	for resourceId, profileId := range metadata.Conformance {
+		if resourceId != metadata.Id.RawValue() {
+			resourceIdTerm := rdf2go.NewResource(resourceId)
+			childDocument := document{
+				"id":    resourceId,
+				"label": findLabels(resourceIdTerm, resource),
+			}
+			buildDoc(resourceIdTerm, profileId, resource, &childDocument)
+			appendMultiValue("_children_", &childDocument, &mainDocument)
+		}
+	}
+	return updateDoc(&containerDocument)
 }
 
 // DeindexResource removes documents associated with a resource.
@@ -103,8 +104,45 @@ func DeindexResource(id string) error {
 }
 
 // buildDoc recursively constructs Solr documents from RDF graph data.
-func buildDoc(subject rdf2go.Term, profileId rdf2go.Term, profile *shacl.NodeShape, data *rdf2go.Graph, dataTurtle *string, current *document, denormalized bool) {
-	fmt.Println("--- build doc. subject=", subject.RawValue(), " profile=", profile.Id.RawValue(), "current=", (*current)["id"])
+func buildDoc(subject rdf2go.Term, profileId string, resource *rdf2go.Graph, current *document) {
+	slog.Debug("build doc", "subject", subject.RawValue(), "profile", profileId, "current", (*current)["id"])
+	profile, ok := rdf.Profiles[profileId]
+	if !ok {
+		slog.Warn("profile not found", "id", profileId)
+		return
+	}
+	// append shape conformance
+	appendMultiValue("shape", profileId, current)
+
+	// append property values to document
+	for pathId, properties := range profile.Properties {
+		path := rdf2go.NewResource(pathId)
+		for _, property := range properties {
+			ft := fieldType(property)
+			for _, value := range resource.All(subject, path, nil) {
+				raw := value.Object.RawValue()
+				if ft == "t" {
+					appendMultiValue("_text_", raw, current)
+				} else {
+					if ft == "dts" && len(raw) == 10 {
+						raw = raw + "T00:00:00Z"
+					}
+					field := base.CleanStringForSolr(profile.Id.RawValue()) + "." + base.CleanStringForSolr(property.Id.RawValue()) + "_" + ft
+					appendMultiValue(field, raw, current)
+				}
+			}
+		}
+	}
+
+	for parentId := range profile.Parents {
+		// append properties of all parent shapes to same document
+		buildDoc(subject, parentId, resource, current)
+	}
+}
+
+/*
+func buildDoc2(subject rdf2go.Term, profileId rdf2go.Term, profile *shacl.NodeShape, data *rdf2go.Graph, current *document, denormalized bool) {
+	slog.Debug("build doc", "subject", subject.RawValue(), "profile", profile.Id.RawValue(), "current", (*current)["id"])
 	if !denormalized {
 		appendMultiValue("shape", profileId.RawValue(), current)
 	}
@@ -132,7 +170,7 @@ func buildDoc(subject rdf2go.Term, profileId rdf2go.Term, profile *shacl.NodeSha
 							appendMultiValue("ref_shapes", property.QualifiedValueShape, current)
 							data.Remove(value)
 							appendMultiValue("_children_", &nested, current)
-							buildDoc(value.Object, rdf2go.NewResource(property.QualifiedValueShape), property.QualifiedValueShapeDenormalized, data, dataTurtle, &nested, true)
+							buildDoc(value.Object, rdf2go.NewResource(property.QualifiedValueShape), property.QualifiedValueShapeDenormalized, data, &nested, true)
 						}
 					}
 					for nodeProfileId := range property.Or {
@@ -151,7 +189,7 @@ func buildDoc(subject rdf2go.Term, profileId rdf2go.Term, profile *shacl.NodeSha
 								}
 								data.Remove(value)
 								appendMultiValue("_children_", &nested, current)
-								buildDoc(value.Object, nodeProfile.Id, nodeProfile, data, dataTurtle, &nested, false)
+								buildDoc(value.Object, nodeProfile.Id, nodeProfile, data, &nested, false)
 							}
 						} else {
 							slog.Warn("property's node shape not found", "id", nodeProfileId, "path", property.Path)
@@ -169,7 +207,7 @@ func buildDoc(subject rdf2go.Term, profileId rdf2go.Term, profile *shacl.NodeSha
 								}
 								data.Remove(value)
 								appendMultiValue("_children_", &nested, current)
-								buildDoc(value.Object, nodeProfile.Id, nodeProfile, data, dataTurtle, &nested, false)
+								buildDoc(value.Object, nodeProfile.Id, nodeProfile, data, &nested, false)
 							} else {
 								slog.Warn("property's node shape not found", "id", nodeProfileId, "path", property.Path)
 							}
@@ -204,14 +242,14 @@ func buildDoc(subject rdf2go.Term, profileId rdf2go.Term, profile *shacl.NodeSha
 	if !denormalized {
 		for parentId := range profile.Parents {
 			if parentProfile, ok := rdf.Profiles[parentId]; ok {
-				buildDoc(subject, parentProfile.Id, parentProfile, data, dataTurtle, current, false)
+				buildDoc(subject, parentProfile.Id, parentProfile, data, current, false)
 			} else {
 				slog.Warn("profile parent not found.", "id", parentId)
 			}
 		}
 	}
 }
-
+*/
 // appendMultiValue appends values to a multi-value Solr field.
 func appendMultiValue(field string, value any, doc *document) {
 	if _, ok := (*doc)[field]; !ok {

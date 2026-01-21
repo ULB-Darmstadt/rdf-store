@@ -36,8 +36,6 @@ export async function validate(shapesGraph: string, rootShaclShapeID: string, da
     const validator = new Validator(dataset, { factory: DataFactory })
     const subjectToShapeConformance: Record<string, string> = {} // RDF subjects conforming to SHACL shape IDs
     await validateShape(DataFactory.namedNode(resourceID), DataFactory.namedNode(rootShaclShapeID), subjectToShapeConformance, dataset, validator)
-
-    console.log(subjectToShapeConformance)
     return subjectToShapeConformance
 }
 
@@ -213,26 +211,27 @@ function getExtendedShapes(subject: Term, dataset: Store, visited: Set<string> =
     }
     visited.add(visitKey)
     const extendedShapes: Term[] = []
-    for (const shape of dataset.getObjects(subject, shaclNode, shapesGraphName)) {
-        extendedShapes.push(shape)
-    }
+    const shapesToVisit: Term[] = []
+    shapesToVisit.push(...dataset.getObjects(subject, shaclNode, shapesGraphName))
+
     const andLists = dataset.getQuads(subject, shaclAnd, null, shapesGraphName)
     if (andLists.length > 0) {
         const lists = dataset.extractLists()
         for (const andList of andLists) {
-            for (const shape of lists[andList.object.value]) {
-                extendedShapes.push(shape)
-            }
+            const listShapes = lists[andList.object.value] ?? []
+            shapesToVisit.push(...listShapes)
         }
     }
-    for (const shape of extendedShapes) {
-        // recurse up
-        extendedShapes.push(...getExtendedShapes(shape, dataset, visited))
-    }
+
     const qualifiedValueShape = getQualifiedValueShape(subject, dataset)
     if (qualifiedValueShape) {
-        extendedShapes.push(qualifiedValueShape)
-        extendedShapes.push(...getExtendedShapes(qualifiedValueShape, dataset, visited))
+        shapesToVisit.push(qualifiedValueShape)
+    }
+
+    for (const shape of shapesToVisit) {
+        extendedShapes.push(shape)
+        // recurse up
+        extendedShapes.push(...getExtendedShapes(shape, dataset, visited))
     }
     return extendedShapes
 }

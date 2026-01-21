@@ -68,7 +68,6 @@ func loadResourceMetadata(id string) (metadata *ResourceMetadata, err error) {
 			metadata.Conformance[s.String()] = o.String()
 		}
 	}
-	fmt.Printf("--- loaded metadata: %+v\n", metadata)
 	return
 }
 
@@ -115,21 +114,15 @@ func buildResourceMetadata(id rdf2go.Term, resource []byte, creator string) (met
 	}
 	var conformance map[string]string
 	if conformance, err = shacl.Validate(string(shapesGraph), profile.Id.RawValue(), string(resource), validID.RawValue()); err != nil {
-		err = fmt.Errorf("resource graph does not conform to shape %s", profile.Id.RawValue())
 		return
 	}
 	if rootShape, ok := conformance[validID.RawValue()]; !ok || rootShape != profile.Id.RawValue() {
-		err = fmt.Errorf("%s", "resource does not conform to expected shape"+profile.Id.RawValue())
+		err = fmt.Errorf("resource does not conform to expected shape %s", profile.Id.RawValue())
 		return
 	}
 	metadata = newResourceMetadata(validID, creator)
 	metadata.Conformance = conformance
-	buildConformance(validID, metadata, graph)
 	return
-}
-
-func buildConformance(id rdf2go.Term, metadata *ResourceMetadata, graph *rdf2go.Graph) {
-
 }
 
 // FindResourceProfile identifies the profile matching a resource graph.
@@ -148,7 +141,7 @@ func findResourceProfile(graph *rdf2go.Graph, id rdf2go.Term) (resourceID rdf2go
 	for _, triple := range refs {
 		if profileRef, ok := Profiles[triple.Object.RawValue()]; ok {
 			if resourceID != nil {
-				return nil, nil, errors.New("graph has multiple relations " + shacl.DCTERMS_CONFORMS_TO.String() + " or " + shacl.RDF_TYPE.String() + " to a known SHACL profile")
+				return nil, nil, errors.New("resource graph has multiple relations " + shacl.DCTERMS_CONFORMS_TO.String() + " or " + shacl.RDF_TYPE.String() + " to a known SHACL profile")
 			}
 			resourceID = triple.Subject
 			profile = profileRef
