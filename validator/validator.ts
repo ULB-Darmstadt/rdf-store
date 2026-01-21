@@ -1,9 +1,9 @@
-import { Store, DataFactory, NamedNode, Quad, StreamParser, BlankNode } from 'n3'
+import { Store, DataFactory, NamedNode, Quad, StreamParser, BlankNode, Literal } from 'n3'
 import { RdfXmlParser } from 'rdfxml-streaming-parser'
 import jsonld from 'jsonld'
 // @ts-expect-error shacl-engine has no type definitions
 import { Validator } from 'shacl-engine'
-import { getExtendedShapes } from './shacl.ts'
+import type { Term } from '@rdfjs/types'
 
 const proxy = process.env.PROXY
 const loadOwlImports = process.env.IGNORE_OWL_IMPORTS !== 'false'
@@ -12,6 +12,13 @@ export const shapesGraphName = DataFactory.namedNode('shapes')
 export const dataGraphName = DataFactory.namedNode('data')
 let cache: Record<string, Promise<Quad[]>> = {}
 let prefixes: Record<string, string> = {}
+
+const prefixSHACL = 'http://www.w3.org/ns/shacl#'
+const shaclNode = prefixSHACL + 'node'
+const shaclProperty = prefixSHACL + 'property'
+const shaclAnd = prefixSHACL + 'and'
+const shaclQualifiedValueShape = prefixSHACL + 'qualifiedValueShape'
+const shaclQualifiedMinCount = prefixSHACL + 'qualifiedMinCount'
 
 export async function validate(shapesGraph: string, rootShaclShapeID: string, dataGraph: string, resourceID: string, clearCache?: string) {
     if (clearCache) {
@@ -26,27 +33,24 @@ export async function validate(shapesGraph: string, rootShaclShapeID: string, da
     await importRDF(parseRDF(dataGraph, dataGraphName), dataset, importedUrls)
 
     const validator = new Validator(dataset, { factory: DataFactory })
-    const subjectToShapeConformance: Record<string, string[]> = {} // RDF subjects conforming to SHACL shape IDs
-    if (await registerConformance(DataFactory.namedNode(resourceID), DataFactory.namedNode(rootShaclShapeID), subjectToShapeConformance, dataset, validator)) {
-        // dataGraph conforms to requested root SHACL shape, so dive in and validate sub-resources
-    }
+    const subjectToShapeConformance: Record<string, string> = {} // RDF subjects conforming to SHACL shape IDs
+    await validateShape(DataFactory.namedNode(resourceID), DataFactory.namedNode(rootShaclShapeID), subjectToShapeConformance, dataset, validator)
 
     console.log(subjectToShapeConformance)
     return subjectToShapeConformance
 }
 
-async function validateShape(shapeID: NamedNode<string>, subjectToShapeConformance: Record<string, string[]>, dataset: Store, validator: Validator) {
-    
+async function validateShape(resourceID: NamedNode<string>, shapeID: NamedNode<string>, subjectToShapeConformance: Record<string, string>, dataset: Store, validator: Validator) {
+    if (await registerConformance(resourceID, shapeID, subjectToShapeConformance, dataset, validator)) {
+        // resource validates, so dive into this node shape's sh:property's and go up the inheritance tree
+
+    }
 }
 
-async function registerConformance(resourceID: NamedNode<string>, shapeID: NamedNode<string>, subjectToShapeConformance: Record<string, string[]>, dataset: Store, validator: Validator) {
+async function registerConformance(resourceID: NamedNode<string>, shapeID: NamedNode<string>, subjectToShapeConformance: Record<string, string>, dataset: Store, validator: Validator) {
     const report = await validator.validate({ dataset: dataset, terms: [ resourceID ] }, [{ terms: [ shapeID ] }])
     if (report.conforms) {
-        if (!subjectToShapeConformance[resourceID.value]) {
-            subjectToShapeConformance[resourceID.value] = []
-        }
-        subjectToShapeConformance[resourceID.value].push(shapeID.value)
-        subjectToShapeConformance[resourceID.value].push(...getExtendedShapes(shapeID, dataset).map(term => term.value))
+        subjectToShapeConformance[resourceID.value] = shapeID.value
         return true
     }
     return false
@@ -157,13 +161,6 @@ function toURL(id: string, prefixes: Record<string, string>): string | null {
     return null
 }
 
-function termToKey(term: NamedNode | BlankNode): string {
-    if (term.termType === 'NamedNode') {
-        return term.value
-    }
-    return `_:${term.value}`
-}
-
 /* Can't rely on HTTP content-type header, since many resources are delivered with text/plain */
 function guessContentType(input: string) {
     if (/^\s*\{/.test(input)) {
@@ -172,4 +169,44 @@ function guessContentType(input: string) {
         return 'xml'
     } 
     return 'ttl'
+}
+
+export function getExtendedShapes(subject: Term, dataset: Store) {
+    const extendedShapes: Term[] = []
+    for (const shape of dataset.getObjects(subject, shaclNode, shapesGraphName)) {
+        extendedShapes.push(shape)
+    }
+    const andLists = dataset.getQuads(subject, shaclAnd, null, shapesGraphName)
+    if (andLists.length > 0) {
+        const lists = dataset.extractLists()
+        for (const andList of andLists) {
+            for (const shape of lists[andList.object.value]) {
+                extendedShapes.push(shape)
+            }
+        }
+    }
+    for (const shape of extendedShapes) {
+        // recurse up
+        extendedShapes.push(...getExtendedShapes(shape, dataset))
+    }
+    const qualifiedValueShape = getQualifiedValueShape(subject, dataset)
+    if (qualifiedValueShape) {
+        extendedShapes.push(qualifiedValueShape)
+        extendedShapes.push(...getExtendedShapes(qualifiedValueShape, dataset))
+    }
+    return extendedShapes
+}
+
+function getQualifiedValueShape(subject: Term, dataset: Store) {
+    for (const qualifiedValueShape of dataset.getObjects(subject, shaclQualifiedValueShape, shapesGraphName)) {
+        const minCounts = dataset.getObjects(subject, shaclQualifiedMinCount, shapesGraphName)
+        if (minCounts.length > 0) {
+            const minCount = minCounts[0]
+            if (minCount instanceof Literal) {
+                if (parseInt(minCount.value) > 0) {
+                    return qualifiedValueShape
+                }
+            }
+        }
+    }
 }
