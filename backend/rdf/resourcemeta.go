@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"rdf-store-backend/base"
 	"rdf-store-backend/shacl"
+	"strings"
 	"text/template"
 	"time"
 
@@ -112,6 +113,27 @@ func buildResourceMetadata(id rdf2go.Term, resource []byte, creator string) (met
 	if err != nil {
 		return
 	}
+	// resolve linked resources since they are needed for validation
+	var linkedResources []*rdf2go.Resource
+	for t := range graph.IterTriples() {
+		if linkCandidate, ok := t.Object.(*rdf2go.Resource); ok {
+			if strings.HasPrefix(linkCandidate.RawValue(), base.Configuration.RdfNamespace) && graph.One(linkCandidate, nil, nil) == nil {
+				bindings, innerErr := queryDataset(ResourceDataset, fmt.Sprintf(`SELECT ?s ?p ?o ?g WHERE { GRAPH ?g { <%s> (<>|!<>)* ?s . GRAPH ?g { ?s ?p ?o } } }`, linkCandidate.RawValue()))
+				if innerErr != nil {
+					err = innerErr
+					return
+				}
+				linkedResourceGraph, innerErr := sparqlResultToNQuads(bindings)
+				if innerErr != nil {
+					err = innerErr
+					return
+				}
+				// TODO: linked resources might pull in other linked resources which we currently do not track here
+				linkedResources = append(linkedResources, linkCandidate)
+				resource = append(resource, linkedResourceGraph...)
+			}
+		}
+	}
 	var conformance map[string]string
 	if conformance, err = shacl.Validate(string(shapesGraph), profile.Id.RawValue(), string(resource), validID.RawValue()); err != nil {
 		return
@@ -119,6 +141,10 @@ func buildResourceMetadata(id rdf2go.Term, resource []byte, creator string) (met
 	if rootShape, ok := conformance[validID.RawValue()]; !ok || rootShape != profile.Id.RawValue() {
 		err = fmt.Errorf("resource does not conform to expected shape %s", profile.Id.RawValue())
 		return
+	}
+	// filter out shape conformance for linked resources
+	for _, linkedResource := range linkedResources {
+		delete(conformance, linkedResource.RawValue())
 	}
 	metadata = newResourceMetadata(validID, creator)
 	metadata.Conformance = conformance
