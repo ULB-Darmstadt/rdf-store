@@ -34,10 +34,10 @@ server.on('request', (req, res) => {
 
             try {
                 const conforms = await validate(form.shapesGraph as string, form.shapeID as string, form.dataGraph as string, form.dataID as string, form.clearCache as string)
-                const response = JSON.stringify({conforms: conforms})
+                const response = JSON.stringify(conforms)
                 res.writeHead(200)
                 res.end(response)
-                console.log('validation result of', form.dataID, 'against', form.shapeID, ':', conforms)
+                console.log('validation results against', form.shapeID, ':', conforms)
             } catch(e) {
                 console.error('error validating', form)
                 res.writeHead(500)

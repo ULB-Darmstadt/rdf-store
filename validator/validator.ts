@@ -1,22 +1,24 @@
-import { Store, DataFactory, NamedNode, Quad, StreamParser } from 'n3'
+import { Store, DataFactory, NamedNode, Quad, StreamParser, BlankNode } from 'n3'
 import { RdfXmlParser } from 'rdfxml-streaming-parser'
 import jsonld from 'jsonld'
-// @ts-ignore
+// @ts-expect-error shacl-engine has no type definitions
 import { Validator } from 'shacl-engine'
+import { getExtendedShapes } from './shacl.ts'
 
 const proxy = process.env.PROXY
 const loadOwlImports = process.env.IGNORE_OWL_IMPORTS !== 'false'
 const owlPredicateImports = DataFactory.namedNode('http://www.w3.org/2002/07/owl#imports')
-const shapesGraphName = DataFactory.namedNode('shapes')
-const dataGraphName = DataFactory.namedNode('data')
+export const shapesGraphName = DataFactory.namedNode('shapes')
+export const dataGraphName = DataFactory.namedNode('data')
 let cache: Record<string, Promise<Quad[]>> = {}
 let prefixes: Record<string, string> = {}
 
-export async function validate(shapesGraph: string, shapeID: string, dataGraph: string, dataID: string, clearCache?: string) {
+export async function validate(shapesGraph: string, rootShaclShapeID: string, dataGraph: string, resourceID: string, clearCache?: string) {
     if (clearCache) {
         cache = {}
         prefixes = {}
     }
+
     const dataset = new Store()
     const importedUrls: string[] = []
 
@@ -24,8 +26,30 @@ export async function validate(shapesGraph: string, shapeID: string, dataGraph: 
     await importRDF(parseRDF(dataGraph, dataGraphName), dataset, importedUrls)
 
     const validator = new Validator(dataset, { factory: DataFactory })
-    const report = await validator.validate({ dataset: dataset, terms: [ DataFactory.namedNode(dataID) ] }, [{ terms: [ DataFactory.namedNode(shapeID) ] }])
-    return report.conforms
+    const subjectToShapeConformance: Record<string, string[]> = {} // RDF subjects conforming to SHACL shape IDs
+    if (await registerConformance(DataFactory.namedNode(resourceID), DataFactory.namedNode(rootShaclShapeID), subjectToShapeConformance, dataset, validator)) {
+        // dataGraph conforms to requested root SHACL shape, so dive in and validate sub-resources
+    }
+
+    console.log(subjectToShapeConformance)
+    return subjectToShapeConformance
+}
+
+async function validateShape(shapeID: NamedNode<string>, subjectToShapeConformance: Record<string, string[]>, dataset: Store, validator: Validator) {
+    
+}
+
+async function registerConformance(resourceID: NamedNode<string>, shapeID: NamedNode<string>, subjectToShapeConformance: Record<string, string[]>, dataset: Store, validator: Validator) {
+    const report = await validator.validate({ dataset: dataset, terms: [ resourceID ] }, [{ terms: [ shapeID ] }])
+    if (report.conforms) {
+        if (!subjectToShapeConformance[resourceID.value]) {
+            subjectToShapeConformance[resourceID.value] = []
+        }
+        subjectToShapeConformance[resourceID.value].push(shapeID.value)
+        subjectToShapeConformance[resourceID.value].push(...getExtendedShapes(shapeID, dataset).map(term => term.value))
+        return true
+    }
+    return false
 }
 
 async function importRDF(rdf: Promise<Quad[]>, store: Store, importedUrls: string[]) {
@@ -131,6 +155,13 @@ function toURL(id: string, prefixes: Record<string, string>): string | null {
         }
     }
     return null
+}
+
+function termToKey(term: NamedNode | BlankNode): string {
+    if (term.termType === 'NamedNode') {
+        return term.value
+    }
+    return `_:${term.value}`
 }
 
 /* Can't rely on HTTP content-type header, since many resources are delivered with text/plain */

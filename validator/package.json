@@ -7,12 +7,13 @@
   },
   "dependencies": {
     "jsonld": "^9.0.0",
-    "n3": "^1.26.0",
-    "node": "^25.1.0",
+    "n3": "^2.0.1",
+    "node": "^25.4.0",
     "rdfxml-streaming-parser": "^3.2.0",
     "shacl-engine": "^1.1.0"
   },
   "devDependencies": {
+    "@rdfjs/types": "^2.0.1",
     "@types/jsonld": "^1.5.15",
     "@types/n3": "^1.26.1",
     "ts-node": "^10.9.2"
