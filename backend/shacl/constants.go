@@ -11,15 +11,17 @@ var prefixRDFS = "http://www.w3.org/2000/01/rdf-schema#%s"
 var prefixSHACL = "http://www.w3.org/ns/shacl#%s"
 var prefixSKOS = "http://www.w3.org/2004/02/skos/core#%s"
 var prefixOWL = "http://www.w3.org/2002/07/owl#%s"
-var prefixDCTerms = "http://purl.org/dc/terms/%s"
 var prefixDASH = "http://datashapes.org/dash#%s"
 var prefixFOAF = "http://xmlns.com/foaf/0.1/%s"
+var prefixDCTerms = "http://purl.org/dc/terms/%s"
 
 var RDF_TYPE = rdf2go.NewResource(fmt.Sprintf(prefixRDF, "type"))
 var RDFS_LABEL = rdf2go.NewResource(fmt.Sprintf(prefixRDFS, "label"))
 var FOAF_NAME = rdf2go.NewResource(fmt.Sprintf(prefixFOAF, "name"))
 var DCTERMS_CONFORMS_TO = rdf2go.NewResource(fmt.Sprintf(prefixDCTerms, "conformsTo"))
 var DCTERMS_TITLE = rdf2go.NewResource(fmt.Sprintf(prefixDCTerms, "title"))
+var DCTERMS_MODIFIED = rdf2go.NewResource(fmt.Sprintf(prefixDCTerms, "modified"))
+var DCTERMS_CREATOR = rdf2go.NewResource(fmt.Sprintf(prefixDCTerms, "creator"))
 var OWL_IMPORTS = rdf2go.NewResource(fmt.Sprintf(prefixOWL, "imports"))
 var SKOS_PREF_LABEL = rdf2go.NewResource(fmt.Sprintf(prefixSKOS, "prefLabel"))
 

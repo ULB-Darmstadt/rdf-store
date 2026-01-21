@@ -10,10 +10,8 @@ import (
 	"rdf-store-backend/base"
 	"rdf-store-backend/rdf"
 	"rdf-store-backend/search"
-	"rdf-store-backend/shacl"
 	"strings"
 
-	"github.com/deiu/rdf2go"
 	"github.com/gin-gonic/gin"
 )
 
@@ -101,47 +99,25 @@ func handleAddResource(c *gin.Context) {
 		return
 
 	}
-	graph, err := readGraphFromRequest(c)
+	data, err := readGraphBytesFromRequest(c)
 	if err != nil {
 		slog.Error("failed loading graph from request", "error", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	resourceID, profile, err := shacl.FindResourceProfile(graph, nil, rdf.Profiles)
+	resource, metadata, err := rdf.CreateResource(data, user)
 	if err != nil {
-		slog.Error("could not determine shacl shape", "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	dataGraph, _ := readGraphBytesFromRequest(c)
-	shapesGraph, err := rdf.GetProfile(profile.Id.RawValue())
-	if err != nil {
-		slog.Error("failed loading shapes graph", "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	if valid, err := shacl.Validate(string(shapesGraph), profile.Id.RawValue(), string(dataGraph), resourceID.RawValue()); !valid || err != nil {
-		if err == nil {
-			err = fmt.Errorf("resource graph does not conform to shape %s", profile.Id.RawValue())
-		}
-		slog.Error("failed validating graph", "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	metadata, err := rdf.CreateResource(resourceID.RawValue(), dataGraph, user)
-	if err != nil {
-		slog.Error("failed creating resource", "id", resourceID, "error", err)
+		slog.Error("failed creating resource", "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	if err = search.IndexResource(resourceID, profile, graph, metadata); err != nil {
-		slog.Error("failed indexing resource", "id", resourceID, "error", err)
+	if err = search.IndexResource(resource, metadata); err != nil {
+		slog.Error("failed indexing resource", "id", metadata.Id.RawValue(), "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.Header("Location", resourceID.RawValue())
+	c.Header("Location", metadata.Id.RawValue())
 	c.String(http.StatusNoContent, "")
 }
 
@@ -161,44 +137,20 @@ func handleUpdateResource(c *gin.Context) {
 	}
 	did = strings.TrimPrefix(did, "/")
 
-	graph, err := readGraphFromRequest(c)
+	data, err := readGraphBytesFromRequest(c)
 	if err != nil {
 		slog.Error("failed loading graph from request", "error", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	resourceID := rdf2go.NewResource(did)
-	_, profile, err := shacl.FindResourceProfile(graph, &resourceID, rdf.Profiles)
-	if err != nil {
-		slog.Error("could not determine shacl shape", "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	profileID := profile.Id.RawValue()
-	dataGraph, _ := readGraphBytesFromRequest(c)
-	shapesGraph, err := rdf.GetProfile(profileID)
-	if err != nil {
-		slog.Error("failed loading shapes graph", "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	if valid, err := shacl.Validate(string(shapesGraph), profileID, string(dataGraph), did); !valid || err != nil {
-		if err == nil {
-			err = fmt.Errorf("resource graph does not conform to shape %s", profile.Id.RawValue())
-		}
-		slog.Error("failed validating graph", "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	metadata, err := rdf.UpdateResource(did, dataGraph, user)
+	resource, metadata, err := rdf.UpdateResource(did, data, user)
 	if err != nil {
 		slog.Error("failed updating resource", "id", did, "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	if err = search.IndexResource(resourceID, profile, graph, metadata); err != nil {
+	if err = search.IndexResource(resource, metadata); err != nil {
 		slog.Error("failed indexing resource", "id", did, "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -269,16 +221,6 @@ func handleGetClassInstances(c *gin.Context) {
 		return
 	}
 	c.Data(http.StatusOK, "text/turtle", instances)
-}
-
-// readGraphFromRequest parses RDF Turtle from a form parameter.
-func readGraphFromRequest(c *gin.Context) (graph *rdf2go.Graph, err error) {
-	if ttl := c.PostForm("ttl"); ttl != "" {
-		graph, err = base.ParseGraph(strings.NewReader(ttl))
-	} else {
-		err = errors.New("no ttl form param")
-	}
-	return
 }
 
 // readGraphBytesFromRequest reads raw RDF Turtle bytes from a form parameter.

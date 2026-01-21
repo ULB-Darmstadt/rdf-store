@@ -1,4 +1,4 @@
-import { Store, DataFactory, NamedNode, Quad, StreamParser, BlankNode, Literal } from 'n3'
+import { Store, DataFactory, NamedNode, Quad, StreamParser, Literal } from 'n3'
 import { RdfXmlParser } from 'rdfxml-streaming-parser'
 import jsonld from 'jsonld'
 // @ts-expect-error shacl-engine has no type definitions
@@ -16,6 +16,7 @@ let prefixes: Record<string, string> = {}
 const prefixSHACL = 'http://www.w3.org/ns/shacl#'
 const shaclNode = prefixSHACL + 'node'
 const shaclProperty = prefixSHACL + 'property'
+const shaclPath = prefixSHACL + 'path'
 const shaclAnd = prefixSHACL + 'and'
 const shaclQualifiedValueShape = prefixSHACL + 'qualifiedValueShape'
 const shaclQualifiedMinCount = prefixSHACL + 'qualifiedMinCount'
@@ -40,14 +41,48 @@ export async function validate(shapesGraph: string, rootShaclShapeID: string, da
     return subjectToShapeConformance
 }
 
-async function validateShape(resourceID: NamedNode<string>, shapeID: NamedNode<string>, subjectToShapeConformance: Record<string, string>, dataset: Store, validator: Validator) {
+async function validateShape(resourceID: Term, shapeID: Term, subjectToShapeConformance: Record<string, string>, dataset: Store, validator: Validator, visited: Set<string> = new Set()) {
+    const visitKey = `${resourceID.termType}:${resourceID.value}|${shapeID.termType}:${shapeID.value}`
+    if (visited.has(visitKey)) {
+        return
+    }
+    visited.add(visitKey)
+
     if (await registerConformance(resourceID, shapeID, subjectToShapeConformance, dataset, validator)) {
         // resource validates, so dive into this node shape's sh:property's and go up the inheritance tree
-
+        const shapesToVisit = [shapeID, ...getExtendedShapes(shapeID, dataset)]
+        const uniqueShapes = new Map<string, Term>()
+        for (const shape of shapesToVisit) {
+            uniqueShapes.set(`${shape.termType}:${shape.value}`, shape)
+        }
+        for (const shape of uniqueShapes.values()) {
+            const propertyShapes = dataset.getObjects(shape, shaclProperty, shapesGraphName)
+            for (const propertyShape of propertyShapes) {
+                const paths = dataset.getObjects(propertyShape, shaclPath, shapesGraphName)
+                const nodeShapes = getExtendedShapes(propertyShape, dataset)
+                if (paths.length === 0 || nodeShapes.length === 0) {
+                    continue
+                }
+                for (const path of paths) {
+                    if (path.termType !== 'NamedNode') {
+                        continue
+                    }
+                    const values = dataset.getObjects(resourceID, path, dataGraphName)
+                    for (const value of values) {
+                        if (value.termType === 'Literal') {
+                            continue
+                        }
+                        for (const nodeShape of nodeShapes) {
+                            await validateShape(value, nodeShape, subjectToShapeConformance, dataset, validator, visited)
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
-async function registerConformance(resourceID: NamedNode<string>, shapeID: NamedNode<string>, subjectToShapeConformance: Record<string, string>, dataset: Store, validator: Validator) {
+async function registerConformance(resourceID: Term, shapeID: Term, subjectToShapeConformance: Record<string, string>, dataset: Store, validator: Validator) {
     const report = await validator.validate({ dataset: dataset, terms: [ resourceID ] }, [{ terms: [ shapeID ] }])
     if (report.conforms) {
         subjectToShapeConformance[resourceID.value] = shapeID.value
@@ -171,7 +206,12 @@ function guessContentType(input: string) {
     return 'ttl'
 }
 
-export function getExtendedShapes(subject: Term, dataset: Store) {
+function getExtendedShapes(subject: Term, dataset: Store, visited: Set<string> = new Set()) {
+    const visitKey = `${subject.termType}:${subject.value}`
+    if (visited.has(visitKey)) {
+        return []
+    }
+    visited.add(visitKey)
     const extendedShapes: Term[] = []
     for (const shape of dataset.getObjects(subject, shaclNode, shapesGraphName)) {
         extendedShapes.push(shape)
@@ -187,12 +227,12 @@ export function getExtendedShapes(subject: Term, dataset: Store) {
     }
     for (const shape of extendedShapes) {
         // recurse up
-        extendedShapes.push(...getExtendedShapes(shape, dataset))
+        extendedShapes.push(...getExtendedShapes(shape, dataset, visited))
     }
     const qualifiedValueShape = getQualifiedValueShape(subject, dataset)
     if (qualifiedValueShape) {
         extendedShapes.push(qualifiedValueShape)
-        extendedShapes.push(...getExtendedShapes(qualifiedValueShape, dataset))
+        extendedShapes.push(...getExtendedShapes(qualifiedValueShape, dataset, visited))
     }
     return extendedShapes
 }

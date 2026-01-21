@@ -179,10 +179,6 @@ func deleteGraph(dataset string, id string) (err error) {
 			slog.Warn("failed deleting labels extracted from", "id", id)
 		}
 	}
-	if dataset == ResourceDataset {
-		// delete resource metadata that were sourced from the deleted graph
-		err = deleteGraph(resourceMetaDataset, id)
-	}
 	return
 }
 

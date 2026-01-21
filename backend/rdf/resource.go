@@ -3,11 +3,9 @@ package rdf
 import (
 	"fmt"
 	"log/slog"
-)
 
-var prefixDcTerms = "http://purl.org/dc/terms/%s"
-var dcTermsCreator = fmt.Sprintf(prefixDcTerms, "creator")
-var dcTermsModified = fmt.Sprintf(prefixDcTerms, "modified")
+	"github.com/deiu/rdf2go"
+)
 
 // GetResource fetches an RDF resource graph and optional metadata.
 func GetResource(id string, union bool) (resource []byte, metadata *ResourceMetadata, err error) {
@@ -36,22 +34,31 @@ func GetResource(id string, union bool) (resource []byte, metadata *ResourceMeta
 }
 
 // CreateResource stores a new resource and updates metadata.
-func CreateResource(id string, resource []byte, creator string) (*ResourceMetadata, error) {
-	if err := createGraph(ResourceDataset, id, resource); err != nil {
-		return nil, err
+func CreateResource(resource []byte, creator string) (graph *rdf2go.Graph, metadata *ResourceMetadata, err error) {
+	metadata, graph, err = updateResourceMetadata(nil, resource, creator)
+	if err != nil {
+		return
 	}
-	return updateResourceMetadata(id, creator)
+	if err = createGraph(ResourceDataset, metadata.Id.RawValue(), resource); err != nil {
+		deleteResourceMetadata(metadata.Id.RawValue())
+		return
+	}
+	return
 }
 
 // UpdateResource validates permissions, updates the graph, and metadata.
-func UpdateResource(id string, resource []byte, creator string) (*ResourceMetadata, error) {
-	if err := validateCreator(id, creator); err != nil {
-		return nil, err
+func UpdateResource(id string, resource []byte, creator string) (graph *rdf2go.Graph, metadata *ResourceMetadata, err error) {
+	if err = validateCreator(id, creator); err != nil {
+		return
 	}
-	if err := uploadGraph(ResourceDataset, id, resource, nil); err != nil {
-		return nil, err
+	metadata, graph, err = updateResourceMetadata(rdf2go.NewResource(id), resource, creator)
+	if err != nil {
+		return
 	}
-	return updateResourceMetadata(id, creator)
+	if err = uploadGraph(ResourceDataset, id, resource, nil); err != nil {
+		deleteResourceMetadata(id)
+	}
+	return
 }
 
 // DeleteResource removes a resource graph and metadata.

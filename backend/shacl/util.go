@@ -1,42 +1,8 @@
 package shacl
 
 import (
-	"errors"
 	"log/slog"
-
-	"github.com/deiu/rdf2go"
 )
-
-// FindResourceProfile identifies the profile matching a resource graph.
-func FindResourceProfile(graph *rdf2go.Graph, id *rdf2go.Term, profiles map[string]*NodeShape) (resourceID rdf2go.Term, profile *NodeShape, err error) {
-	var refs []*rdf2go.Triple
-	if id == nil {
-		refs = graph.All(nil, DCTERMS_CONFORMS_TO, nil)
-		refs = append(refs, graph.All(nil, RDF_TYPE, nil)...)
-	} else {
-		refs = graph.All(*id, DCTERMS_CONFORMS_TO, nil)
-		refs = append(refs, graph.All(*id, RDF_TYPE, nil)...)
-	}
-	if len(refs) == 0 {
-		return nil, nil, errors.New("resource graph has no relation " + DCTERMS_CONFORMS_TO.String() + " or " + RDF_TYPE.String() + " to a known SHACL profile")
-	}
-	for _, triple := range refs {
-		if profileRef, ok := profiles[triple.Object.RawValue()]; ok {
-			if resourceID != nil {
-				return nil, nil, errors.New("graph has multiple relations " + DCTERMS_CONFORMS_TO.String() + " or " + RDF_TYPE.String() + " to a known SHACL profile")
-			}
-			resourceID = triple.Subject
-			profile = profileRef
-		}
-	}
-	if profile == nil {
-		return nil, nil, errors.New("no relation to an existing SHACL shape found in resource graph")
-	}
-	if resourceID == nil {
-		return nil, nil, errors.New("resource graph has no relation " + DCTERMS_CONFORMS_TO.String() + " or " + RDF_TYPE.String() + " to a known SHACL profile")
-	}
-	return
-}
 
 // DenormalizeQualifiedValueShapes expands qualified value shapes into properties.
 func (node *NodeShape) DenormalizeQualifiedValueShapes(shapes map[string]*NodeShape) {
