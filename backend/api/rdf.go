@@ -178,6 +178,10 @@ func handleDeleteResource(c *gin.Context) {
 	did = strings.TrimPrefix(did, "/")
 	if err := rdf.DeleteResource(did, user); err != nil {
 		slog.Error("failed deleting resource", "id", did, "error", err)
+		if errors.Is(err, rdf.ErrResourceLinked) {
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}

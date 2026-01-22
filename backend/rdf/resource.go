@@ -2,15 +2,20 @@ package rdf
 
 import (
 	"bytes"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"rdf-store-backend/shacl"
+	"slices"
 	"strings"
 
 	"github.com/deiu/rdf2go"
 	"github.com/knakk/rdf"
 	"github.com/knakk/sparql"
 )
+
+var ErrResourceLinked = errors.New("resource is linked by other resources")
 
 // GetResource fetches an RDF resource graph and optional metadata.
 func GetResource(id string, union bool) (resource []byte, metadata *ResourceMetadata, err error) {
@@ -71,6 +76,22 @@ func DeleteResource(id string, creator string) error {
 	if err := validateCreator(id, creator); err != nil {
 		return err
 	}
+	subjects, err := getGraphSubjects(id)
+	if err != nil {
+		return err
+	}
+	if !slices.Contains(subjects, id) && isValidIRI(id) {
+		subjects = append(subjects, id)
+	}
+	for _, subject := range subjects {
+		linked, err := hasIncomingLinks(subject, id)
+		if err != nil {
+			return err
+		}
+		if linked {
+			return ErrResourceLinked
+		}
+	}
 	if err := deleteGraph(ResourceDataset, id); err != nil {
 		return err
 	}
@@ -80,6 +101,64 @@ func DeleteResource(id string, creator string) error {
 // GetAllResourceIds lists all resource graph IDs.
 func GetAllResourceIds() ([]string, error) {
 	return getAllGraphIds(ResourceDataset)
+}
+
+func getGraphSubjects(id string) ([]string, error) {
+	if !isValidIRI(id) {
+		return nil, fmt.Errorf("invalid id IRI: %v", id)
+	}
+	bindings, err := queryDataset(ResourceDataset, fmt.Sprintf(`SELECT DISTINCT ?s WHERE { GRAPH <%s> { ?s ?p ?o } }`, id))
+	if err != nil {
+		return nil, err
+	}
+	res, err := sparql.ParseJSON(bytes.NewReader(bindings))
+	if err != nil {
+		return nil, err
+	}
+	subjects := make([]string, 0, len(res.Solutions()))
+	seen := make(map[string]struct{})
+	for _, row := range res.Solutions() {
+		subject, ok := row["s"].(rdf.Subject)
+		if !ok {
+			return nil, fmt.Errorf("invalid binding: %v", row)
+		}
+		subjectID := subject.String()
+		if !isValidIRI(subjectID) {
+			continue
+		}
+		if _, ok := seen[subjectID]; ok {
+			continue
+		}
+		seen[subjectID] = struct{}{}
+		subjects = append(subjects, subjectID)
+	}
+	return subjects, nil
+}
+
+func hasIncomingLinks(id string, excludeGraph string) (bool, error) {
+	if !isValidIRI(id) {
+		return false, fmt.Errorf("invalid id IRI: %v", id)
+	}
+	if !isValidIRI(excludeGraph) {
+		return false, fmt.Errorf("invalid exclude graph IRI: %v", excludeGraph)
+	}
+	bindings, err := queryDataset(ResourceDataset, fmt.Sprintf(`ASK WHERE { GRAPH ?g { ?s ?p <%s> } FILTER (?g != <%s>) }`, id, excludeGraph))
+	if err != nil {
+		return false, err
+	}
+	var response map[string]any
+	if err := json.Unmarshal(bindings, &response); err != nil {
+		return false, err
+	}
+	val, ok := response["boolean"]
+	if !ok {
+		return false, fmt.Errorf("got non boolean response")
+	}
+	linked, ok := val.(bool)
+	if !ok {
+		return false, fmt.Errorf("got non boolean response")
+	}
+	return linked, nil
 }
 
 // GetClassInstances retrieves all instances of a given RDF class.
