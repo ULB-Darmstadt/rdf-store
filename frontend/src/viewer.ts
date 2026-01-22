@@ -58,7 +58,7 @@ export class Viewer extends LitElement {
     private async load() {
         if (this.rdfSubject) {
             try {
-                const resp = await fetch(`${BACKEND_URL}/resource/${encodeURIComponent(this.rdfSubject)}`)
+                const resp = await fetch(`${BACKEND_URL}/resource/${encodeURIComponent(this.rdfSubject)}?union`)
                 if (resp.ok) {
                     this.rdf = await resp.text()
                     // check if editable

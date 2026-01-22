@@ -79,7 +79,9 @@ func handleGetResource(c *gin.Context) {
 		return
 	}
 	did = strings.TrimPrefix(did, "/")
-	resource, metadata, err := rdf.GetResource(did, true)
+	// if union request parameter is set, then pull in linked resources
+	union := c.Request.URL.Query().Has("union")
+	resource, metadata, err := rdf.GetResource(did, union)
 	if err != nil {
 		slog.Error("failed loading resource", "id", did, "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

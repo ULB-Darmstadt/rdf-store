@@ -154,7 +154,15 @@ func addPaths(spec *openapi3.T) {
 		Get: &openapi3.Operation{
 			Summary:     "Fetch RDF resource",
 			OperationID: "getResource",
-			Parameters:  openapi3.Parameters{pathParam("id")},
+			Parameters: openapi3.Parameters{
+				// if union param is set, then fetch requested resource including all linked resources
+				pathParam("union"),
+				&openapi3.ParameterRef{
+					Value: openapi3.NewQueryParameter("url").WithRequired(true),
+				},
+				rdfProxyAcceptHeaderParam(),
+			},
+
 			Responses: responses(map[string]*openapi3.Response{
 				"200": turtleResponse(),
 				"400": errorResponse(),
