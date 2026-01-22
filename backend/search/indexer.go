@@ -2,6 +2,8 @@ package search
 
 import (
 	"bytes"
+	"context"
+	"fmt"
 	"log/slog"
 	"rdf-store-backend/base"
 	"rdf-store-backend/rdf"
@@ -13,12 +15,22 @@ import (
 
 // Init prepares the Solr collection and schema.
 func Init(forceRecreate bool) error {
-	if forceRecreate || !checkCollectionExists() {
-		if err := recreateCollection(); err != nil {
-			return err
-		}
+	if forceRecreate {
+		return recreateCollection()
 	}
-	return nil
+	const maxAttempts = 30
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		exists, err := checkCollectionExists(context.Background())
+		if err != nil {
+			slog.Warn("solr not ready yet", "attempt", attempt, "max_attempts", maxAttempts, "error", err)
+		} else if exists {
+			return nil
+		} else {
+			return recreateCollection()
+		}
+		time.Sleep(time.Second)
+	}
+	return fmt.Errorf("solr not ready after %d attempts", maxAttempts)
 }
 
 // Reindex rebuilds the Solr index from all resources.
@@ -61,7 +73,7 @@ func IndexResource(resource *rdf2go.Graph, metadata *rdf.ResourceMetadata) error
 		return err
 	}
 
-	rootProfile, ok := metadata.Conformance[metadata.Id.RawValue()]
+	rootProfileId, ok := metadata.Conformance[metadata.Id.RawValue()]
 	if !ok {
 		slog.Warn("not indexing because root profile not found", "resource", metadata.Id.RawValue(), "creator", metadata.Creator)
 		return nil
@@ -83,7 +95,7 @@ func IndexResource(resource *rdf2go.Graph, metadata *rdf.ResourceMetadata) error
 		"_children_":   []*document{&mainDocument},
 	}
 
-	buildDoc(metadata.Id, rootProfile, resource, &mainDocument)
+	buildDoc(metadata.Id, rootProfileId, rootProfileId, resource, &mainDocument)
 	for resourceId, profileId := range metadata.Conformance {
 		if resourceId != metadata.Id.RawValue() {
 			resourceIdTerm := rdf2go.NewResource(resourceId)
@@ -91,8 +103,9 @@ func IndexResource(resource *rdf2go.Graph, metadata *rdf.ResourceMetadata) error
 				"id":    resourceId,
 				"label": findLabels(resourceIdTerm, resource),
 			}
-			buildDoc(resourceIdTerm, profileId, resource, &childDocument)
+			buildDoc(resourceIdTerm, profileId, profileId, resource, &childDocument)
 			appendMultiValue("_children_", &childDocument, &mainDocument)
+			appendMultiValue("ref_shapes", profileId, &mainDocument)
 		}
 	}
 	return updateDoc(&containerDocument)
@@ -104,7 +117,17 @@ func DeindexResource(id string) error {
 }
 
 // buildDoc recursively constructs Solr documents from RDF graph data.
-func buildDoc(subject rdf2go.Term, profileId string, resource *rdf2go.Graph, current *document) {
+func buildDoc(subject rdf2go.Term, profileId string, rootProfileId string, resource *rdf2go.Graph, current *document) {
+	buildDocWithVisited(subject, profileId, rootProfileId, resource, current, map[string]bool{})
+}
+
+func buildDocWithVisited(subject rdf2go.Term, profileId string, rootProfileId string, resource *rdf2go.Graph, current *document, visited map[string]bool) {
+	if _, ok := visited[profileId]; ok {
+		slog.Debug("skipping already visited profile", "subject", subject.RawValue(), "profile", profileId)
+		return
+	}
+	visited[profileId] = true
+
 	slog.Debug("build doc", "subject", subject.RawValue(), "profile", profileId, "current", (*current)["id"])
 	profile, ok := rdf.Profiles[profileId]
 	if !ok {
@@ -127,16 +150,17 @@ func buildDoc(subject rdf2go.Term, profileId string, resource *rdf2go.Graph, cur
 					if ft == "dts" && len(raw) == 10 {
 						raw = raw + "T00:00:00Z"
 					}
-					field := base.CleanStringForSolr(profile.Id.RawValue()) + "." + base.CleanStringForSolr(property.Id.RawValue()) + "_" + ft
+					field := base.CleanStringForSolr(rootProfileId) + "." + base.CleanStringForSolr(property.Id.RawValue()) + "_" + ft
 					appendMultiValue(field, raw, current)
 				}
+				resource.Remove(value)
 			}
 		}
 	}
 
 	for parentId := range profile.Parents {
 		// append properties of all parent shapes to same document
-		buildDoc(subject, parentId, resource, current)
+		buildDocWithVisited(subject, parentId, rootProfileId, resource, current, visited)
 	}
 }
 
@@ -252,14 +276,22 @@ func buildDoc2(subject rdf2go.Term, profileId rdf2go.Term, profile *shacl.NodeSh
 */
 // appendMultiValue appends values to a multi-value Solr field.
 func appendMultiValue(field string, value any, doc *document) {
-	if _, ok := (*doc)[field]; !ok {
-		(*doc)[field] = make([]any, 0)
+	if value == nil {
+		return
 	}
-	if reflect.TypeOf(value).Kind() == reflect.Slice {
-		(*doc)[field] = append((*doc)[field].([]any), value.([]any)...)
+	existing, ok := (*doc)[field].([]any)
+	if !ok {
+		existing = make([]any, 0)
+	}
+	valueRef := reflect.ValueOf(value)
+	if valueRef.Kind() == reflect.Slice {
+		for i := 0; i < valueRef.Len(); i++ {
+			existing = append(existing, valueRef.Index(i).Interface())
+		}
 	} else {
-		(*doc)[field] = append((*doc)[field].([]any), value)
+		existing = append(existing, value)
 	}
+	(*doc)[field] = existing
 }
 
 // findLabels collects literal labels for a subject in the graph.

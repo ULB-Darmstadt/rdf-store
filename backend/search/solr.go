@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"rdf-store-backend/base"
+	"slices"
 
 	"github.com/stevenferrer/solr-go"
 )
@@ -20,10 +21,26 @@ var client = solr.NewJSONClient(Endpoint)
 type document map[string]any
 
 // checkCollectionExists determines whether the Solr collection is reachable.
-func checkCollectionExists() bool {
-	query := solr.Query{}
-	_, err := client.Query(context.Background(), base.SolrIndex, &query)
-	return err == nil
+func checkCollectionExists(ctx context.Context) (bool, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/solr/admin/collections?action=LIST&wt=json", Endpoint), nil)
+	if err != nil {
+		return false, err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return false, fmt.Errorf("unexpected solr status: %s", resp.Status)
+	}
+	var payload struct {
+		Collections []string `json:"collections"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return false, err
+	}
+	return slices.Contains(payload.Collections, base.SolrIndex), nil
 }
 
 // recreateCollection drops and rebuilds the Solr collection and schema.
