@@ -10,7 +10,7 @@ import { globalStyles } from './styles'
 export async function classInstanceProvider(clazz: string) {
     return new Promise<string>(async (resolve, reject) => {
         try {
-            const resp = await fetch(`${BACKEND_URL}/instances?class=${encodeURIComponent(clazz)}`)
+            const resp = await fetch(`${BACKEND_URL}/class-instances?class=${encodeURIComponent(clazz)}`)
             if (resp.ok) {
                 resolve(await resp.text())
             } else {

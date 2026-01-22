@@ -42,7 +42,8 @@ func init() {
 	Router.GET(BasePath+"/profile/*id", handleGetProfile)
 	Router.POST(BasePath+"/sparql/query", handleFusekiSparql)
 	Router.GET(BasePath+"/sparql/query", handleFusekiSparql)
-	Router.GET(BasePath+"/instances", handleGetClassInstances)
+	Router.GET(BasePath+"/class-instances", handleGetClassInstances)
+	Router.GET(BasePath+"/shape-instances", handleGetShapeInstances)
 	if base.ExposeFusekiFrontend {
 		Router.Any("/fuseki/*proxyPath", handleFusekiFrontend)
 	}
@@ -219,6 +220,24 @@ func handleGetClassInstances(c *gin.Context) {
 	instances, err := rdf.GetClassInstances(class)
 	if err != nil {
 		slog.Error("failed retrieving class instances", "class", class, "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.Data(http.StatusOK, "text/turtle", instances)
+}
+
+// handleGetShapeInstances returns all instances that conform to a given SHACL shape.
+func handleGetShapeInstances(c *gin.Context) {
+	shape := c.Query("shape")
+	if len(shape) == 0 {
+		slog.Warn("failed retrieving shape instances, request parameter 'shape' missing")
+		c.JSON(http.StatusBadRequest, gin.H{"error": "missing request parameter 'shape'"})
+		return
+
+	}
+	instances, err := rdf.GetShapeInstances(shape)
+	if err != nil {
+		slog.Error("failed retrieving shape instances", "shape", shape, "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}

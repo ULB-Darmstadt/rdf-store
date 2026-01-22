@@ -1,10 +1,15 @@
 package rdf
 
 import (
+	"bytes"
 	"fmt"
 	"log/slog"
+	"rdf-store-backend/shacl"
+	"strings"
 
 	"github.com/deiu/rdf2go"
+	"github.com/knakk/rdf"
+	"github.com/knakk/sparql"
 )
 
 // GetResource fetches an RDF resource graph and optional metadata.
@@ -88,6 +93,44 @@ func GetClassInstances(class string) ([]byte, error) {
 		return nil, err
 	}
 	return sparqlResultToNQuads(bindings)
+}
+
+// GetShapeInstances retrieves all instances that conform to a given SHACL shape.
+func GetShapeInstances(shape string) ([]byte, error) {
+	// prevent SPARQL injection
+	if !isValidIRI(shape) {
+		return nil, fmt.Errorf("invalid shape IRI: %v", shape)
+	}
+	bindings, err := queryDataset(resourceMetaDataset, fmt.Sprintf(`SELECT DISTINCT ?resource WHERE { GRAPH ?g { ?resource <%s> <%s> } }`, shacl.DCTERMS_CONFORMS_TO.RawValue(), shape))
+	if err != nil {
+		return nil, err
+	}
+	res, err := sparql.ParseJSON(bytes.NewReader(bindings))
+	if err != nil {
+		return nil, err
+	}
+	var resources []string
+	for _, row := range res.Solutions() {
+		resource, ok := row["resource"].(rdf.Subject)
+		if !ok {
+			return nil, fmt.Errorf("invalid binding: %v", row)
+		}
+		resources = append(resources, resource.String())
+	}
+	if len(resources) == 0 {
+		return []byte{}, nil
+	}
+	var b strings.Builder
+	for _, resource := range resources {
+		b.WriteString("<")
+		b.WriteString(resource)
+		b.WriteString("> ")
+	}
+	dataBindings, err := queryDataset(ResourceDataset, fmt.Sprintf(`SELECT ?s ?p ?o ?g WHERE { GRAPH ?g { VALUES ?s { %s } ?s ?p ?o } }`, b.String()))
+	if err != nil {
+		return nil, err
+	}
+	return sparqlResultToNQuads(dataBindings)
 }
 
 // validateCreator ensures the requester matches stored creator metadata.

@@ -207,11 +207,25 @@ func addPaths(spec *openapi3.T) {
 		Tags: []string{TAG_RDF},
 	}})
 
-	spec.Paths.Set("/instances", &openapi3.PathItem{Get: &openapi3.Operation{
+	spec.Paths.Set("/class-instances", &openapi3.PathItem{Get: &openapi3.Operation{
 		Summary:     "List instances of an RDF class",
 		OperationID: "getClassInstances",
 		Parameters: openapi3.Parameters{&openapi3.ParameterRef{
 			Value: openapi3.NewQueryParameter("class").WithRequired(true),
+		}},
+		Responses: responses(map[string]*openapi3.Response{
+			"200": turtleResponse(),
+			"400": errorResponse(),
+			"500": errorResponse(),
+		}),
+		Tags: []string{TAG_RDF},
+	}})
+
+	spec.Paths.Set("/shape-instances", &openapi3.PathItem{Get: &openapi3.Operation{
+		Summary:     "List instances that conform to a given SHACL shape",
+		OperationID: "getShapeInstances",
+		Parameters: openapi3.Parameters{&openapi3.ParameterRef{
+			Value: openapi3.NewQueryParameter("shape").WithRequired(true),
 		}},
 		Responses: responses(map[string]*openapi3.Response{
 			"200": turtleResponse(),
