@@ -32,12 +32,18 @@ docker compose up -d --build --force-recreate
 ## SHACL shapes (aka application profiles)
 RDF store supports loading SHACL shapes locally from the directory `rdf-store/backend/local/profiles/` or remotely from the [NFDI4Ing metadata profiles service](https://profiles.nfdi4ing.de). See the [.env.example](./.env.example) file on how to enable/disable/configure these sources.
 
-## SPARQL endpoint
-The stored RDF data can be queried with SPARQL at http://localhost:8089/api/v1/sparql/query
+## Backend API
+The backend API is exposed under `http://localhost:8089/api/v1/` when running via Docker Compose.
+Key endpoints include:
+- `/api/v1/sparql/query` for SPARQL queries on stored RDF resources.
+- `/api/v1/solr/{colletion}/query` for SOLR search requests.
+- `/api/v1/resource` for CRUD operations on RDF resources.
 
-Example:
+For a complete, interactive API reference, open the Swagger UI at `http://localhost:8089/api/v1/` or refer to the OpenAPI document at `http://localhost:8089/api/v1/openapi.json`.
+
+Example SPARQL query:
 ```
-curl -Lk -X POST http://localhost:8089/api/v1/sparql/query -d "query=SELECT ?s ?p ?o WHERE { ?s ?p ?o }"
+curl -Lk -X POST http://localhost:8089/api/v1/sparql/query -d "query=SELECT * WHERE { GRAPH ?g {?s ?p ?o } }"
 ```
 
 ## Development setup
@@ -48,7 +54,8 @@ curl -Lk -X POST http://localhost:8089/api/v1/sparql/query -d "query=SELECT ?s ?
 When modifying the code in this repo (backend or frontend), the recommended steps for running/testing the local changes are:
 1. `cd rdf-store`
 1. edit [docker-compose.yml](./docker-compose.yml) and comment in the port mappings for fuseki and solr
-1. `docker compose start solr fuseki`
+1. `docker compose up -d --build`
+1. `docker compose stop app`
 1. `cd backend && go run .` -> starts backend on port 3000, needs to be run again after each change in the backend
 1. `cd frontend && npm run dev` -> starts frontend on port 5173 with live reload
 1. open browser at http://localhost:5173
