@@ -42,6 +42,7 @@ export class Viewer extends LitElement {
     editMode = false
     @state()
     saving = false
+    private loadTimeout?: number
 
     updated(changedProperties: PropertyValues) {
         if ((changedProperties.has('rdfSubject') || changedProperties.has('highlightSubject')) && this.rdfSubject) {
@@ -56,9 +57,19 @@ export class Viewer extends LitElement {
     }
 
     private async load() {
-        if (this.rdfSubject) {
+        if (this.loadTimeout) {
+            window.clearTimeout(this.loadTimeout)
+        }
+        if (!this.rdfSubject) {
+            return
+        }
+        const subject = this.rdfSubject
+        this.loadTimeout = window.setTimeout(async () => {
+            if (this.rdfSubject !== subject) {
+                return
+            }
             try {
-                const resp = await fetch(`${BACKEND_URL}/resource/${encodeURIComponent(this.rdfSubject)}?union`)
+                const resp = await fetch(`${BACKEND_URL}/resource/${encodeURIComponent(subject)}?union`)
                 if (resp.ok) {
                     this.rdf = await resp.text()
                     // check if editable
@@ -70,7 +81,7 @@ export class Viewer extends LitElement {
             } catch(e) {
                 showSnackbarMessage({message: '' + e, ttl: 0, cssClass: 'error' })
             }
-        }
+        }, 300)
     }
 
     private export() {
