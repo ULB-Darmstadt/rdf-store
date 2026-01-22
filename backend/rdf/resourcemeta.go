@@ -16,13 +16,19 @@ import (
 	"github.com/knakk/sparql"
 )
 
+// ResourceMetadata represents derived metadata about a stored RDF resource.
 type ResourceMetadata struct {
-	Id           rdf2go.Term
-	Creator      string
+	// Id is the resource identifier that metadata applies to.
+	Id rdf2go.Term
+	// Creator is the user name or identifier supplied when the resource was created.
+	Creator string
+	// LastModified is the timestamp recorded for the latest update.
 	LastModified time.Time
-	Conformance  map[string]string
+	// Conformance maps resource identifiers to their conforming SHACL shape identifiers.
+	Conformance map[string]string
 }
 
+// metadataUpdateTemplate renders the RDF triples persisted to the metadata dataset.
 var metadataUpdateTemplate = template.Must(template.New("").Funcs(template.FuncMap{
 	"FormatTime": func(t time.Time) string {
 		return t.UTC().Format(time.RFC3339)
@@ -97,6 +103,7 @@ func deleteResourceMetadata(id string) error {
 	return deleteGraph(resourceMetaDataset, id)
 }
 
+// buildResourceMetadata validates the resource, build a shape conformance map for contained sub-resources and returns metadata plus its parsed graph.
 func buildResourceMetadata(id rdf2go.Term, resource []byte, creator string) (metadata *ResourceMetadata, graph *rdf2go.Graph, err error) {
 	graph, err = base.ParseGraph(bytes.NewReader(resource))
 	if err != nil {
@@ -187,6 +194,7 @@ func findResourceProfile(graph *rdf2go.Graph, id rdf2go.Term) (resourceID rdf2go
 	return
 }
 
+// newResourceMetadata initializes a ResourceMetadata instance with defaults.
 func newResourceMetadata(id rdf2go.Term, creator string) *ResourceMetadata {
 	return &ResourceMetadata{
 		Id:           id,
