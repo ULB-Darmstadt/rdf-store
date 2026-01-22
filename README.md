@@ -6,10 +6,21 @@
 ```
 git clone https://github.com/ULB-Darmstadt/rdf-store.git
 cd rdf-store
-[edit .env file as needed]
+cp .env.example .env (see below)
 docker compose up -d
 ```
 Afterwards, open browser at http://localhost:8089
+
+### .env setup for Docker Compose
+1. Copy the example file: `cp .env.example .env`.
+1. Update values as needed:
+   - `APP_URL`: base URL for the deployment (used in redirects).
+   - `FUSEKI_PASSWORD`: admin password for Fuseki. Needs to be set before first starting the services.
+   - `OAUTH2_PROXY_*`: OIDC/OAuth settings (issuer, client id/secret, cookie secret).
+   - `DISABLE_OAUTH`: set to a non-empty value to bypass OAuth2 proxy.
+   - `ALLOWED_ORIGINS`: optional CORS origins.
+   - `RDF_NAMESPACE`, `LOG_LEVEL`: optional service tuning.
+
 
 ## Updating
 ```
@@ -19,7 +30,7 @@ docker compose up -d --build --force-recreate
 ```
 
 ## SHACL shapes (aka application profiles)
-RDF store supports loading the SHACL shapes locally from the directory `rdf-store/backend/local/profiles/` or remotely from the [NFDI4Ing metadata profiles service](https://profiles.nfdi4ing.de). See the [.env](./.env) file on how to enable/disable/configure these sources.
+RDF store supports loading SHACL shapes locally from the directory `rdf-store/backend/local/profiles/` or remotely from the [NFDI4Ing metadata profiles service](https://profiles.nfdi4ing.de). See the [.env.example](./.env.example) file on how to enable/disable/configure these sources.
 
 ## SPARQL endpoint
 The stored RDF data can be queried with SPARQL at http://localhost:8089/api/v1/sparql/query
