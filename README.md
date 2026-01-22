@@ -43,4 +43,25 @@ When modifying the code in this repo (backend or frontend), the recommended step
 1. open browser at http://localhost:5173
 
 ## Architecture
-<img src="../readme/rdf-store-architecture.png" alt="architecture diagram">
+```mermaid
+flowchart LR
+    User[User Browser]
+    Gateway[Nginx Gateway]
+    OAuth[OAuth2 Proxy]
+    Redis[(Redis)]
+    App[Backend API]
+    Validator[SHACL Validator]
+    Fuseki[(Apache Jena Fuseki)]
+    Solr[(Solr Index)]
+    Profiles[Profiles Source<br/>Local + NFDI4Ing]
+
+    User --> Gateway
+    Gateway --> OAuth
+    OAuth --> Redis
+    OAuth --> App
+    Gateway --> App
+    App --> Validator
+    App --> Fuseki
+    App --> Solr
+    App --> Profiles
+```
