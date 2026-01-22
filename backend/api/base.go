@@ -70,7 +70,7 @@ func writeAccessGranted(h http.Header) (granted bool, user string) {
 	}
 	if len(base.AuthWriteAccessGroup) > 0 {
 		// check if user has required group
-		granted = slices.Index(strings.Split(h.Get(base.AuthGroupsHeader), ","), base.AuthWriteAccessGroup) > -1
+		granted = slices.Contains(strings.Split(h.Get(base.AuthGroupsHeader), ","), base.AuthWriteAccessGroup)
 	} else {
 		granted = true
 	}

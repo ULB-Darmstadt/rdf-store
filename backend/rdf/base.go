@@ -205,7 +205,7 @@ func checkGraphExists(dataset string, id string) (exists bool, err error) {
 		err = newHTTPError(fmt.Sprintf("failed checking graph %s in dataset %s", id, dataset), status, data)
 		return
 	}
-	var response map[string]interface{}
+	var response map[string]any
 	if err = json.Unmarshal(data, &response); err != nil {
 		return
 	}

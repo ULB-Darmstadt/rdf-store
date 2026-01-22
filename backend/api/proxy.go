@@ -62,7 +62,7 @@ func handleRdfProxy(c *gin.Context) {
 func filterClientAccept(req *http.Request) string {
 	var result []string
 	for mime := range strings.SplitSeq(req.Header.Get("Accept"), ",") {
-		if slices.Index(allowedContentTypes, strings.Split(mime, ";")[0]) > -1 {
+		if slices.Contains(allowedContentTypes, strings.Split(mime, ";")[0]) {
 			result = append(result, mime)
 		}
 	}

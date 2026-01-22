@@ -346,7 +346,7 @@ func pathParam(name string) *openapi3.ParameterRef {
 }
 
 func rdfProxyAcceptHeaderParam() *openapi3.ParameterRef {
-	values := make([]interface{}, 0, len(allowedContentTypes))
+	values := make([]any, 0, len(allowedContentTypes))
 	for _, value := range allowedContentTypes {
 		values = append(values, value)
 	}

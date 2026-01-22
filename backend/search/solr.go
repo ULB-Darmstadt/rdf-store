@@ -81,7 +81,7 @@ func patchLocationField() error {
 
 // updateDoc submits a document update and commits it in Solr.
 func updateDoc(doc *document) error {
-	data, err := json.MarshalIndent(map[string]any{"add": map[string]interface{}{"doc": doc}}, "", "   ")
+	data, err := json.MarshalIndent(map[string]any{"add": map[string]any{"doc": doc}}, "", "   ")
 	if err != nil {
 		return err
 	}

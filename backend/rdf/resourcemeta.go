@@ -153,7 +153,7 @@ func buildResourceMetadata(id rdf2go.Term, resource []byte, creator string) (met
 	// filter out shape conformance for linked resources.
 	// we assume that if an ID is not a subject in the original resource graph, then it is a linked resource that has been pulled in by the SPARQL query above.
 	for resourceID := range conformance {
-		if slices.Index(linkedResources, resourceID) > -1 || graph.One(rdf2go.NewResource(resourceID), nil, nil) == nil {
+		if slices.Contains(linkedResources, resourceID) || graph.One(rdf2go.NewResource(resourceID), nil, nil) == nil {
 			fmt.Println("--- delete", resourceID)
 			delete(conformance, resourceID)
 		}

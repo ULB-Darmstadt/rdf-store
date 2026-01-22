@@ -50,7 +50,7 @@ func GetLabels(language string, ids []string) (map[string]string, error) {
 		}
 		languagePrios = append(languagePrios, "")
 
-		labelsTmplInput := map[string]interface{}{"Ids": ids}
+		labelsTmplInput := map[string]any{"Ids": ids}
 		var query bytes.Buffer
 		if err := labelsQueryTemplate.Execute(&query, labelsTmplInput); err != nil {
 			return nil, err
