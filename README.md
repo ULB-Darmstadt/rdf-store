@@ -44,8 +44,9 @@ When modifying the code in this repo (backend or frontend), the recommended step
 
 ## Architecture
 ```mermaid
-flowchart LR
+flowchart TB
     User[User Browser]
+    Frontend[Frontend UI]
     Gateway[Nginx Gateway]
     OAuth[OAuth2 Proxy]
     Redis[(Redis)]
@@ -53,9 +54,11 @@ flowchart LR
     Validator[SHACL Validator]
     Fuseki[(Apache Jena Fuseki)]
     Solr[(Solr Index)]
-    Profiles[Profiles Source<br/>Local + NFDI4Ing]
+    Profiles[SHACL Shape Source<br/>Local + NFDI4Ing MPS]
 
-    User --> Gateway
+    User --> Frontend
+    Frontend -->|Search requests| Gateway
+    Frontend -->|View/Edit requests| Gateway
     Gateway --> OAuth
     OAuth --> Redis
     OAuth --> App
