@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"rdf-store-backend/base"
 	"rdf-store-backend/shacl"
+	"slices"
 	"strings"
 	"text/template"
 	"time"
@@ -114,7 +115,7 @@ func buildResourceMetadata(id rdf2go.Term, resource []byte, creator string) (met
 		return
 	}
 	// resolve linked resources since they are needed for validation
-	var linkedResources []*rdf2go.Resource
+	var linkedResources []string
 	for t := range graph.IterTriples() {
 		if linkCandidate, ok := t.Object.(*rdf2go.Resource); ok {
 			if strings.HasPrefix(linkCandidate.RawValue(), base.Configuration.RdfNamespace) && graph.One(linkCandidate, nil, nil) == nil {
@@ -128,8 +129,7 @@ func buildResourceMetadata(id rdf2go.Term, resource []byte, creator string) (met
 					err = innerErr
 					return
 				}
-				// TODO: linked resources might pull in other linked resources which we currently do not track here
-				linkedResources = append(linkedResources, linkCandidate)
+				linkedResources = append(linkedResources, linkCandidate.RawValue())
 				resource = append(resource, linkedResourceGraph...)
 			}
 		}
@@ -138,13 +138,18 @@ func buildResourceMetadata(id rdf2go.Term, resource []byte, creator string) (met
 	if conformance, err = shacl.Validate(string(shapesGraph), profile.Id.RawValue(), string(resource), validID.RawValue()); err != nil {
 		return
 	}
+	// check if conformance map contains the expected SHACL profile for the main resource
 	if rootShape, ok := conformance[validID.RawValue()]; !ok || rootShape != profile.Id.RawValue() {
 		err = fmt.Errorf("resource does not conform to expected shape %s", profile.Id.RawValue())
 		return
 	}
-	// filter out shape conformance for linked resources
-	for _, linkedResource := range linkedResources {
-		delete(conformance, linkedResource.RawValue())
+	// filter out shape conformance for linked resources.
+	// we assume that if an ID is not a subject in the original resource graph, then it is a linked resource that has been pulled in by the SPARQL query above.
+	for resourceID := range conformance {
+		if slices.Index(linkedResources, resourceID) > -1 || graph.One(rdf2go.NewResource(resourceID), nil, nil) == nil {
+			fmt.Println("--- delete", resourceID)
+			delete(conformance, resourceID)
+		}
 	}
 	metadata = newResourceMetadata(validID, creator)
 	metadata.Conformance = conformance
