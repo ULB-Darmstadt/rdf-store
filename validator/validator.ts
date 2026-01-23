@@ -18,6 +18,7 @@ const shaclNode = prefixSHACL + 'node'
 const shaclProperty = prefixSHACL + 'property'
 const shaclPath = prefixSHACL + 'path'
 const shaclAnd = prefixSHACL + 'and'
+const shaclOr = prefixSHACL + 'or'
 const shaclQualifiedValueShape = prefixSHACL + 'qualifiedValueShape'
 const shaclQualifiedMinCount = prefixSHACL + 'qualifiedMinCount'
 
@@ -30,8 +31,8 @@ export async function validate(shapesGraph: string, rootShaclShapeID: string, da
     const dataset = new Store()
     const importedUrls: string[] = []
 
-    await importRDF(parseRDF(shapesGraph, shapesGraphName), dataset, importedUrls)
-    await importRDF(parseRDF(dataGraph, dataGraphName), dataset, importedUrls)
+    await importRDF(parseRDF(shapesGraph), shapesGraphName, dataset, importedUrls)
+    await importRDF(parseRDF(dataGraph), dataGraphName, dataset, importedUrls)
 
     const validator = new Validator(dataset, { factory: DataFactory })
     const subjectToShapeConformance: Record<string, string> = {} // RDF subjects conforming to SHACL shape IDs
@@ -89,18 +90,18 @@ async function registerConformance(resourceID: Term, shapeID: Term, subjectToSha
     return false
 }
 
-async function importRDF(rdf: Promise<Quad[]>, store: Store, importedUrls: string[]) {
+async function importRDF(rdf: Promise<Quad[]>, graph: NamedNode, store: Store, importedUrls: string[]) {
     const quads = await rdf
     const dependencies: Promise<void>[] = []
     for (const quad of quads) {
-        store.add(new Quad(quad.subject, quad.predicate, quad.object, quad.graph))
+        store.add(new Quad(quad.subject, quad.predicate, quad.object, graph))
         // check if this is an owl:imports predicate and try to load the url
         if (owlPredicateImports.equals(quad.predicate) && loadOwlImports) {
             const url = toURL(quad.object.value, prefixes)
             // import url only once
             if (url && importedUrls.indexOf(url) < 0) {
                 importedUrls.push(url)
-                dependencies.push(importRDF(fetchRDF(url), store, importedUrls))
+                dependencies.push(importRDF(fetchRDF(url), graph, store, importedUrls))
             }
         }
     }
@@ -124,7 +125,7 @@ async function fetchRDF(url: string): Promise<Quad[]> {
                     'Accept': 'text/turtle, application/trig, application/n-triples, application/n-quads, text/n3, application/ld+json'
                 },
             }).then(resp => resp.text())
-            resolve(await parseRDF(response, DataFactory.namedNode(url)))
+            resolve(await parseRDF(response))
         } catch(e) {
             reject(e)
         }
@@ -132,7 +133,7 @@ async function fetchRDF(url: string): Promise<Quad[]> {
     return cache[url]
 }
 
-async function parseRDF(rdf: string, graph: NamedNode): Promise<Quad[]> {
+async function parseRDF(rdf: string): Promise<Quad[]> {
     if (guessContentType(rdf) === 'json') {
         // convert json to n-quads
         try {
@@ -145,7 +146,7 @@ async function parseRDF(rdf: string, graph: NamedNode): Promise<Quad[]> {
     await new Promise((resolve, reject) => {
         const parser = guessContentType(rdf) === 'xml' ? new RdfXmlParser() : new StreamParser()
         parser.on('data', (quad: Quad) => {
-            quads.push(new Quad(quad.subject, quad.predicate, quad.object, graph))
+            quads.push(quad)
         })
         .on('error', (error) => {
             reject(error)
@@ -219,6 +220,14 @@ function getExtendedShapes(subject: Term, dataset: Store, visited: Set<string> =
         const lists = dataset.extractLists()
         for (const andList of andLists) {
             const listShapes = lists[andList.object.value] ?? []
+            shapesToVisit.push(...listShapes)
+        }
+    }
+    const orLists = dataset.getQuads(subject, shaclOr, null, shapesGraphName)
+    if (orLists.length > 0) {
+        const lists = dataset.extractLists()
+        for (const orList of orLists) {
+            const listShapes = lists[orList.object.value] ?? []
             shapesToVisit.push(...listShapes)
         }
     }
