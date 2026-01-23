@@ -27,9 +27,10 @@ func main() {
 		if err := search.Init(false); err != nil {
 			log.Fatal(err)
 		}
-		if err := startSyncProfiles(); err != nil {
-			log.Fatal(err)
-		}
+		rdf.ParseAllProfiles()
+		// if err := startSyncProfiles(); err != nil {
+		// 	log.Fatal(err)
+		// }
 	}()
 	if err := api.Router.Run(":3000"); err != nil {
 		log.Fatal(err)

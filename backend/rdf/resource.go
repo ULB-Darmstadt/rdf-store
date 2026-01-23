@@ -18,8 +18,8 @@ import (
 var ErrResourceLinked = errors.New("resource is linked by other resources")
 
 // GetResource fetches an RDF resource graph and optional metadata.
-func GetResource(id string, union bool) (resource []byte, metadata *ResourceMetadata, err error) {
-	if union {
+func GetResource(id string, includeLinked bool) (resource []byte, metadata *ResourceMetadata, err error) {
+	if includeLinked {
 		exists, err2 := checkGraphExists(ResourceDataset, id)
 		if err2 != nil {
 			return nil, nil, err2
@@ -167,7 +167,7 @@ func GetClassInstances(class string) ([]byte, error) {
 	if !isValidIRI(class) {
 		return nil, fmt.Errorf("invalid class IRI: %v", class)
 	}
-	bindings, err := queryDataset(ResourceDataset, fmt.Sprintf(`SELECT ?s ?p ?o ?g WHERE  { GRAPH ?g { ?instance a <%s> . ?instance (<>|!<>)* ?s . ?s ?p ?o }}`, class))
+	bindings, err := queryDataset(ResourceDataset, fmt.Sprintf(`SELECT DISTINCT ?s ?p ?o ?g WHERE  { GRAPH ?g { ?instance a <%s> . ?instance (<>|!<>)* ?s . ?s ?p ?o }}`, class))
 	if err != nil {
 		return nil, err
 	}

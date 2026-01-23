@@ -228,7 +228,7 @@ export class App extends LitElement {
                     ${this.totalHits < 1 ? nothing : html`
                         <div class="hits">
                         ${this.searchHits.map((hit) => html`
-                            <div class="hit${hit.id === this.viewRdfSubject ? ' active' : ''}" @click="${() => this.viewResource(hit)}">
+                            <div class="hit${(hit.id === this.viewHiglightSubject || (!this.viewHiglightSubject && hit.id === this.viewRdfSubject)) ? ' active' : ''}" @click="${() => this.viewResource(hit)}">
                                 <div class="header">
                                     ${hit.label?.length ? hit.label.join(', ') : hit.id}
                                 </div>

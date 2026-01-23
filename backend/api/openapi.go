@@ -157,7 +157,7 @@ func addPaths(spec *openapi3.T) {
 			Parameters: openapi3.Parameters{
 				pathParam("id"),
 				&openapi3.ParameterRef{
-					Value: openapi3.NewQueryParameter("union").WithDescription("If present, fetch requested resource including all linked resources. The result will be quads instead of triples."),
+					Value: openapi3.NewQueryParameter("includeLinked").WithDescription("If present, fetch requested resource including all linked resources. The result will be quads instead of triples."),
 				},
 				rdfProxyAcceptHeaderParam(),
 			},

@@ -37,6 +37,8 @@ export class Viewer extends LitElement {
     @state()
     rdf = ''
     @state()
+    rdfWithLinked = ''
+    @state()
     graphView = true
     @state()
     editMode = false
@@ -49,32 +51,31 @@ export class Viewer extends LitElement {
             this.highlightSubject = this.highlightSubject || this.rdfSubject
             this.editMode = false
             this.editable = false
+            console.log('--- here')
             this.load()
         }
         if ((changedProperties.has('graphView') || changedProperties.has('editMode')) && !this.graphView && this.editMode) {
-            (this.shadowRoot!.querySelector('shacl-form') as ShaclForm)?.setClassInstanceProvider(classInstanceProvider)
+            (this.shadowRoot!.querySelector('shacl-form') as ShaclForm)?.setDataProvider({
+                classInstances: classInstanceProvider
+            })
         }
     }
 
     private async load() {
-        if (this.loadTimeout) {
-            window.clearTimeout(this.loadTimeout)
-        }
-        if (!this.rdfSubject) {
-            return
-        }
-        const subject = this.rdfSubject
-        this.loadTimeout = window.setTimeout(async () => {
-            if (this.rdfSubject !== subject) {
-                return
-            }
+        if (this.rdfSubject) {
             try {
-                const resp = await fetch(`${BACKEND_URL}/resource/${encodeURIComponent(subject)}?union`)
+                const resp = await fetch(`${BACKEND_URL}/resource/${encodeURIComponent(this.rdfSubject)}?union`)
                 if (resp.ok) {
                     this.rdf = await resp.text()
                     // check if editable
                     const creator = resp.headers.get('X-Creator')
                     this.editable = (!this.config?.authEnabled || (this.config?.authUser && this.config?.authUser === creator)) ? true : false
+                } else {
+                    throw new Error(i18n['noresults'])
+                }
+                resp = await fetch(`${BACKEND_URL}/resource/${encodeURIComponent(this.rdfSubject)}?includeLinked`)
+                if (resp.ok) {
+                    this.rdfWithLinked = await resp.text()
                 } else {
                     throw new Error(i18n['noresults'])
                 }
@@ -181,7 +182,7 @@ export class Viewer extends LitElement {
             </div>
             <div class="main">
             ${this.graphView ? html`
-                <rdf-graph rdfSubject="${this.rdfSubject}" highlightSubject="${this.highlightSubject}" rdf="${this.rdf}"></rdf-graph>
+                <rdf-graph rdfSubject="${this.rdfSubject}" highlightSubject="${this.highlightSubject}" rdf="${this.rdfWithLinked}"></rdf-graph>
             ` : html`
                 <shacl-form
                     id="form"
