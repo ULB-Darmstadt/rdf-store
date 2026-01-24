@@ -13,7 +13,7 @@ import (
 )
 
 var hashPredicate = "<spdx:checksumValue>"
-var BlankNodeReplacement = "rdf-store:"
+var BlankNodeReplacement = "urn:"
 
 // GetProfile loads a profile graph from the profile dataset.
 func GetProfile(id string) (profile []byte, err error) {

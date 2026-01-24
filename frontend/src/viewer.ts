@@ -51,20 +51,25 @@ export class Viewer extends LitElement {
             this.highlightSubject = this.highlightSubject || this.rdfSubject
             this.editMode = false
             this.editable = false
-            console.log('--- here')
             this.load()
         }
         if ((changedProperties.has('graphView') || changedProperties.has('editMode')) && !this.graphView && this.editMode) {
-            (this.shadowRoot!.querySelector('shacl-form') as ShaclForm)?.setDataProvider({
-                classInstances: classInstanceProvider
-            })
+            (this.shadowRoot!.querySelector('shacl-form') as ShaclForm)?.setClassInstanceProvider(classInstanceProvider)
         }
     }
 
     private async load() {
-        if (this.rdfSubject) {
+        window.clearTimeout(this.loadTimeout)
+        if (!this.rdfSubject) {
+            return
+        }
+        const subject = this.rdfSubject
+        this.loadTimeout = window.setTimeout(async () => {
+            if (this.rdfSubject !== subject) {
+                return
+            }
             try {
-                const resp = await fetch(`${BACKEND_URL}/resource/${encodeURIComponent(this.rdfSubject)}?union`)
+                let resp = await fetch(`${BACKEND_URL}/resource/${encodeURIComponent(subject)}`)
                 if (resp.ok) {
                     this.rdf = await resp.text()
                     // check if editable
@@ -73,7 +78,7 @@ export class Viewer extends LitElement {
                 } else {
                     throw new Error(i18n['noresults'])
                 }
-                resp = await fetch(`${BACKEND_URL}/resource/${encodeURIComponent(this.rdfSubject)}?includeLinked`)
+                resp = await fetch(`${BACKEND_URL}/resource/${encodeURIComponent(subject)}?includeLinked`)
                 if (resp.ok) {
                     this.rdfWithLinked = await resp.text()
                 } else {
@@ -82,7 +87,7 @@ export class Viewer extends LitElement {
             } catch(e) {
                 showSnackbarMessage({message: '' + e, ttl: 0, cssClass: 'error' })
             }
-        }, 300)
+        })
     }
 
     private export() {

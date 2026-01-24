@@ -33,7 +33,7 @@ func handleRdfProxy(c *gin.Context) {
 	}
 
 	if err := isSafeURL(url); err != nil {
-		slog.Error("failed proxying", "url", url, "error", err)
+		slog.Error("deny proxying", "url", url, "error", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -75,10 +75,15 @@ func filterClientAccept(req *http.Request) string {
 // isSafeURL validates that a URL resolves to public, globally routable IPs.
 func isSafeURL(raw string) error {
 	parsedURL, err := url.Parse(raw)
-	if err != nil || parsedURL.Scheme == "" || parsedURL.Hostname() == "" {
+	if err != nil {
 		return errors.New("invalid url")
 	}
-
+	if parsedURL.Scheme+":" == rdf.BlankNodeReplacement {
+		return nil
+	}
+	if parsedURL.Scheme == "" || parsedURL.Hostname() == "" {
+		return errors.New("invalid url")
+	}
 	ips, err := net.LookupIP(parsedURL.Hostname())
 	if err != nil {
 		return err

@@ -34,20 +34,22 @@ export class ProfileFacet extends Facet {
 
     updateValues(aggs: Record<string, AggregationFacet>) {
         const values = []
-        const facet = aggs[this.indexField]
-        if (facet?.buckets?.length) {
-            for (const bucket of facet.buckets) {
-                if (bucket.count > 0) {
-                    values.push({ value: bucket.val, docCount: bucket.count })
+        const missingLabels: string[] = []
+        for (const field of [this.indexField, 'ref_shapes']) {
+            const facet = aggs[field]
+            if (facet?.buckets?.length) {
+                for (const bucket of facet.buckets) {
+                    if (bucket.count > 0) {
+                        values.push({ value: bucket.val, docCount: bucket.count })
+                    }
                 }
             }
-        }
-        // check if labels of facet values are missing
-        const missingLabels: string[] = []
-        for (const v of values) {
-            // only request term labels and not literals
-            if (typeof(v.value) === 'string' && (v.value as string).startsWith('<') && (v.value as string).endsWith('>') && i18n[v.value] === undefined) {
-                missingLabels.push(v.value)
+            // check if labels of facet values are missing
+            for (const v of values) {
+                // only request term labels and not literals
+                if (typeof(v.value) === 'string' && (v.value as string).startsWith('<') && (v.value as string).endsWith('>') && i18n[v.value] === undefined) {
+                    missingLabels.push(v.value)
+                }
             }
         }
         (async () => {
@@ -59,11 +61,12 @@ export class ProfileFacet extends Facet {
 
     applyAggregationQuery(facets: Record<string, QueryFacet>) {
         facets['shape'] = { field: 'shape', type: 'terms', limit: -1 }
+        facets['ref_shapes'] = { field: 'ref_shapes', type: 'terms', limit: -1 }
     }
 
     applyFilterQuery(filter: string[]) {
         const val = this.selectedValue?.replace(/:/, '\\:')
-        filter.push(`+(shape:${val} OR _nest_parent_:${val})`)
+        filter.push(`+(shape:${val} OR ref_shapes:${val})`)
     }
 
     render() {

@@ -94,14 +94,14 @@ func IndexResource(resource *rdf2go.Graph, metadata *rdf.ResourceMetadata) error
 		"docType":      "container",
 		"_children_":   []*document{&mainDocument},
 	}
-
 	buildDoc(metadata.Id, rootProfileId, rootProfileId, resource, &mainDocument)
 	for resourceId, profileId := range metadata.Conformance {
 		if resourceId != metadata.Id.RawValue() {
 			resourceIdTerm := rdf2go.NewResource(resourceId)
 			childDocument := document{
-				"id":    resourceId,
-				"label": findLabels(resourceIdTerm, resource),
+				"id":         resourceId,
+				"label":      findLabels(resourceIdTerm, resource),
+				"ref_shapes": []string{rootProfileId},
 			}
 			buildDoc(resourceIdTerm, profileId, profileId, resource, &childDocument)
 			appendMultiValue("_children_", &childDocument, &mainDocument)
@@ -118,16 +118,6 @@ func DeindexResource(id string) error {
 
 // buildDoc recursively constructs Solr documents from RDF graph data.
 func buildDoc(subject rdf2go.Term, profileId string, rootProfileId string, resource *rdf2go.Graph, current *document) {
-	buildDocWithVisited(subject, profileId, rootProfileId, resource, current, map[string]bool{})
-}
-
-func buildDocWithVisited(subject rdf2go.Term, profileId string, rootProfileId string, resource *rdf2go.Graph, current *document, visited map[string]bool) {
-	if _, ok := visited[profileId]; ok {
-		slog.Debug("skipping already visited profile", "subject", subject.RawValue(), "profile", profileId)
-		return
-	}
-	visited[profileId] = true
-
 	slog.Debug("build doc", "subject", subject.RawValue(), "profile", profileId, "current", (*current)["id"])
 	profile, ok := rdf.Profiles[profileId]
 	if !ok {
@@ -160,120 +150,10 @@ func buildDocWithVisited(subject rdf2go.Term, profileId string, rootProfileId st
 
 	for parentId := range profile.Parents {
 		// append properties of all parent shapes to same document
-		buildDocWithVisited(subject, parentId, rootProfileId, resource, current, visited)
+		buildDoc(subject, parentId, rootProfileId, resource, current)
 	}
 }
 
-/*
-func buildDoc2(subject rdf2go.Term, profileId rdf2go.Term, profile *shacl.NodeShape, data *rdf2go.Graph, current *document, denormalized bool) {
-	slog.Debug("build doc", "subject", subject.RawValue(), "profile", profile.Id.RawValue(), "current", (*current)["id"])
-	if !denormalized {
-		appendMultiValue("shape", profileId.RawValue(), current)
-	}
-
-	for pathId, properties := range profile.Properties {
-		path := rdf2go.NewResource(pathId)
-		for _, property := range properties {
-			values := data.All(subject, path, nil)
-			ft := fieldType(property)
-			if len(values) > 0 {
-				array := make([]any, 0)
-				for _, value := range values {
-					if len(property.QualifiedValueShape) > 0 && property.QualifiedMinCount > 0 && property.QualifiedValueShapeDenormalized != nil {
-						valid, err := shacl.Validate(string(*profile.RDF), property.QualifiedValueShape, *dataTurtle, value.Object.RawValue())
-						if err != nil {
-							slog.Warn("error indexing resource because validation failed", "error", err)
-						} else if valid {
-							// RDF graph conforms to this shape
-							nested := document{
-								"id":         value.Object.RawValue(),
-								"shape":      property.QualifiedValueShapeDenormalized.ParentList(),
-								"label":      findLabels(value.Object, data),
-								"ref_shapes": make([]any, 0),
-							}
-							appendMultiValue("ref_shapes", property.QualifiedValueShape, current)
-							data.Remove(value)
-							appendMultiValue("_children_", &nested, current)
-							buildDoc(value.Object, rdf2go.NewResource(property.QualifiedValueShape), property.QualifiedValueShapeDenormalized, data, &nested, true)
-						}
-					}
-					for nodeProfileId := range property.Or {
-						// validate value according to sh:or
-						if nodeProfile, ok := rdf.Profiles[nodeProfileId]; ok {
-							valid, err := shacl.Validate(string(*nodeProfile.RDF), nodeProfileId, *dataTurtle, value.Object.RawValue())
-							if err != nil {
-								slog.Warn("error indexing resource because validation failed", "error", err)
-							} else if valid {
-								// RDF graph conforms to this shape
-								nested := document{
-									"id":         value.Object.RawValue(),
-									"shape":      make([]any, 0),
-									"label":      findLabels(value.Object, data),
-									"ref_shapes": make([]any, 0),
-								}
-								data.Remove(value)
-								appendMultiValue("_children_", &nested, current)
-								buildDoc(value.Object, nodeProfile.Id, nodeProfile, data, &nested, false)
-							}
-						} else {
-							slog.Warn("property's node shape not found", "id", nodeProfileId, "path", property.Path)
-						}
-					}
-
-					if len(property.NodeShapes) > 0 {
-						for nodeProfileId := range property.NodeShapes {
-							if nodeProfile, ok := rdf.Profiles[nodeProfileId]; ok {
-								nested := document{
-									"id":         value.Object.RawValue(),
-									"shape":      make([]any, 0),
-									"label":      findLabels(value.Object, data),
-									"ref_shapes": make([]any, 0),
-								}
-								data.Remove(value)
-								appendMultiValue("_children_", &nested, current)
-								buildDoc(value.Object, nodeProfile.Id, nodeProfile, data, &nested, false)
-							} else {
-								slog.Warn("property's node shape not found", "id", nodeProfileId, "path", property.Path)
-							}
-						}
-					}
-					if _, ok := value.Object.(*rdf2go.Resource); ok {
-						if data.One(value.Object, nil, nil) == nil {
-							array = append(array, value.Object.String())
-							data.Remove(value)
-						}
-					} else if _, ok := value.Object.(*rdf2go.Literal); ok {
-						val := value.Object.RawValue()
-						if ft == "dts" && len(val) == 10 {
-							val = val + "T00:00:00Z"
-						}
-						array = append(array, val)
-						data.Remove(value)
-					}
-				}
-				if len(array) > 0 {
-					if ft == "t" {
-						appendMultiValue("_text_", array, current)
-					} else {
-						field := base.CleanStringForSolr(profile.Id.RawValue()) + "." + base.CleanStringForSolr(property.Id.RawValue()) + "_" + ft
-						appendMultiValue(field, array, current)
-					}
-				}
-			}
-		}
-	}
-
-	if !denormalized {
-		for parentId := range profile.Parents {
-			if parentProfile, ok := rdf.Profiles[parentId]; ok {
-				buildDoc(subject, parentProfile.Id, parentProfile, data, current, false)
-			} else {
-				slog.Warn("profile parent not found.", "id", parentId)
-			}
-		}
-	}
-}
-*/
 // appendMultiValue appends values to a multi-value Solr field.
 func appendMultiValue(field string, value any, doc *document) {
 	if value == nil {
