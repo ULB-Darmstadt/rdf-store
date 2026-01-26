@@ -176,6 +176,10 @@ func (prop *Property) Parse(id rdf2go.Term, parent *NodeShape, graph *rdf2go.Gra
 			for _, shape := range parseList(triple.Object, graph) {
 				prop.NodeShapes[shape.RawValue()] = true
 			}
+		} else if triple.Predicate.Equal(SHACL_OR) {
+			for _, shape := range parseList(triple.Object, graph) {
+				prop.NodeShapes[shape.RawValue()] = true
+			}
 		} else if triple.Predicate.Equal(SHACL_QUALIFIED_VALUE_SHAPE) {
 			prop.QualifiedValueShape = triple.Object.RawValue()
 		} else if triple.Predicate.Equal(SHACL_QUALIFIED_MIN_COUNT) {
