@@ -53,7 +53,7 @@ curl -Lk -X POST http://localhost:8089/api/v1/sparql/query -d "query=SELECT * WH
 
 When modifying the code in this repo (backend or frontend), the recommended steps for running/testing the local changes are:
 1. `cd rdf-store`
-1. edit [docker-compose.yml](./docker-compose.yml) and comment in the port mappings for fuseki and solr
+1. edit [docker-compose.yml](./docker-compose.yml) and comment in the port mappings for fuseki, solr and validator services
 1. `docker compose up -d --build`
 1. `docker compose stop app`
 1. `cd backend && go run .` -> starts backend on port 3000, needs to be run again after each change in the backend
