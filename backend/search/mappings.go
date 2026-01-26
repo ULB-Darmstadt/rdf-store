@@ -31,6 +31,7 @@ var datatypeMappings = map[string]string{
 }
 
 // fieldType maps SHACL property settings to a Solr field suffix.
+// It returns the Solr field type suffix to use for the property.
 func fieldType(property *shacl.Property) string {
 	if property.HasValue && property.MaxCount == 1 {
 		// ignore fixed value properties
@@ -50,6 +51,7 @@ func fieldType(property *shacl.Property) string {
 }
 
 // createCollectionSchema defines the Solr schema fields for the collection.
+// It returns the ordered slice of Solr field definitions.
 func createCollectionSchema() (fields []solr.Field) {
 	fields = append(fields, solr.Field{Name: "label", Type: "string", Indexed: true, Stored: true, MultiValued: true})
 	fields = append(fields, solr.Field{Name: "shape", Type: "string", Indexed: true, Stored: true, MultiValued: true})

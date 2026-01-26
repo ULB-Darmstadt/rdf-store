@@ -19,7 +19,7 @@ import (
 	"github.com/robfig/cron/v3"
 )
 
-// main starts background tasks, serves the HTTP API and static files (frontend and swagger).
+// main starts background tasks and serves the HTTP API plus static files.
 func main() {
 	// handle non-API requests by trying to serve embedded static files (frontend and swagger UI)
 	api.Router.NoRoute(serveStaticFiles())
@@ -36,7 +36,8 @@ func main() {
 	}
 }
 
-// startSyncProfiles loads profiles and starts optional scheduled sync.
+// startSyncProfiles loads profiles and starts the optional scheduled sync loop.
+// It returns an error when profile parsing fails or scheduling cannot be set up.
 func startSyncProfiles() error {
 	profiles, err := rdf.ParseAllProfiles()
 	if err != nil {
@@ -62,7 +63,8 @@ var frontend embed.FS
 //go:embed swagger/*
 var swagger embed.FS
 
-// serveStaticFiles returns a handler for embedded frontend and swagger UI assets.
+// serveStaticFiles builds a handler for embedded frontend and swagger UI assets.
+// It returns a gin handler function that serves the static files or JSON errors.
 func serveStaticFiles() func(c *gin.Context) {
 	frontendFS, err := fs.Sub(frontend, "frontend")
 	if err != nil {

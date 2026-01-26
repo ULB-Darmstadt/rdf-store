@@ -249,6 +249,7 @@ func handleGetShapeInstances(c *gin.Context) {
 }
 
 // readGraphBytesFromRequest reads raw RDF Turtle bytes from a form parameter.
+// It returns the parsed byte slice or an error if the parameter is missing.
 func readGraphBytesFromRequest(c *gin.Context) (data []byte, err error) {
 	if ttl := c.PostForm("ttl"); ttl != "" {
 		data = []byte(ttl)

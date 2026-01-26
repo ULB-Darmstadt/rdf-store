@@ -14,6 +14,7 @@ import (
 type validationResponse map[string]string
 
 // Validate posts data and shapes to the SHACL validator service.
+// It returns a map of resource IDs to shape IDs plus any error encountered.
 func Validate(shapesGraph string, shapeID string, dataGraph string, dataID string) (map[string]string, error) {
 	form := url.Values{}
 	form.Add("shapesGraph", shapesGraph)

@@ -15,6 +15,7 @@ import (
 var Profiles map[string]*shacl.NodeShape
 
 // ParseAllProfiles loads all profiles, parses shapes, and populates cache.
+// It returns the parsed profile map and any error encountered.
 func ParseAllProfiles() (map[string]*shacl.NodeShape, error) {
 	profileIds, err := GetAllProfileIds()
 	if err != nil {
@@ -63,11 +64,14 @@ func ParseAllProfiles() (map[string]*shacl.NodeShape, error) {
 }
 
 // isValidIRI validates that a value is a URL-like IRI.
+// It returns true when parsing succeeds and a scheme is present.
 func isValidIRI(value string) bool {
 	u, err := url.Parse(value)
 	return err == nil && u.Scheme != ""
 }
 
+// doRequest executes an HTTP request and reads the response body.
+// It returns the status code, response bytes, and any error encountered.
 func doRequest(req *http.Request) (int, []byte, error) {
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -81,6 +85,8 @@ func doRequest(req *http.Request) (int, []byte, error) {
 	return resp.StatusCode, data, nil
 }
 
+// newHTTPError formats an HTTP error message using context, status, and body.
+// It returns an error with a formatted message.
 func newHTTPError(context string, status int, body []byte) error {
 	message := strings.TrimSpace(string(body))
 	if message == "" {
@@ -89,6 +95,8 @@ func newHTTPError(context string, status int, body []byte) error {
 	return fmt.Errorf("%s - status: %d, response: %q", context, status, message)
 }
 
+// statusIsOK checks whether a status code is a success response.
+// It returns true when the status is in the 2xx range.
 func statusIsOK(status int) bool {
 	return status >= 200 && status <= 299
 }

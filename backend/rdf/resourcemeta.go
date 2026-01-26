@@ -28,7 +28,8 @@ type ResourceMetadata struct {
 	Conformance map[string]string
 }
 
-// FindConformingResources rerurns IDs of resources that conform to a profile
+// FindConformingResources returns IDs of resources that conform to a profile.
+// It returns the slice of matching resource IDs and any error encountered.
 func FindConformingResources(profileId string) ([]string, error) {
 	bindings, err := queryDataset(resourceMetaDataset, fmt.Sprintf(`SELECT ?g WHERE { GRAPH ?g { ?s <`+shacl.DCTERMS_CONFORMS_TO.RawValue()+`> <%s> } }`, profileId))
 	if err != nil {
@@ -50,6 +51,7 @@ func FindConformingResources(profileId string) ([]string, error) {
 }
 
 // UpdateResourceMetadata rebuilds metadata for a resource.
+// It returns the updated metadata, parsed graph, and any error encountered.
 func UpdateResourceMetadata(id string) (metadata *ResourceMetadata, graph *rdf2go.Graph, err error) {
 	resource, metadata, err := GetResource(id, false)
 	if err != nil {
@@ -75,6 +77,7 @@ var metadataUpdateTemplate = template.Must(template.New("").Funcs(template.FuncM
 `))
 
 // loadResourceMetadata reads resource metadata triples.
+// It returns the parsed metadata and any error encountered.
 func loadResourceMetadata(id string) (metadata *ResourceMetadata, err error) {
 	metadata = newResourceMetadata(rdf2go.NewResource(id), "", nil)
 	bindings, err := queryDataset(resourceMetaDataset, fmt.Sprintf(`SELECT * WHERE { GRAPH <%s> { ?s ?p ?o } }`, id))
@@ -110,7 +113,8 @@ func loadResourceMetadata(id string) (metadata *ResourceMetadata, err error) {
 	return
 }
 
-// updateResourceMetadata writes creator, modified timestamp and shape conformance triples.
+// updateResourceMetadata writes creator, modified timestamp, and shape conformance triples.
+// It returns the updated metadata, parsed graph, and any error encountered.
 func updateResourceMetadata(id rdf2go.Term, resource []byte, creator string, lastModified *time.Time) (metadata *ResourceMetadata, graph *rdf2go.Graph, err error) {
 	metadata, graph, err = buildResourceMetadata(id, resource, creator, lastModified)
 	if err != nil {
@@ -130,11 +134,13 @@ func updateResourceMetadata(id rdf2go.Term, resource []byte, creator string, las
 }
 
 // deleteResourceMetadata removes the named graph of the resource metadata.
+// It returns an error if the deletion fails.
 func deleteResourceMetadata(id string) error {
 	return deleteGraph(resourceMetaDataset, id)
 }
 
-// buildResourceMetadata validates the resource, build a shape conformance map for contained sub-resources and returns metadata plus its parsed graph.
+// buildResourceMetadata validates the resource and builds a shape conformance map for contained sub-resources.
+// It returns the metadata, parsed graph, and any error encountered.
 func buildResourceMetadata(id rdf2go.Term, resource []byte, creator string, lastModified *time.Time) (metadata *ResourceMetadata, graph *rdf2go.Graph, err error) {
 	graph, err = base.ParseGraph(bytes.NewReader(resource))
 	if err != nil {
@@ -194,6 +200,7 @@ func buildResourceMetadata(id rdf2go.Term, resource []byte, creator string, last
 }
 
 // FindResourceProfile identifies the profile matching a resource graph.
+// It returns the resource ID, matched profile, and any error encountered.
 func findResourceProfile(graph *rdf2go.Graph, id rdf2go.Term) (resourceID rdf2go.Term, profile *shacl.NodeShape, err error) {
 	var refs []*rdf2go.Triple
 	if id == nil {
@@ -225,6 +232,7 @@ func findResourceProfile(graph *rdf2go.Graph, id rdf2go.Term) (resourceID rdf2go
 }
 
 // newResourceMetadata initializes a ResourceMetadata instance with defaults.
+// It returns the constructed metadata value.
 func newResourceMetadata(id rdf2go.Term, creator string, lastModified *time.Time) *ResourceMetadata {
 	if lastModified == nil {
 		now := time.Now().UTC()

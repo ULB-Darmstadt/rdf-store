@@ -66,6 +66,7 @@ func init() {
 }
 
 // CleanStringForSolr normalizes strings to safe Solr field identifiers.
+// It returns the lowercase, sanitized string suitable for Solr fields.
 func CleanStringForSolr(s string) string {
 	return solrStringReplacer.ReplaceAllString(strings.ToLower(s), solrRegexReplacement)
 }
