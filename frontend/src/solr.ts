@@ -71,7 +71,7 @@ export type QueryFacet = {
 }
 
 export type AggregationFacet = {
-    buckets?: { val: number, count: number}[]
+    buckets?: { val: number | string, count: number}[]
     gridLevel?: number
     columns?: number
     rows?: number

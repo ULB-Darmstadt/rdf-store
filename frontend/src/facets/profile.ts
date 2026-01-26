@@ -33,29 +33,37 @@ export class ProfileFacet extends Facet {
     }
 
     updateValues(aggs: Record<string, AggregationFacet>) {
-        const values = []
+        const values: Record<string, any> =  {}
         const missingLabels: string[] = []
-        for (const field of [this.indexField, 'ref_shapes']) {
-            const facet = aggs[field]
-            if (facet?.buckets?.length) {
-                for (const bucket of facet.buckets) {
-                    if (bucket.count > 0) {
-                        values.push({ value: bucket.val, docCount: bucket.count })
-                    }
+
+        let facet = aggs[this.indexField]
+        if (facet?.buckets?.length) {
+            for (const bucket of facet.buckets) {
+                if (bucket.count > 0 && typeof(bucket.val) === 'string') {
+                    values[bucket.val] = { value: bucket.val, docCount: bucket.count }
                 }
             }
-            // check if labels of facet values are missing
-            for (const v of values) {
-                // only request term labels and not literals
-                if (typeof(v.value) === 'string' && (v.value as string).startsWith('<') && (v.value as string).endsWith('>') && i18n[v.value] === undefined) {
-                    missingLabels.push(v.value)
+        }
+        facet = aggs['ref_shapes']
+        if (facet?.buckets?.length) {
+            for (const bucket of facet.buckets) {
+                if (bucket.count > 0 && typeof(bucket.val) === 'string' && !values[bucket.val]) {
+                    values[bucket.val] = { value: bucket.val }
                 }
+            }
+        }
+
+        // check if labels of facet values are missing
+        for (const v of Object.keys(values)) {
+            // only request term labels and not literals
+            if (v.startsWith('<') && v.endsWith('>') && i18n[v] === undefined) {
+                missingLabels.push(v)
             }
         }
         (async () => {
             await fetchLabels(missingLabels)
-            this.values = values
-            this.valid = values.length > 0
+            this.values = Object.values(values)
+            this.valid = this.values.length > 0
         })()
     }
 
