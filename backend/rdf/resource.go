@@ -45,7 +45,7 @@ func GetResource(id string, includeLinked bool) (resource []byte, metadata *Reso
 
 // CreateResource stores a new resource and updates metadata.
 func CreateResource(resource []byte, creator string) (graph *rdf2go.Graph, metadata *ResourceMetadata, err error) {
-	metadata, graph, err = updateResourceMetadata(nil, resource, creator)
+	metadata, graph, err = updateResourceMetadata(nil, resource, creator, nil)
 	if err != nil {
 		return
 	}
@@ -61,7 +61,7 @@ func UpdateResource(id string, resource []byte, creator string) (graph *rdf2go.G
 	if err = validateCreator(id, creator); err != nil {
 		return
 	}
-	metadata, graph, err = updateResourceMetadata(rdf2go.NewResource(id), resource, creator)
+	metadata, graph, err = updateResourceMetadata(rdf2go.NewResource(id), resource, creator, nil)
 	if err != nil {
 		return
 	}

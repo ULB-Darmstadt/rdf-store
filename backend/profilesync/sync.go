@@ -32,15 +32,32 @@ var lock sync.Mutex
 func Synchronize() {
 	if lock.TryLock() {
 		defer lock.Unlock()
-		changed, err := synchronizeProfiles()
+		changedOrDeletedProfiles, err := synchronizeProfiles()
 		if err != nil {
 			slog.Error("failed syncing profiles", "error", err)
-		} else if changed {
+		} else if len(changedOrDeletedProfiles) > 0 {
 			_, err := rdf.ParseAllProfiles()
 			if err != nil {
 				slog.Error("failed parsing profiles", "error", err)
 			} else {
-				search.Reindex()
+				for _, profileId := range changedOrDeletedProfiles {
+					resourcesToUpdate, err := rdf.FindConformingResources(profileId)
+					if err != nil {
+						slog.Error("failed getting conforming resources for changed profile", "id", profileId, "error", err)
+					} else {
+						for _, resourceId := range resourcesToUpdate {
+							slog.Debug("updating metadata and search index for resource", "id", resourceId)
+							metadata, graph, err := rdf.UpdateResourceMetadata(resourceId)
+							if err != nil {
+								slog.Error("failed updating resource metadata", "id", resourceId, "error", err)
+							} else {
+								if err := search.IndexResource(graph, metadata); err != nil {
+									slog.Error("failed updating search index for resource", "id", resourceId, "error", err)
+								}
+							}
+						}
+					}
+				}
 			}
 		}
 	} else {
@@ -48,8 +65,8 @@ func Synchronize() {
 	}
 }
 
-// synchronizeProfiles fetches profiles from sources and updates datasets.
-func synchronizeProfiles() (changed bool, err error) {
+// synchronizeProfiles fetches profiles from sources and updates datasets. returns IDs of changed or deleted profiles, so that resource metadata and search index can be updated for them.
+func synchronizeProfiles() (changedOrDeletedProfiles []string, err error) {
 	slog.Info("syncing profiles...")
 	start := time.Now()
 
@@ -115,7 +132,9 @@ func synchronizeProfiles() (changed bool, err error) {
 		}
 	}
 
-	changedOrNewProfiles := make(map[string]*rdf2go.Graph)
+	changedProfiles := make(map[string]*rdf2go.Graph)
+	newProfiles := make(map[string]*rdf2go.Graph)
+	deletedProfiles := make(map[string]bool)
 
 	// first pass: store changed or new profiles
 	for _, profile := range profiles {
@@ -125,14 +144,24 @@ func synchronizeProfiles() (changed bool, err error) {
 		profileData = base.FixBooleansInRDF(profileData)
 		inputHash := base.Hash(profileData)
 		existingHash, hashErr := rdf.GetProfileHash(profile.BaseUrl)
-		if hashErr != nil || inputHash != existingHash {
-			changed = true
-			// store profile
-			graph, err := rdf.UpdateProfile(profile.BaseUrl, profileData)
-			if err != nil {
-				return changed, err
+		if hashErr != nil {
+			slog.Warn("failed retrieving hash for profile", "id", profile.BaseUrl)
+		} else {
+			if existingHash == nil {
+				// no hash -> new profile, so store it
+				graph, err := rdf.UpdateProfile(profile.BaseUrl, profileData)
+				if err != nil {
+					return nil, err
+				}
+				newProfiles[profile.BaseUrl] = graph
+			} else if inputHash != *existingHash {
+				// hash changed -> profile changed, so update it
+				graph, err := rdf.UpdateProfile(profile.BaseUrl, profileData)
+				if err != nil {
+					return nil, err
+				}
+				changedProfiles[profile.BaseUrl] = graph
 			}
-			changedOrNewProfiles[profile.BaseUrl] = graph
 		}
 	}
 
@@ -143,23 +172,32 @@ func synchronizeProfiles() (changed bool, err error) {
 	} else {
 		for _, existingProfileId := range existingProfileIds {
 			if _, ok := profileIds[existingProfileId]; !ok {
-				changed = true
 				slog.Info("deleting existing profile", "id", existingProfileId)
 				if err := rdf.DeleteProfile(existingProfileId); err != nil {
 					slog.Error("failed deleting existing profile", "id", existingProfileId, "error", err)
+				} else {
+					deletedProfiles[existingProfileId] = true
 				}
 			}
 		}
 	}
 
-	// third pass: extract labels from owl:imports
-	for _, graph := range changedOrNewProfiles {
-		// if err = sparql.UpdateIndexProfile(profileId); err != nil {
-		// 	return
-		// }
+	// third pass: extract labels from owl:imports of changed or new profiles
+	for _, graph := range changedProfiles {
 		extractLabelsFromOwlImports(graph, profileIds)
 	}
-	slog.Info("syncing profiles finished", "profiles", len(profiles), "changed", changed, "duration", time.Since(start))
+	for _, graph := range newProfiles {
+		extractLabelsFromOwlImports(graph, profileIds)
+	}
+	changedOrDeletedProfiles = make([]string, 0)
+	for id := range changedProfiles {
+		changedOrDeletedProfiles = append(changedOrDeletedProfiles, id)
+	}
+	for id := range deletedProfiles {
+		changedOrDeletedProfiles = append(changedOrDeletedProfiles, id)
+	}
+
+	slog.Info("syncing profiles finished", "profiles", len(profiles), "#new", len(newProfiles), "#changed", len(changedProfiles), "#deleted", len(deletedProfiles), "duration", time.Since(start))
 	return
 }
 

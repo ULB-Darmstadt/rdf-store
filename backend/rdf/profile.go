@@ -58,27 +58,28 @@ func GetAllProfileIds() ([]string, error) {
 	return getAllGraphIds(profileDataset)
 }
 
-// GetProfileHash reads the stored hash for a profile.
-func GetProfileHash(id string) (uint32, error) {
+// GetProfileHash reads the stored hash for a profile. returns nil if profile is not found
+func GetProfileHash(id string) (*uint32, error) {
 	bindings, err := queryDataset(profileDataset, fmt.Sprintf("SELECT ?hash WHERE { <%s> %s ?hash }", id, hashPredicate))
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	res, err := sparql.ParseJSON(bytes.NewReader(bindings))
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 
 	if len(res.Results.Bindings) > 0 {
 		if hash, okHash := res.Solutions()[0]["hash"].(rdf.Literal); okHash {
 			parsed, err := strconv.ParseUint(hash.String(), 10, 32)
 			if err != nil {
-				return 0, err
+				return nil, err
 			}
-			return uint32(parsed), nil
+			hash := uint32(parsed)
+			return &hash, nil
 		}
 	}
-	return 0, fmt.Errorf("hash not found for profile %s", id)
+	return nil, nil
 }
 
 // saveProfileHash stores the hash value for a profile.

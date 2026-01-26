@@ -28,6 +28,37 @@ type ResourceMetadata struct {
 	Conformance map[string]string
 }
 
+// FindConformingResources rerurns IDs of resources that conform to a profile
+func FindConformingResources(profileId string) ([]string, error) {
+	bindings, err := queryDataset(resourceMetaDataset, fmt.Sprintf(`SELECT ?g WHERE { GRAPH ?g { ?s <`+shacl.DCTERMS_CONFORMS_TO.RawValue()+`> <%s> } }`, profileId))
+	if err != nil {
+		return nil, err
+	}
+	res, err := sparql.ParseJSON(bytes.NewReader(bindings))
+	if err != nil {
+		return nil, err
+	}
+	var conformingResources []string
+	for _, row := range res.Solutions() {
+		g, okG := row["g"]
+		if !okG {
+			return nil, fmt.Errorf("invalid binding: %v", row)
+		}
+		conformingResources = append(conformingResources, g.String())
+	}
+	return conformingResources, nil
+}
+
+// UpdateResourceMetadata rebuilds metadata for a resource.
+func UpdateResourceMetadata(id string) (metadata *ResourceMetadata, graph *rdf2go.Graph, err error) {
+	resource, metadata, err := GetResource(id, false)
+	if err != nil {
+		return nil, nil, err
+	}
+	idTerm := rdf2go.NewResource(id)
+	return updateResourceMetadata(idTerm, resource, metadata.Creator, &metadata.LastModified)
+}
+
 // metadataUpdateTemplate renders the RDF triples persisted to the metadata dataset.
 var metadataUpdateTemplate = template.Must(template.New("").Funcs(template.FuncMap{
 	"FormatTime": func(t time.Time) string {
@@ -45,7 +76,7 @@ var metadataUpdateTemplate = template.Must(template.New("").Funcs(template.FuncM
 
 // loadResourceMetadata reads resource metadata triples.
 func loadResourceMetadata(id string) (metadata *ResourceMetadata, err error) {
-	metadata = newResourceMetadata(rdf2go.NewResource(id), "")
+	metadata = newResourceMetadata(rdf2go.NewResource(id), "", nil)
 	bindings, err := queryDataset(resourceMetaDataset, fmt.Sprintf(`SELECT * WHERE { GRAPH <%s> { ?s ?p ?o } }`, id))
 	if err != nil {
 		return
@@ -79,9 +110,9 @@ func loadResourceMetadata(id string) (metadata *ResourceMetadata, err error) {
 	return
 }
 
-// updateResourceMetadata writes updated creator and modified timestamp triples.
-func updateResourceMetadata(id rdf2go.Term, resource []byte, creator string) (metadata *ResourceMetadata, graph *rdf2go.Graph, err error) {
-	metadata, graph, err = buildResourceMetadata(id, resource, creator)
+// updateResourceMetadata writes creator, modified timestamp and shape conformance triples.
+func updateResourceMetadata(id rdf2go.Term, resource []byte, creator string, lastModified *time.Time) (metadata *ResourceMetadata, graph *rdf2go.Graph, err error) {
+	metadata, graph, err = buildResourceMetadata(id, resource, creator, lastModified)
 	if err != nil {
 		return
 	}
@@ -104,7 +135,7 @@ func deleteResourceMetadata(id string) error {
 }
 
 // buildResourceMetadata validates the resource, build a shape conformance map for contained sub-resources and returns metadata plus its parsed graph.
-func buildResourceMetadata(id rdf2go.Term, resource []byte, creator string) (metadata *ResourceMetadata, graph *rdf2go.Graph, err error) {
+func buildResourceMetadata(id rdf2go.Term, resource []byte, creator string, lastModified *time.Time) (metadata *ResourceMetadata, graph *rdf2go.Graph, err error) {
 	graph, err = base.ParseGraph(bytes.NewReader(resource))
 	if err != nil {
 		return
@@ -154,11 +185,10 @@ func buildResourceMetadata(id rdf2go.Term, resource []byte, creator string) (met
 	// we assume that if an ID is not a subject in the original resource graph, then it is a linked resource that has been pulled in by the SPARQL query above.
 	for resourceID := range conformance {
 		if slices.Contains(linkedResources, resourceID) || graph.One(rdf2go.NewResource(resourceID), nil, nil) == nil {
-			fmt.Println("--- delete", resourceID)
 			delete(conformance, resourceID)
 		}
 	}
-	metadata = newResourceMetadata(validID, creator)
+	metadata = newResourceMetadata(validID, creator, lastModified)
 	metadata.Conformance = conformance
 	return
 }
@@ -195,11 +225,15 @@ func findResourceProfile(graph *rdf2go.Graph, id rdf2go.Term) (resourceID rdf2go
 }
 
 // newResourceMetadata initializes a ResourceMetadata instance with defaults.
-func newResourceMetadata(id rdf2go.Term, creator string) *ResourceMetadata {
+func newResourceMetadata(id rdf2go.Term, creator string, lastModified *time.Time) *ResourceMetadata {
+	if lastModified == nil {
+		now := time.Now().UTC()
+		lastModified = &now
+	}
 	return &ResourceMetadata{
 		Id:           id,
 		Creator:      creator,
-		LastModified: time.Now().UTC(),
+		LastModified: *lastModified,
 		Conformance:  make(map[string]string),
 	}
 }
