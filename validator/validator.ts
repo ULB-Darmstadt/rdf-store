@@ -225,20 +225,26 @@ function getValueNodeShapes(subject: Term, withIneritance: boolean, dataset: Sto
     const xoneLists = dataset.getQuads(subject, shaclXone, null, shapesGraphName)
     if (andLists.length > 0) {
         for (const andList of andLists) {
-            const listShapes = lists[andList.object.value] ?? []
-            shapesToVisit.push(...listShapes)
+            const terms = lists[andList.object.value] ?? []
+            for (const term of terms) {
+                shapesToVisit.push(...getValueNodeShapes(term, withIneritance, dataset, lists, visited))
+            }
         }
     }
     if (orLists.length > 0) {
         for (const orList of orLists) {
-            const listShapes = lists[orList.object.value] ?? []
-            shapesToVisit.push(...listShapes)
+            const terms = lists[orList.object.value] ?? []
+            for (const term of terms) {
+                shapesToVisit.push(...getValueNodeShapes(term, withIneritance, dataset, lists, visited))
+            }
         }
     }
     if (xoneLists.length > 0) {
         for (const xoneList of xoneLists) {
-            const listShapes = lists[xoneList.object.value] ?? []
-            shapesToVisit.push(...listShapes)
+            const terms = lists[xoneList.object.value] ?? []
+            for (const term of terms) {
+                shapesToVisit.push(...getValueNodeShapes(term, withIneritance, dataset, lists, visited))
+            }
         }
     }
     for (const shape of shapesToVisit) {
