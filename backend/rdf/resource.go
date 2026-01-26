@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"rdf-store-backend/shacl"
 	"slices"
-	"strings"
 
 	"github.com/deiu/rdf2go"
 	"github.com/knakk/rdf"
@@ -172,12 +171,14 @@ func hasIncomingLinks(id string, excludeGraph string) (bool, error) {
 
 // GetClassInstances retrieves all instances of a given RDF class across graphs.
 // It returns the instances as N-Quads bytes and any error encountered.
-func GetClassInstances(class string) ([]byte, error) {
+func GetClassInstances(classes []string) ([]byte, error) {
 	// prevent SPARQL injection
-	if !isValidIRI(class) {
-		return nil, fmt.Errorf("invalid class IRI: %v", class)
+	for _, class := range classes {
+		if !isValidIRI(class) {
+			return nil, fmt.Errorf("invalid class IRI: %v", class)
+		}
 	}
-	bindings, err := queryDataset(ResourceDataset, fmt.Sprintf(`SELECT DISTINCT ?s ?p ?o ?g WHERE  { GRAPH ?g { ?instance a <%s> . ?instance (<>|!<>)* ?s . ?s ?p ?o }}`, class))
+	bindings, err := queryDataset(ResourceDataset, fmt.Sprintf(`SELECT DISTINCT ?s ?p ?o ?g WHERE  { GRAPH ?g { VALUES ?class { %s } ?instance a ?class . ?instance (<>|!<>)* ?s . ?s ?p ?o }}`, arrayToSparqlValues(classes)))
 	if err != nil {
 		return nil, err
 	}
@@ -185,8 +186,8 @@ func GetClassInstances(class string) ([]byte, error) {
 }
 
 // GetShapeInstances retrieves all instances that conform to a given SHACL shape.
-// It returns the instances as N-Quads bytes and any error encountered.
-func GetShapeInstances(shape string) ([]byte, error) {
+// It returns the map mapping from instance ID to its N-Quads bytes and any error encountered.
+func GetShapeInstances(shape string) (map[string]string, error) {
 	// prevent SPARQL injection
 	if !isValidIRI(shape) {
 		return nil, fmt.Errorf("invalid shape IRI: %v", shape)
@@ -199,28 +200,23 @@ func GetShapeInstances(shape string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	var resources []string
+	result := make(map[string]string)
 	for _, row := range res.Solutions() {
 		resource, ok := row["resource"].(rdf.Subject)
 		if !ok {
 			return nil, fmt.Errorf("invalid binding: %v", row)
 		}
-		resources = append(resources, resource.String())
+		dataBindings, err := queryDataset(ResourceDataset, fmt.Sprintf(`SELECT ?s ?p ?o ?g WHERE { GRAPH ?g { VALUES ?s { <%s> } ?s ?p ?o } }`, resource.String()))
+		if err != nil {
+			return nil, err
+		}
+		rdf, err := sparqlResultToNQuads(dataBindings)
+		if err != nil {
+			return nil, err
+		}
+		result[resource.String()] = string(rdf)
 	}
-	if len(resources) == 0 {
-		return []byte{}, nil
-	}
-	var b strings.Builder
-	for _, resource := range resources {
-		b.WriteString("<")
-		b.WriteString(resource)
-		b.WriteString("> ")
-	}
-	dataBindings, err := queryDataset(ResourceDataset, fmt.Sprintf(`SELECT ?s ?p ?o ?g WHERE { GRAPH ?g { VALUES ?s { %s } ?s ?p ?o } }`, b.String()))
-	if err != nil {
-		return nil, err
-	}
-	return sparqlResultToNQuads(dataBindings)
+	return result, nil
 }
 
 // validateCreator ensures the requester matches stored creator metadata.

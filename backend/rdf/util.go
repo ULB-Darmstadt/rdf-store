@@ -51,10 +51,6 @@ func ParseAllProfiles() (map[string]*shacl.NodeShape, error) {
 		profile.DenormalizePropertyNodeShapes(Profiles)
 	}
 
-	// for _, profile := range Profiles {
-	// 	profile.Print()
-	// }
-
 	profileIds = make([]string, 0)
 	for id := range Profiles {
 		profileIds = append(profileIds, id)
@@ -99,4 +95,14 @@ func newHTTPError(context string, status int, body []byte) error {
 // It returns true when the status is in the 2xx range.
 func statusIsOK(status int) bool {
 	return status >= 200 && status <= 299
+}
+
+func arrayToSparqlValues(array []string) string {
+	var builder strings.Builder
+	for _, s := range array {
+		builder.WriteString("<")
+		builder.WriteString(s)
+		builder.WriteString("> ")
+	}
+	return builder.String()
 }

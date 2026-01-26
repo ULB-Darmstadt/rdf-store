@@ -42,7 +42,7 @@ func init() {
 	Router.GET(BasePath+"/profile/*id", handleGetProfile)
 	Router.POST(BasePath+"/sparql/query", handleFusekiSparql)
 	Router.GET(BasePath+"/sparql/query", handleFusekiSparql)
-	Router.GET(BasePath+"/class-instances", handleGetClassInstances)
+	Router.POST(BasePath+"/class-instances", handleGetClassInstances)
 	Router.GET(BasePath+"/shape-instances", handleGetShapeInstances)
 	if base.ExposeFusekiFrontend {
 		Router.Any("/fuseki/*proxyPath", handleFusekiFrontend)
@@ -214,18 +214,16 @@ func handleGetProfile(c *gin.Context) {
 
 // handleGetClassInstances returns instances of a given RDF class.
 func handleGetClassInstances(c *gin.Context) {
-	class := c.Query("class")
-	if len(class) == 0 {
-		slog.Warn("failed retrieving class instances, request parameter 'class' missing")
-		c.JSON(http.StatusBadRequest, gin.H{"error": "missing request parameter 'class'"})
-		return
-
-	}
-	instances, err := rdf.GetClassInstances(class)
-	if err != nil {
-		slog.Error("failed retrieving class instances", "class", class, "error", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
+	classes := c.PostFormArray("class")
+	var instances []byte
+	if len(classes) > 0 {
+		var err error
+		instances, err = rdf.GetClassInstances(classes)
+		if err != nil {
+			slog.Error("failed retrieving class instances", "classes", classes, "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
 	}
 	c.Data(http.StatusOK, "text/turtle", instances)
 }
@@ -245,7 +243,7 @@ func handleGetShapeInstances(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.Data(http.StatusOK, "text/turtle", instances)
+	c.JSON(http.StatusOK, instances)
 }
 
 // readGraphBytesFromRequest reads raw RDF Turtle bytes from a form parameter.

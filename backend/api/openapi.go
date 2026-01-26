@@ -111,6 +111,8 @@ func addSchemas(spec *openapi3.T) {
 		WithProperty("rdfNamespace", openapi3.NewStringSchema()))
 	spec.Components.Schemas["LabelsResponse"] = openapi3.NewSchemaRef("", openapi3.NewSchema().
 		WithAdditionalProperties(openapi3.NewStringSchema()))
+	spec.Components.Schemas["ShapeInstancesResponse"] = openapi3.NewSchemaRef("", openapi3.NewSchema().
+		WithAdditionalProperties(openapi3.NewStringSchema()))
 	spec.Components.Schemas["Error"] = openapi3.NewSchemaRef("", openapi3.NewSchema().
 		WithProperty("error", openapi3.NewStringSchema()))
 }
@@ -208,12 +210,10 @@ func addPaths(spec *openapi3.T) {
 		Tags: []string{TAG_RDF},
 	}})
 
-	spec.Paths.Set("/class-instances", &openapi3.PathItem{Get: &openapi3.Operation{
-		Summary:     "List instances of an RDF class",
+	spec.Paths.Set("/class-instances", &openapi3.PathItem{Post: &openapi3.Operation{
+		Summary:     "List instances of given RDF classes",
 		OperationID: "getClassInstances",
-		Parameters: openapi3.Parameters{&openapi3.ParameterRef{
-			Value: openapi3.NewQueryParameter("class").WithRequired(true),
-		}},
+		RequestBody: &openapi3.RequestBodyRef{Value: formRequestBody("class")},
 		Responses: responses(map[string]*openapi3.Response{
 			"200": turtleResponse(),
 			"400": errorResponse(),
@@ -229,7 +229,7 @@ func addPaths(spec *openapi3.T) {
 			Value: openapi3.NewQueryParameter("shape").WithRequired(true),
 		}},
 		Responses: responses(map[string]*openapi3.Response{
-			"200": turtleResponse(),
+			"200": jsonSchemaResponse(openapi3.NewSchemaRef("#/components/schemas/ShapeInstancesResponse", nil), "OK"),
 			"400": errorResponse(),
 			"500": errorResponse(),
 		}),
