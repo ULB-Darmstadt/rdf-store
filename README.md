@@ -69,7 +69,7 @@ flowchart TB
     OAuth[OAuth2 proxy]
     Redis[(Redis)]
     App[Backend API]
-    Validator[SHACL validator<br/>SHACL shape conformance classifier]
+    Validator[SHACL validator<br/>and shape conformance classifier]
     Fuseki[(Triple store<br/>Apache Jena Fuseki)]
     Solr[(Search Index<br/>Solr)]
     Profiles[SHACL Shape Sources<br/>Local + NFDI4Ing MPS]
