@@ -59,6 +59,7 @@ func handleRdfProxy(c *gin.Context) {
 }
 
 // filterClientAccept narrows Accept headers to RDF-friendly content types.
+// It returns a comma-delimited Accept header value to forward upstream.
 func filterClientAccept(req *http.Request) string {
 	var result []string
 	for mime := range strings.SplitSeq(req.Header.Get("Accept"), ",") {
@@ -73,6 +74,7 @@ func filterClientAccept(req *http.Request) string {
 }
 
 // isSafeURL validates that a URL resolves to public, globally routable IPs.
+// It returns an error when the URL is invalid or resolves to blocked addresses.
 func isSafeURL(raw string) error {
 	parsedURL, err := url.Parse(raw)
 	if err != nil {

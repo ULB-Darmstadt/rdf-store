@@ -28,7 +28,7 @@ type MPSSearchResultItem struct {
 var findBaseRegex = regexp.MustCompile(`@base <(.*)>`)
 var lock sync.Mutex
 
-// Synchronize runs profile sync and triggers reindexing when changed.
+// Synchronize runs profile sync and triggers reindexing when changes are detected.
 func Synchronize() {
 	if lock.TryLock() {
 		defer lock.Unlock()
@@ -65,7 +65,8 @@ func Synchronize() {
 	}
 }
 
-// synchronizeProfiles fetches profiles from sources and updates datasets. returns IDs of changed or deleted profiles, so that resource metadata and search index can be updated for them.
+// synchronizeProfiles fetches profiles from sources and updates datasets.
+// It returns IDs of changed or deleted profiles along with any error encountered.
 func synchronizeProfiles() (changedOrDeletedProfiles []string, err error) {
 	slog.Info("syncing profiles...")
 	start := time.Now()

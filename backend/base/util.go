@@ -16,20 +16,22 @@ import (
 
 var fixBooleanRegex = regexp.MustCompile(`(true|false)(\s*)]`)
 
-// dirty fix for buggy boolean parsing in rdf2go
-// FixBooleansInRDF normalizes boolean list syntax for rdf2go parsing.
+// FixBooleansInRDF normalizes boolean list syntax to work around rdf2go parsing quirks.
+// It returns a new byte slice with corrected boolean list separators.
 func FixBooleansInRDF(profile []byte) []byte {
 	return fixBooleanRegex.ReplaceAll(profile, []byte("${1} ; ]"))
 }
 
-// ParseGraph parses RDF Turtle content into a graph.
+// ParseGraph parses RDF Turtle content into a new rdf2go graph.
+// It returns the populated graph and any parse error encountered.
 func ParseGraph(reader io.Reader) (graph *rdf2go.Graph, err error) {
 	graph = rdf2go.NewGraph("")
 	err = graph.Parse(reader, "text/turtle")
 	return
 }
 
-// CacheLoad retrieves a URL and caches the response body on disk.
+// CacheLoad retrieves a URL response and caches the body on disk for future requests.
+// It returns the cached or freshly fetched bytes along with any error.
 func CacheLoad(url string, accept string) ([]byte, error) {
 	cacheFilename := path.Join("local", "cache", strings.ReplaceAll(url, "/", "🐴"))
 	data, err := os.ReadFile(cacheFilename)
@@ -70,7 +72,8 @@ func CacheLoad(url string, accept string) ([]byte, error) {
 	return data, nil
 }
 
-// Hash computes a stable hash for the provided bytes.
+// Hash computes a stable FNV-1a hash for the provided bytes.
+// It returns the 32-bit hash value.
 func Hash(data []byte) uint32 {
 	h := fnv.New32a()
 	h.Write(data)

@@ -59,6 +59,7 @@ func handleConfig(c *gin.Context) {
 }
 
 // writeAccessGranted checks headers to determine write access and username.
+// It returns whether write access is granted and the resolved user name.
 func writeAccessGranted(h http.Header) (granted bool, user string) {
 	if !base.Configuration.AuthEnabled {
 		granted = true

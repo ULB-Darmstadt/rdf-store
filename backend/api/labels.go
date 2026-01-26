@@ -8,12 +8,12 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// init registers the label lookup endpoint.
+// init registers the label lookup endpoint on the router.
 func init() {
 	Router.POST(BasePath+"/labels", handleLabels)
 }
 
-// handleLabels resolves labels for provided RDF ids and language.
+// handleLabels resolves labels for provided RDF IDs and language.
 func handleLabels(c *gin.Context) {
 	language := c.PostForm("lang")
 	ids := c.PostFormArray("id")

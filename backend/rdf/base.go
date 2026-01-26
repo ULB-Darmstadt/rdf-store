@@ -28,7 +28,7 @@ var resourceMetaDataset = base.EnvVar("FUSEKI_RESOURCE_META_DATASET", "resourcem
 var profileDataset = base.EnvVar("FUSEKI_PROFILE_DATASET", "profile")
 var labelDataset = base.EnvVar("FUSEKI_LABEL_DATASET", "label")
 
-// init prepares datasets and imports local resources/labels.
+// init prepares datasets and imports local resources and labels.
 func init() {
 	if err := initDatasets(); err != nil {
 		log.Fatal("failed initializing datasets", err)
@@ -42,6 +42,7 @@ func init() {
 }
 
 // initDatasets ensures required Fuseki datasets exist.
+// It returns an error when dataset creation or checks fail.
 func initDatasets() error {
 	for _, dataset := range []string{ResourceDataset, resourceMetaDataset, profileDataset, labelDataset} {
 		// check if dataset exists
@@ -75,6 +76,7 @@ func initDatasets() error {
 }
 
 // importLocalResources loads local RDF graphs into the resource dataset.
+// It returns an error if any local graph cannot be read or uploaded.
 func importLocalResources() error {
 	baseDir := path.Join("local", "datagraph")
 	if files, err := os.ReadDir(baseDir); err == nil {
@@ -95,6 +97,7 @@ func importLocalResources() error {
 }
 
 // createGraph creates a new named graph in the target dataset.
+// It returns an error if the graph already exists or upload fails.
 func createGraph(dataset string, id string, data []byte) error {
 	exists, err := checkGraphExists(dataset, id)
 	if err != nil {
@@ -107,6 +110,7 @@ func createGraph(dataset string, id string, data []byte) error {
 }
 
 // loadGraph fetches a graph's triples from a dataset.
+// It returns the serialized graph bytes and any error encountered.
 func loadGraph(dataset string, id string) (data []byte, err error) {
 	exists, err := checkGraphExists(dataset, id)
 	if err != nil {
@@ -120,6 +124,7 @@ func loadGraph(dataset string, id string) (data []byte, err error) {
 }
 
 // uploadGraph replaces a named graph and optionally extracts labels.
+// It returns an error if the upload or label extraction fails.
 func uploadGraph(dataset string, id string, data []byte, graph *rdf2go.Graph) (err error) {
 	if err = deleteGraph(dataset, id); err != nil {
 		return
@@ -168,6 +173,7 @@ func uploadGraph(dataset string, id string, data []byte, graph *rdf2go.Graph) (e
 }
 
 // deleteGraph removes a named graph, associated labels and resource metadata.
+// It returns an error if the deletion fails.
 func deleteGraph(dataset string, id string) (err error) {
 	err = updateDataset(dataset, fmt.Sprintf(`DROP GRAPH <%s>`, id))
 	if err != nil {
@@ -183,6 +189,7 @@ func deleteGraph(dataset string, id string) (err error) {
 }
 
 // checkGraphExists asks the dataset whether a named graph exists.
+// It returns a boolean flag and any error encountered.
 func checkGraphExists(dataset string, id string) (exists bool, err error) {
 	// prevent SPARQL injection
 	if !isValidIRI(id) {
@@ -218,6 +225,7 @@ func checkGraphExists(dataset string, id string) (exists bool, err error) {
 }
 
 // getAllGraphIds lists graph identifiers in a dataset.
+// It returns the slice of graph IDs and any error encountered.
 func getAllGraphIds(dataset string) ([]string, error) {
 	bindings, err := queryDataset(dataset, "SELECT DISTINCT ?g WHERE { GRAPH ?g { } }")
 	if err != nil {
@@ -239,6 +247,7 @@ func getAllGraphIds(dataset string) ([]string, error) {
 }
 
 // queryDataset executes a SPARQL query and returns the JSON response bytes.
+// It returns the raw response data and any error encountered.
 func queryDataset(dataset string, query string) (data []byte, err error) {
 	body := url.Values{}
 	body.Set("query", query)
@@ -261,6 +270,7 @@ func queryDataset(dataset string, query string) (data []byte, err error) {
 }
 
 // updateDataset executes a SPARQL update query.
+// It returns an error if the update request fails.
 func updateDataset(dataset string, query string) (err error) {
 	form := url.Values{}
 	form.Set("update", query)
@@ -281,6 +291,7 @@ func updateDataset(dataset string, query string) (err error) {
 }
 
 // sparqlResultToNQuads converts SPARQL JSON results into N-Quads.
+// It returns the encoded N-Quads bytes or an error.
 func sparqlResultToNQuads(bindings []byte) ([]byte, error) {
 	res, err := sparql.ParseJSON(bytes.NewReader(bindings))
 	if err != nil {

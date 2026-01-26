@@ -17,6 +17,7 @@ type NodeShape struct {
 }
 
 // Parse loads a NodeShape from RDF data into the NodeShape struct.
+// It returns the populated NodeShape and any error encountered.
 func (node *NodeShape) Parse(id rdf2go.Term, rdf *[]byte) (*NodeShape, error) {
 	node.Id = id
 	node.Parents = make(map[string]bool)
@@ -69,6 +70,7 @@ func (node *NodeShape) AddProperty(property *Property) {
 }
 
 // ParentList returns the IDs of parent node shapes.
+// It returns the collected parent IDs as a slice.
 func (node *NodeShape) ParentList() (list []string) {
 	// list = append(list, node.Id.RawValue())
 	for parent := range node.Parents {
@@ -78,6 +80,7 @@ func (node *NodeShape) ParentList() (list []string) {
 }
 
 // findPropertyWithoutQualifiedValueShape finds a property without a qualified shape.
+// It returns the matching property or nil if none exists.
 func (node *NodeShape) findPropertyWithoutQualifiedValueShape(path string) *Property {
 	if props, ok := node.Properties[path]; ok {
 		for _, prop := range props {
@@ -90,6 +93,7 @@ func (node *NodeShape) findPropertyWithoutQualifiedValueShape(path string) *Prop
 }
 
 // findPropertiesWithQualifiedValueShape filters properties by qualifiedValueShape.
+// It returns the slice of matching properties.
 func (node *NodeShape) findPropertiesWithQualifiedValueShape(qualifiedMinCount int) []*Property {
 	result := make([]*Property, 0)
 	for _, props := range node.Properties {
@@ -153,6 +157,7 @@ func (prop *Property) Print() {
 }
 
 // Parse loads property constraints from a SHACL graph.
+// It returns the populated property and any error encountered.
 func (prop *Property) Parse(id rdf2go.Term, parent *NodeShape, graph *rdf2go.Graph) (*Property, error) {
 	prop.Id = id
 	prop.Parent = parent
@@ -238,6 +243,7 @@ func (prop *Property) Merge(other *Property) {
 }
 
 // parseList traverses an RDF list into a slice of terms.
+// It returns the ordered list of RDF terms.
 func parseList(head rdf2go.Term, graph *rdf2go.Graph) []rdf2go.Term {
 	result := make([]rdf2go.Term, 0)
 	first := graph.One(head, RDF_LIST_FIRST, nil)

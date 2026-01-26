@@ -13,7 +13,8 @@ import (
 	"github.com/deiu/rdf2go"
 )
 
-// Init prepares the Solr collection and schema.
+// Init prepares the Solr collection and schema for indexing.
+// It returns an error if Solr cannot be reached or initialized.
 func Init(forceRecreate bool) error {
 	if forceRecreate {
 		return recreateCollection()
@@ -33,7 +34,7 @@ func Init(forceRecreate bool) error {
 	return fmt.Errorf("solr not ready after %d attempts", maxAttempts)
 }
 
-// Reindex rebuilds the Solr index from all resources.
+// Reindex rebuilds the Solr index from all known resources.
 func Reindex() {
 	slog.Info("reindexing...")
 	start := time.Now()
@@ -68,6 +69,7 @@ func Reindex() {
 }
 
 // IndexResource builds and submits search documents for a resource.
+// It returns an error when indexing or deindexing fails.
 func IndexResource(resource *rdf2go.Graph, metadata *rdf.ResourceMetadata) error {
 	if err := DeindexResource(metadata.Id.RawValue()); err != nil {
 		return err
@@ -111,7 +113,8 @@ func IndexResource(resource *rdf2go.Graph, metadata *rdf.ResourceMetadata) error
 	return updateDoc(&containerDocument)
 }
 
-// DeindexResource removes documents associated with a resource.
+// DeindexResource removes documents associated with a resource ID.
+// It returns an error if the deletion request fails.
 func DeindexResource(id string) error {
 	return deleteDocs(id)
 }
@@ -175,6 +178,7 @@ func appendMultiValue(field string, value any, doc *document) {
 }
 
 // findLabels collects literal labels for a subject in the graph.
+// It returns the collected label strings.
 func findLabels(subject rdf2go.Term, data *rdf2go.Graph) (labels []string) {
 	for _, triple := range data.All(subject, nil, nil) {
 		if _, ok := rdf.LabelPredicates[triple.Predicate.RawValue()]; ok {

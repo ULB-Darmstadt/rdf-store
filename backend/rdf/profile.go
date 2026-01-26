@@ -15,12 +15,14 @@ import (
 var hashPredicate = "<spdx:checksumValue>"
 var BlankNodeReplacement = "urn:"
 
-// GetProfile loads a profile graph from the profile dataset.
+// GetProfile loads a profile graph from the profile dataset storage.
+// It returns the serialized profile bytes and any error encountered.
 func GetProfile(id string) (profile []byte, err error) {
 	return loadGraph(profileDataset, id)
 }
 
-// UpdateProfile stores a profile after replacing blank nodes and hashing.
+// UpdateProfile stores a profile after replacing blank nodes and calculating a hash.
+// It returns the parsed graph representation alongside any error.
 func UpdateProfile(id string, profile []byte) (*rdf2go.Graph, error) {
 	graph, err := replaceBlankNodes(profile)
 	if err != nil {
@@ -45,7 +47,8 @@ func UpdateProfile(id string, profile []byte) (*rdf2go.Graph, error) {
 	return graph, nil
 }
 
-// DeleteProfile removes a profile graph and its hash metadata.
+// DeleteProfile removes a profile graph and its hash metadata from storage.
+// It returns an error if either deletion fails.
 func DeleteProfile(id string) error {
 	if err := deleteProfileHash(id); err != nil {
 		return err
@@ -53,12 +56,14 @@ func DeleteProfile(id string) error {
 	return deleteGraph(profileDataset, id)
 }
 
-// GetAllProfileIds lists all profile graph IDs.
+// GetAllProfileIds lists all profile graph IDs in the dataset.
+// It returns the slice of profile IDs and any error encountered.
 func GetAllProfileIds() ([]string, error) {
 	return getAllGraphIds(profileDataset)
 }
 
-// GetProfileHash reads the stored hash for a profile. returns nil if profile is not found
+// GetProfileHash reads the stored hash for a profile when available.
+// It returns a pointer to the hash or nil when missing, plus any error.
 func GetProfileHash(id string) (*uint32, error) {
 	bindings, err := queryDataset(profileDataset, fmt.Sprintf("SELECT ?hash WHERE { <%s> %s ?hash }", id, hashPredicate))
 	if err != nil {
@@ -82,18 +87,20 @@ func GetProfileHash(id string) (*uint32, error) {
 	return nil, nil
 }
 
-// saveProfileHash stores the hash value for a profile.
+// saveProfileHash persists the hash value for a profile in the dataset.
+// It returns an error if the SPARQL update fails.
 func saveProfileHash(id string, hash uint32) error {
 	return updateDataset(profileDataset, fmt.Sprintf("INSERT DATA { <%s> %s %d . }", id, hashPredicate, hash))
 }
 
-// deleteProfileHash removes the stored hash for a profile.
+// deleteProfileHash removes the stored hash for a profile from the dataset.
+// It returns an error if the SPARQL update fails.
 func deleteProfileHash(id string) error {
 	return updateDataset(profileDataset, fmt.Sprintf(`DELETE WHERE { <%s> %s ?hash . }`, id, hashPredicate))
 }
 
-// replaceBlankNodes substitutes blank nodes with stable resource identifiers.
-// We need to convert blank nodes to proper named nodes so that they can be referred to (e.g. by the search facets or for validating against specific qualifiedValueShapes).
+// replaceBlankNodes substitutes blank nodes with stable resource identifiers for downstream lookups.
+// It returns the rewritten graph and any parse error encountered.
 func replaceBlankNodes(profile []byte) (graph *rdf2go.Graph, err error) {
 	input, err := base.ParseGraph(bytes.NewReader(profile))
 	if err != nil {

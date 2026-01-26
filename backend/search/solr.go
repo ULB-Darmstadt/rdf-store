@@ -20,7 +20,8 @@ var client = solr.NewJSONClient(Endpoint)
 
 type document map[string]any
 
-// checkCollectionExists determines whether the Solr collection is reachable.
+// checkCollectionExists determines whether the Solr collection is reachable and present.
+// It returns a boolean indicating existence along with any request error.
 func checkCollectionExists(ctx context.Context) (bool, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/solr/admin/collections?action=LIST&wt=json", Endpoint), nil)
 	if err != nil {
@@ -44,6 +45,7 @@ func checkCollectionExists(ctx context.Context) (bool, error) {
 }
 
 // recreateCollection drops and rebuilds the Solr collection and schema.
+// It returns an error if any Solr operation fails.
 func recreateCollection() (err error) {
 	slog.Debug("recreating solr collection", "endpoint", Endpoint, "collection", base.SolrIndex)
 	if err := client.DeleteCollection(context.Background(), solr.NewCollectionParams().Name(base.SolrIndex)); err != nil {
@@ -67,6 +69,7 @@ func recreateCollection() (err error) {
 // This enables WKT polygon indexing. Note that we have installed "jts-core" in our docker image.
 // See https://solr.apache.org/guide/solr/latest/query-guide/spatial-search.html#jts-and-polygons-flat
 // patchLocationField enables spatial WKT indexing for the location field.
+// It returns an error if the Solr schema patch fails.
 func patchLocationField() error {
 	body := map[string]any{
 		"replace-field-type": map[string]any{
@@ -97,6 +100,7 @@ func patchLocationField() error {
 }
 
 // updateDoc submits a document update and commits it in Solr.
+// It returns an error if the update or commit fails.
 func updateDoc(doc *document) error {
 	data, err := json.MarshalIndent(map[string]any{"add": map[string]any{"doc": doc}}, "", "   ")
 	if err != nil {
@@ -116,6 +120,7 @@ func updateDoc(doc *document) error {
 }
 
 // deleteDocs deletes all documents beneath a root container id.
+// It returns an error if the delete or commit fails.
 func deleteDocs(root string) error {
 	data, err := json.Marshal(map[string]any{"delete": map[string]any{"query": "_root_:\"container_" + root + "\""}})
 	if err != nil {

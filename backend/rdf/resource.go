@@ -17,7 +17,8 @@ import (
 
 var ErrResourceLinked = errors.New("resource is linked by other resources")
 
-// GetResource fetches an RDF resource graph and optional metadata.
+// GetResource fetches an RDF resource graph with optional linked graph expansion.
+// It returns the resource bytes, metadata, and any error encountered.
 func GetResource(id string, includeLinked bool) (resource []byte, metadata *ResourceMetadata, err error) {
 	if includeLinked {
 		exists, err2 := checkGraphExists(ResourceDataset, id)
@@ -43,7 +44,8 @@ func GetResource(id string, includeLinked bool) (resource []byte, metadata *Reso
 	return
 }
 
-// CreateResource stores a new resource and updates metadata.
+// CreateResource stores a new resource graph and updates its metadata record.
+// It returns the parsed graph, metadata, and any error encountered.
 func CreateResource(resource []byte, creator string) (graph *rdf2go.Graph, metadata *ResourceMetadata, err error) {
 	metadata, graph, err = updateResourceMetadata(nil, resource, creator, nil)
 	if err != nil {
@@ -56,7 +58,8 @@ func CreateResource(resource []byte, creator string) (graph *rdf2go.Graph, metad
 	return
 }
 
-// UpdateResource validates permissions, updates the graph, and metadata.
+// UpdateResource validates permissions, updates the graph, and refreshes metadata.
+// It returns the updated graph, metadata, and any error encountered.
 func UpdateResource(id string, resource []byte, creator string) (graph *rdf2go.Graph, metadata *ResourceMetadata, err error) {
 	if err = validateCreator(id, creator); err != nil {
 		return
@@ -71,7 +74,8 @@ func UpdateResource(id string, resource []byte, creator string) (graph *rdf2go.G
 	return
 }
 
-// DeleteResource removes a resource graph and metadata.
+// DeleteResource removes a resource graph and its metadata after checking for incoming links.
+// It returns an error if the deletion fails or the resource is still linked.
 func DeleteResource(id string, creator string) error {
 	if err := validateCreator(id, creator); err != nil {
 		return err
@@ -98,11 +102,14 @@ func DeleteResource(id string, creator string) error {
 	return deleteResourceMetadata(id)
 }
 
-// GetAllResourceIds lists all resource graph IDs.
+// GetAllResourceIds lists all resource graph IDs in the dataset.
+// It returns the slice of resource IDs and any error encountered.
 func GetAllResourceIds() ([]string, error) {
 	return getAllGraphIds(ResourceDataset)
 }
 
+// getGraphSubjects retrieves distinct subject IRIs from a resource graph.
+// It returns the subject list or an error when the ID is invalid or the query fails.
 func getGraphSubjects(id string) ([]string, error) {
 	if !isValidIRI(id) {
 		return nil, fmt.Errorf("invalid id IRI: %v", id)
@@ -135,6 +142,8 @@ func getGraphSubjects(id string) ([]string, error) {
 	return subjects, nil
 }
 
+// hasIncomingLinks checks whether any graph links to the given subject.
+// It returns a boolean indicating linkage and an error for invalid input or query failures.
 func hasIncomingLinks(id string, excludeGraph string) (bool, error) {
 	if !isValidIRI(id) {
 		return false, fmt.Errorf("invalid id IRI: %v", id)
@@ -161,7 +170,8 @@ func hasIncomingLinks(id string, excludeGraph string) (bool, error) {
 	return linked, nil
 }
 
-// GetClassInstances retrieves all instances of a given RDF class.
+// GetClassInstances retrieves all instances of a given RDF class across graphs.
+// It returns the instances as N-Quads bytes and any error encountered.
 func GetClassInstances(class string) ([]byte, error) {
 	// prevent SPARQL injection
 	if !isValidIRI(class) {
@@ -175,6 +185,7 @@ func GetClassInstances(class string) ([]byte, error) {
 }
 
 // GetShapeInstances retrieves all instances that conform to a given SHACL shape.
+// It returns the instances as N-Quads bytes and any error encountered.
 func GetShapeInstances(shape string) ([]byte, error) {
 	// prevent SPARQL injection
 	if !isValidIRI(shape) {
@@ -213,6 +224,7 @@ func GetShapeInstances(shape string) ([]byte, error) {
 }
 
 // validateCreator ensures the requester matches stored creator metadata.
+// It returns nil when allowed or an error when the creator does not match.
 func validateCreator(id string, user string) error {
 	if user == "" {
 		return nil

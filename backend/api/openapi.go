@@ -35,6 +35,7 @@ func init() {
 }
 
 // newApiSpec constructs the OpenAPI specification for this service.
+// It returns the populated OpenAPI document.
 func newApiSpec() *openapi3.T {
 	spec := &openapi3.T{
 		OpenAPI: "3.1.0",
@@ -324,6 +325,8 @@ func addPaths(spec *openapi3.T) {
 	})
 }
 
+// formRequestBody builds a form-encoded request body schema for the given fields.
+// It returns the OpenAPI request body definition.
 func formRequestBody(fields ...string) *openapi3.RequestBody {
 	schema := openapi3.NewSchema()
 	for _, field := range fields {
@@ -334,24 +337,32 @@ func formRequestBody(fields ...string) *openapi3.RequestBody {
 		WithContent(openapi3.NewContentWithSchema(schema, []string{"application/x-www-form-urlencoded"}))
 }
 
+// turtleResponse constructs a standard Turtle response schema.
+// It returns the OpenAPI response definition for Turtle payloads.
 func turtleResponse() *openapi3.Response {
 	return openapi3.NewResponse().
 		WithDescription("Turtle response").
 		WithContent(openapi3.NewContentWithSchema(openapi3.NewStringSchema(), []string{"text/turtle"}))
 }
 
+// errorResponse constructs a standard error response schema.
+// It returns the OpenAPI response definition for error payloads.
 func errorResponse() *openapi3.Response {
 	return openapi3.NewResponse().
 		WithDescription("Error response").
 		WithContent(openapi3.NewContentWithJSONSchemaRef(openapi3.NewSchemaRef("#/components/schemas/Error", nil)))
 }
 
+// jsonSchemaResponse creates a JSON schema response with a description.
+// It returns the OpenAPI response definition for the provided schema.
 func jsonSchemaResponse(schema *openapi3.SchemaRef, description string) *openapi3.Response {
 	return openapi3.NewResponse().
 		WithDescription(description).
 		WithContent(openapi3.NewContentWithJSONSchemaRef(schema))
 }
 
+// responses wraps response definitions into an OpenAPI responses object.
+// It returns the populated responses map.
 func responses(items map[string]*openapi3.Response) *openapi3.Responses {
 	out := openapi3.NewResponses()
 	for code, response := range items {
@@ -360,12 +371,16 @@ func responses(items map[string]*openapi3.Response) *openapi3.Responses {
 	return out
 }
 
+// pathParam creates a required OpenAPI path parameter for the given name.
+// It returns a parameter reference suitable for path definitions.
 func pathParam(name string) *openapi3.ParameterRef {
 	return &openapi3.ParameterRef{
 		Value: openapi3.NewPathParameter(name).WithRequired(true),
 	}
 }
 
+// rdfProxyAcceptHeaderParam builds the Accept header parameter for RDF proxy requests.
+// It returns a parameter reference with the allowed content type enum.
 func rdfProxyAcceptHeaderParam() *openapi3.ParameterRef {
 	values := make([]any, 0, len(allowedContentTypes))
 	for _, value := range allowedContentTypes {
