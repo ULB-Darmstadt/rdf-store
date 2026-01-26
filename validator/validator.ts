@@ -48,8 +48,8 @@ async function validateShape(resourceID: Term, shapeID: Term, subjectToShapeConf
         return
     }
     visited.add(visitKey)
-
-    if (await registerConformance(resourceID, shapeID, subjectToShapeConformance, dataset, validator)) {
+    const conforms = await registerConformance(resourceID, shapeID, subjectToShapeConformance, dataset, validator)
+    if (conforms) {
         // resource validates, so dive into all sh:property's in this node shape's inheritance tree
         const nodeShapes = [shapeID, ...getValueNodeShapes(shapeID, true, dataset, lists)]
         for (const shape of nodeShapes) {
@@ -76,9 +76,8 @@ async function validateShape(resourceID: Term, shapeID: Term, subjectToShapeConf
                 }
             }
         }
-        return true
     }
-    return false
+    return conforms
 }
 
 async function registerConformance(resourceID: Term, shapeID: Term, subjectToShapeConformance: Record<string, string>, dataset: Store, validator: Validator) {
