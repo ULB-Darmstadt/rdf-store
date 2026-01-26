@@ -13,7 +13,6 @@ import { search, SearchDocument } from './solr'
 import { fetchLabels, i18n } from './i18n'
 import { Editor } from './editor'
 import { map } from 'lit/directives/map.js'
-import { range } from 'lit/directives/range.js'
 import { registerPlugin } from '@ulb-darmstadt/shacl-form'
 import { LeafletPlugin } from '@ulb-darmstadt/shacl-form/plugins/leaflet.js'
 import { Facets } from './facets/base'
@@ -186,6 +185,29 @@ export class App extends LitElement {
         await import(`./layouts/${layout}/layout.ts`)
     }
 
+    getPagerItems(totalPages: number, currentPage: number) {
+        if (totalPages <= 7) {
+            return Array.from({ length: totalPages }, (_, index) => index + 1)
+        }
+        const pages = new Set<number>([1, totalPages])
+        for (let page = currentPage - 2; page <= currentPage + 2; page += 1) {
+            if (page > 1 && page < totalPages) {
+                pages.add(page)
+            }
+        }
+        const sortedPages = Array.from(pages).sort((a, b) => a - b)
+        const items: Array<number | 'ellipsis'> = []
+        let previousPage = 0
+        for (const page of sortedPages) {
+            if (previousPage && page - previousPage > 1) {
+                items.push('ellipsis')
+            }
+            items.push(page)
+            previousPage = page
+        }
+        return items
+    }
+
     render() {
         return html`
         ${!this.config ? nothing : html`
@@ -240,9 +262,18 @@ export class App extends LitElement {
                         ${this.totalHits <= this.limit ? nothing : html`
                         <div class="pager">
                             ${i18n['pages']}:
-                            ${map(range(1, Math.ceil(this.totalHits / this.limit) + 1), i => html`
-                                <rokit-button ?primary="${this.offset == this.limit * (i - 1)}" disabled="${this.offset == this.limit * (i - 1) || nothing}" @click="${() => { this.offset = this.limit * (i - 1); this.filterChanged(true)}}">${i}</rokit-button>
-                            `)}
+                            ${map(this.getPagerItems(Math.ceil(this.totalHits / this.limit), Math.floor(this.offset / this.limit) + 1),
+                                item => item === 'ellipsis'
+                                    ? html`<span class="ellipsis">…</span>`
+                                    : html`
+                                        <rokit-button
+                                            ?primary="${this.offset == this.limit * (item - 1)}"
+                                            disabled="${this.offset == this.limit * (item - 1) || nothing}"
+                                            @click="${() => {
+                                                this.offset = this.limit * (item - 1)
+                                                this.filterChanged(true)
+                                            }}">${item}</rokit-button>`
+                            )}
                         </div>
                         `}
                     `
