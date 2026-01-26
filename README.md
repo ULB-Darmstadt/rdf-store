@@ -63,16 +63,16 @@ When modifying the code in this repo (backend or frontend), the recommended step
 ## Architecture
 ```mermaid
 flowchart TB
-    User[User Browser]
+    User[User browser]
     Frontend[Frontend UI]
-    Gateway[Nginx Gateway]
-    OAuth[OAuth2 Proxy]
+    Gateway[Nginx gateway]
+    OAuth[OAuth2 proxy]
     Redis[(Redis)]
     App[Backend API]
-    Validator[SHACL Validator]
-    Fuseki[(Apache Jena Fuseki)]
-    Solr[(Solr Index)]
-    Profiles[SHACL Shape Source<br/>Local + NFDI4Ing MPS]
+    Validator[SHACL validator<br/>SHACL shape conformance classifier]
+    Fuseki[(Triple store<br/>Apache Jena Fuseki)]
+    Solr[(Search Index<br/>Solr)]
+    Profiles[SHACL Shape Sources<br/>Local + NFDI4Ing MPS]
 
     User --> Frontend
     Frontend -->|Search requests| Gateway
