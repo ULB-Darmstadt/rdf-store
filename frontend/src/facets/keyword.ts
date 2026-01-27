@@ -46,7 +46,7 @@ export class KeywordFacet extends Facet {
         const missingLabels: string[] = []
         for (const v of values) {
             // only request term labels and not literals
-            if (typeof(v.value) === 'string' && (v.value as string).startsWith('<') && (v.value as string).endsWith('>') && i18n[v.value] === undefined) {
+            if (typeof(v.value) === 'string' && v.value.startsWith('<') && v.value.endsWith('>') && i18n[v.value] === undefined) {
                 missingLabels.push(v.value)
             }
         }
