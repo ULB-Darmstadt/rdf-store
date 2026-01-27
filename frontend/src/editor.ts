@@ -1,25 +1,39 @@
 import { customElement, property, query, } from 'lit/decorators.js'
 import { LitElement, PropertyValues, css, html } from 'lit'
-import { ShaclForm } from '@ulb-darmstadt/shacl-form'
+import { ShaclForm, DataProvider } from '@ulb-darmstadt/shacl-form'
 import '@ulb-darmstadt/shacl-form/plugins/leaflet.js'
 import { BACKEND_URL } from './constants'
 import { i18n } from './i18n'
 import { RokitSnackbar, RokitSnackbarEvent, showSnackbarMessage } from '@ro-kit/ui-widgets'
 import { globalStyles } from './styles'
 
-export async function classInstanceProvider(clazz: string) {
-    return new Promise<string>(async (resolve, reject) => {
-        try {
-            const resp = await fetch(`${BACKEND_URL}/class-instances?class=${encodeURIComponent(clazz)}`)
-            if (resp.ok) {
-                resolve(await resp.text())
-            } else {
-                throw new Error(i18n['noresults'])
+export const dataProvider: DataProvider = {
+    lazyLoad: false,
+    classInstances: async (classes) => {
+        if (classes.size > 0) {
+            const formData = new URLSearchParams()
+            for (const clazz of classes) {
+                formData.append('class', clazz)
             }
-        } catch(e) {
-            reject(e)
+
+            const resp = await fetch(`${BACKEND_URL}/class-instances`, { method: "POST", body: formData })
+            if (resp.ok) {
+                return await resp.text()
+            } else {
+                console.error('failed loading class instances, status was', resp.status)
+            }
         }
-    })
+        return ''
+    },
+    shapeInstances: async (shape) => {
+        const resp = await fetch(`${BACKEND_URL}/shape-instances?shape=${shape}`)
+        if (resp.ok) {
+            return await resp.json()
+        } else {
+            console.error('failed loading shape instances, status was', resp.status)
+        }
+        return ''
+    }
 }
 
 @customElement('rdf-editor')
@@ -51,7 +65,7 @@ export class Editor extends LitElement {
             })
         }
         if (changedProperties.has('selectedShape') && this.selectedShape) {
-            this.form!.setClassInstanceProvider(classInstanceProvider)
+            this.form!.setDataProvider(dataProvider)
         }
     }
 

@@ -10,8 +10,8 @@
   "dependencies": {
     "@fontsource/material-icons": "^5.2.7",
     "@fontsource/roboto": "^5.2.9",
-    "@ro-kit/ui-widgets": "1.0.35",
-    "@ulb-darmstadt/shacl-form": "^2.0.8",
+    "@ro-kit/ui-widgets": "1.0.36",
+    "@ulb-darmstadt/shacl-form": "^2.1.0",
     "d3": "^7.9.0",
     "leaflet": "^1.9.4",
     "leaflet.fullscreen": "^4.0.0",
