@@ -1,18 +1,28 @@
 package base
 
 import (
+	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
 )
 
 var BackendUrl = EnvVar("BACKEND_URL", "http://localhost:3000")
-var AllowedOrigins = append([]string{BackendUrl}, EnvVarAsStringSlice("ALLOWED_ORIGINS")...)
+
+var AllowedOrigins = EnvVarAsStringSlice("ALLOWED_ORIGINS")
 var AuthUserHeader = "X-User"
 var AuthEmailHeader = "X-Email"
 var AuthGroupsHeader = "X-Groups"
 var AuthWriteAccessGroup = EnvVar("WRITE_ACCESS_GROUP", "")
+
+func init() {
+	if u, err := url.Parse(BackendUrl); err == nil {
+		origin := fmt.Sprintf("%s://%s", u.Scheme, u.Host)
+		AllowedOrigins = append([]string{origin}, AllowedOrigins...)
+	}
+}
 
 // EnvVar reads an environment variable and falls back to a default when unset.
 // It returns the resolved string value.
