@@ -102,7 +102,7 @@ func IndexResource(resource *rdf2go.Graph, metadata *rdf.ResourceMetadata) error
 		slog.Warn("profile not found", "id", rootProfileId)
 		return fmt.Errorf("profile not found %v", rootProfileId)
 	}
-	buildDoc(metadata.Id, profile, rootProfileId, false, false, resource, metadata, &mainDocument)
+	buildDoc(metadata.Id, profile, false, resource, metadata, &mainDocument, &mainDocument)
 	return updateDoc(&containerDocument)
 }
 
@@ -113,10 +113,19 @@ func DeindexResource(id string) error {
 }
 
 // buildDoc recursively constructs Solr documents from RDF graph data.
-func buildDoc(subject rdf2go.Term, profile *shacl.NodeShape, rootProfileId string, appendToRoot bool, denormalized bool, resource *rdf2go.Graph, metadata *rdf.ResourceMetadata, current *document) {
+func buildDoc(subject rdf2go.Term, profile *shacl.NodeShape, isProperty bool, resource *rdf2go.Graph, metadata *rdf.ResourceMetadata, current *document, parent *document) {
 	slog.Debug("build doc", "subject", subject.RawValue(), "profile", profile.Id.RawValue(), "current", (*current)["id"])
 	// append shape conformance
 	appendMultiValue("shape", profile.Id.RawValue(), current)
+
+	for parentId := range profile.Parents {
+		profile, ok := rdf.Profiles[parentId]
+		if !ok {
+			slog.Warn("profile not found", "id", parentId)
+			return
+		}
+		buildDoc(subject, profile, isProperty, resource, metadata, current, parent)
+	}
 
 	// append property values to document
 	for path, properties := range profile.Properties {
@@ -124,22 +133,23 @@ func buildDoc(subject rdf2go.Term, profile *shacl.NodeShape, rootProfileId strin
 		for _, property := range properties {
 			ft := fieldType(property)
 			for _, value := range resource.All(subject, pathTerm, nil) {
-				fmt.Println("--- path", path, value.Object.RawValue())
 				if len(property.NodeShapes) > 0 {
 					for shape := range property.NodeShapes {
 						if conformingShape, ok := metadata.Conformance[value.Object.RawValue()]; ok && conformingShape == shape {
-							fmt.Println("--- target shape", shape)
 							profile, ok := rdf.Profiles[shape]
 							if !ok {
 								slog.Warn("profile not found", "id", shape)
 							} else {
 								childDocument := document{
-									"id":         value.Object.RawValue(),
-									"label":      findLabels(value.Object, resource),
-									"ref_shapes": []string{rootProfileId},
+									"id":    value.Object.RawValue(),
+									"label": findLabels(value.Object, resource),
 								}
 								appendMultiValue("_children_", &childDocument, current)
-								buildDoc(value.Object, profile, profile.Id.RawValue(), true, false, resource, metadata, &childDocument)
+								appendMultiValue("ref_shapes", profile.Id.RawValue(), current)
+								appendMultiValue("ref_shapes", profile.Id.RawValue(), parent)
+								appendMultiValue("ref_shapes", (*parent)["shape"], &childDocument)
+								appendMultiValue("ref_shapes", (*current)["shape"], &childDocument)
+								buildDoc(value.Object, profile, true, resource, metadata, &childDocument, &childDocument)
 							}
 						}
 					}
@@ -162,30 +172,18 @@ func buildDoc(subject rdf2go.Term, profile *shacl.NodeShape, rootProfileId strin
 							}
 						}
 						var targetProfile string
-						if appendToRoot {
-							targetProfile = rootProfileId
+						if isProperty {
+							targetProfile = docMainShape(parent)
 						} else {
 							targetProfile = profile.Id.RawValue()
 						}
 						field := base.CleanStringForSolr(targetProfile) + "." + base.CleanStringForSolr(property.Id.RawValue()) + "_" + ft
 						appendMultiValue(field, val, current)
 					}
-					resource.Remove(value)
 				}
 			}
 		}
 
-	}
-	if !denormalized {
-		for parentId := range profile.Parents {
-			// append properties of all parent shapes to same document
-			profile, ok := rdf.Profiles[parentId]
-			if !ok {
-				slog.Warn("profile not found", "id", parentId)
-				return
-			}
-			buildDoc(subject, profile, rootProfileId, appendToRoot, false, resource, metadata, current)
-		}
 	}
 }
 
@@ -207,8 +205,16 @@ func appendMultiValue(field string, value any, doc *document) {
 	} else {
 		existing = append(existing, value)
 	}
-	fmt.Println("--- append", value, "to", (*doc)["id"])
 	(*doc)[field] = existing
+}
+
+func docMainShape(doc *document) string {
+	if shapes, ok := (*doc)["shape"].([]any); ok && len(shapes) > 0 {
+		if id, ok := shapes[0].(string); ok {
+			return id
+		}
+	}
+	return ""
 }
 
 // findLabels collects literal labels for a subject in the graph.
