@@ -141,7 +141,6 @@ func buildDoc(subject rdf2go.Term, profile *shacl.NodeShape, isProperty bool, re
 						"ref_shapes": parent.shapes(),
 					}
 					current.appendChild(childDocument)
-					property.QualifiedValueShapeDenormalized.Print()
 					buildDoc(value.Object, property.QualifiedValueShapeDenormalized, true, resource, metadata, childDocument, childDocument)
 				} else if len(property.NodeShapes) > 0 {
 					for shape := range property.NodeShapes {

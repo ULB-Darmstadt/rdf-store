@@ -12,7 +12,7 @@ import (
 )
 
 var TAG_RDF = "RDF"
-var TAG_SOLR = "Search Index"
+var TAG_SOLR = "Searching"
 var TAG_MISC = "Misc"
 var apispec = newApiSpec()
 
