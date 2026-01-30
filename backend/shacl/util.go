@@ -46,7 +46,7 @@ func (node *NodeShape) DenormalizePropertyNodeShapes(shapes map[string]*NodeShap
 
 // denormalizeShape flattens parent properties into the target shape.
 func denormalizeShape(current *NodeShape, target *NodeShape, shapes map[string]*NodeShape) {
-	target.Parents[current.Id.RawValue()] = true
+	// target.Parents[current.Id.RawValue()] = true
 	for _, props := range current.Properties {
 		for _, prop := range props {
 			target.AddProperty(prop)

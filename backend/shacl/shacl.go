@@ -186,7 +186,7 @@ func (prop *Property) Parse(id rdf2go.Term, parent *NodeShape, graph *rdf2go.Gra
 				prop.NodeShapes[shape.RawValue()] = true
 			}
 		} else if triple.Predicate.Equal(SHACL_QUALIFIED_VALUE_SHAPE) {
-			prop.NodeShapes[triple.Object.RawValue()] = true
+			// prop.NodeShapes[triple.Object.RawValue()] = true
 			prop.QualifiedValueShape = triple.Object.RawValue()
 		} else if triple.Predicate.Equal(SHACL_QUALIFIED_MIN_COUNT) {
 			if i, err := strconv.Atoi(triple.Object.RawValue()); err == nil {
@@ -237,6 +237,9 @@ func (prop *Property) Merge(other *Property) {
 	}
 	if len(other.Datatype) > 0 {
 		prop.Datatype = other.Datatype
+	}
+	if other.Facet != nil {
+		prop.Facet = other.Facet
 	}
 	for k := range other.NodeShapes {
 		prop.NodeShapes[k] = true

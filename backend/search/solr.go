@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"rdf-store-backend/base"
+	"reflect"
 	"slices"
 
 	"github.com/stevenferrer/solr-go"
@@ -19,6 +20,43 @@ var numShards = base.EnvVarAsInt("SOLR_NUM_SHARDS", 1)
 var client = solr.NewJSONClient(Endpoint)
 
 type document map[string]any
+
+func (d *document) appendChild(child *document) {
+	d.appendValue("_children_", child)
+}
+
+// appendValue appends values to a multi-value Solr field.
+func (d *document) appendValue(field string, value any) {
+	if value == nil {
+		return
+	}
+	existing, ok := (*d)[field].([]any)
+	if !ok {
+		existing = make([]any, 0)
+	}
+	valueRef := reflect.ValueOf(value)
+	if valueRef.Kind() == reflect.Slice {
+		for i := 0; i < valueRef.Len(); i++ {
+			existing = append(existing, valueRef.Index(i).Interface())
+		}
+	} else {
+		existing = append(existing, value)
+	}
+	(*d)[field] = existing
+}
+
+func (d *document) mainShape() string {
+	if shapes, ok := (*d)["shape"].([]any); ok && len(shapes) > 0 {
+		if id, ok := shapes[0].(string); ok {
+			return id
+		}
+	}
+	return ""
+}
+
+func (d *document) shapes() any {
+	return (*d)["shape"]
+}
 
 // checkCollectionExists determines whether the Solr collection is reachable and present.
 // It returns a boolean indicating existence along with any request error.

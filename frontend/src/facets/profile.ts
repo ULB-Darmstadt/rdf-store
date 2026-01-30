@@ -55,13 +55,12 @@ export class ProfileFacet extends Facet {
 
         // check if labels of facet values are missing
         for (const v of Object.keys(values)) {
-            // only request term labels and not literals
-            if (v.startsWith('<') && v.endsWith('>') && i18n[v] === undefined) {
+            if (i18n[v] === undefined) {
                 missingLabels.push(v)
             }
         }
         (async () => {
-            await fetchLabels(missingLabels)
+            await fetchLabels(missingLabels, true)
             this.values = Object.values(values)
             this.valid = this.values.length > 0
         })()

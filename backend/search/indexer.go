@@ -8,7 +8,7 @@ import (
 	"rdf-store-backend/base"
 	"rdf-store-backend/rdf"
 	"rdf-store-backend/shacl"
-	"reflect"
+	"strings"
 	"time"
 
 	"github.com/deiu/rdf2go"
@@ -78,32 +78,33 @@ func IndexResource(resource *rdf2go.Graph, metadata *rdf.ResourceMetadata) error
 
 	rootProfileId, ok := metadata.Conformance[metadata.Id.RawValue()]
 	if !ok {
-		slog.Warn("not indexing because root profile not found", "resource", metadata.Id.RawValue(), "creator", metadata.Creator)
+		slog.Warn("not indexing because resource misses conformance entry", "resource", metadata.Id.RawValue(), "creator", metadata.Creator)
 		return nil
 	}
+	profile, ok := rdf.Profiles[rootProfileId]
+	if !ok {
+		slog.Warn("not indexing because root profile not found", "resource", metadata.Id.RawValue(), "creator", metadata.Creator, "rootProfile", rootProfileId)
+		return nil
+	}
+
 	slog.Debug("indexing", "resource", metadata.Id.RawValue(), "creator", metadata.Creator)
 
-	mainDocument := document{
+	containerDocument := &document{
+		"id":           "container_" + metadata.Id.RawValue(),
+		"creator":      metadata.Creator,
+		"lastModified": metadata.LastModified,
+		"docType":      "container",
+	}
+	mainDocument := &document{
 		"id":           metadata.Id.RawValue(),
 		"creator":      metadata.Creator,
 		"lastModified": metadata.LastModified,
 		"label":        findLabels(metadata.Id, resource),
 		"docType":      "main",
 	}
-	containerDocument := document{
-		"id":           "container_" + metadata.Id.RawValue(),
-		"creator":      metadata.Creator,
-		"lastModified": metadata.LastModified,
-		"docType":      "container",
-		"_children_":   []*document{&mainDocument},
-	}
-	profile, ok := rdf.Profiles[rootProfileId]
-	if !ok {
-		slog.Warn("profile not found", "id", rootProfileId)
-		return fmt.Errorf("profile not found %v", rootProfileId)
-	}
-	buildDoc(metadata.Id, profile, false, resource, metadata, &mainDocument, &mainDocument)
-	return updateDoc(&containerDocument)
+	containerDocument.appendChild(mainDocument)
+	buildDoc(metadata.Id, profile, false, resource, metadata, mainDocument, mainDocument)
+	return updateDoc(containerDocument)
 }
 
 // DeindexResource removes documents associated with a resource ID.
@@ -116,7 +117,7 @@ func DeindexResource(id string) error {
 func buildDoc(subject rdf2go.Term, profile *shacl.NodeShape, isProperty bool, resource *rdf2go.Graph, metadata *rdf.ResourceMetadata, current *document, parent *document) {
 	slog.Debug("build doc", "subject", subject.RawValue(), "profile", profile.Id.RawValue(), "current", (*current)["id"])
 	// append shape conformance
-	appendMultiValue("shape", profile.Id.RawValue(), current)
+	current.appendValue("shape", profile.Id.RawValue())
 
 	for parentId := range profile.Parents {
 		profile, ok := rdf.Profiles[parentId]
@@ -133,23 +134,29 @@ func buildDoc(subject rdf2go.Term, profile *shacl.NodeShape, isProperty bool, re
 		for _, property := range properties {
 			ft := fieldType(property)
 			for _, value := range resource.All(subject, pathTerm, nil) {
-				if len(property.NodeShapes) > 0 {
+				if property.QualifiedValueShapeDenormalized != nil && conforms(value.Object.RawValue(), property.QualifiedValueShape, metadata) {
+					childDocument := &document{
+						"id":         value.Object.RawValue(),
+						"label":      findLabels(value.Object, resource),
+						"ref_shapes": parent.shapes(),
+					}
+					current.appendChild(childDocument)
+					property.QualifiedValueShapeDenormalized.Print()
+					buildDoc(value.Object, property.QualifiedValueShapeDenormalized, true, resource, metadata, childDocument, childDocument)
+				} else if len(property.NodeShapes) > 0 {
 					for shape := range property.NodeShapes {
-						if conformingShape, ok := metadata.Conformance[value.Object.RawValue()]; ok && conformingShape == shape {
+						if conforms(value.Object.RawValue(), shape, metadata) {
 							profile, ok := rdf.Profiles[shape]
 							if !ok {
-								slog.Warn("profile not found", "id", shape)
+								slog.Error("profile not found", "id", shape)
 							} else {
-								childDocument := document{
-									"id":    value.Object.RawValue(),
-									"label": findLabels(value.Object, resource),
+								childDocument := &document{
+									"id":         value.Object.RawValue(),
+									"label":      findLabels(value.Object, resource),
+									"ref_shapes": parent.shapes(),
 								}
-								appendMultiValue("_children_", &childDocument, current)
-								appendMultiValue("ref_shapes", profile.Id.RawValue(), current)
-								appendMultiValue("ref_shapes", profile.Id.RawValue(), parent)
-								appendMultiValue("ref_shapes", (*parent)["shape"], &childDocument)
-								appendMultiValue("ref_shapes", (*current)["shape"], &childDocument)
-								buildDoc(value.Object, profile, true, resource, metadata, &childDocument, &childDocument)
+								current.appendChild(childDocument)
+								buildDoc(value.Object, profile, true, resource, metadata, childDocument, childDocument)
 							}
 						}
 					}
@@ -161,60 +168,40 @@ func buildDoc(subject rdf2go.Term, profile *shacl.NodeShape, isProperty bool, re
 						val = value.Object.String()
 					}
 					if ft == "t" {
-						appendMultiValue("_text_", val, current)
+						current.appendValue("_text_", val)
 					} else {
 						if ft == "dts" {
 							// convert date to solr format
 							if len(val) == 10 {
 								val = val + "T00:00:00Z"
-							} else if len(val) == 19 {
+							} else if !strings.HasSuffix(val, "Z") {
 								val = val + "Z"
 							}
 						}
 						var targetProfile string
 						if isProperty {
-							targetProfile = docMainShape(parent)
+							targetProfile = parent.mainShape()
 						} else {
 							targetProfile = profile.Id.RawValue()
 						}
-						field := base.CleanStringForSolr(targetProfile) + "." + base.CleanStringForSolr(property.Id.RawValue()) + "_" + ft
-						appendMultiValue(field, val, current)
+						current.appendValue(fieldName(targetProfile, property.Id.RawValue(), ft), val)
 					}
 				}
 			}
 		}
-
 	}
 }
 
-// appendMultiValue appends values to a multi-value Solr field.
-func appendMultiValue(field string, value any, doc *document) {
-	if value == nil {
-		return
+func conforms(id string, shape string, metadata *rdf.ResourceMetadata) bool {
+	if len(id) == 0 || len(shape) == 0 {
+		return false
 	}
-	// fmt.Println("--- append", field, value)
-	existing, ok := (*doc)[field].([]any)
-	if !ok {
-		existing = make([]any, 0)
-	}
-	valueRef := reflect.ValueOf(value)
-	if valueRef.Kind() == reflect.Slice {
-		for i := 0; i < valueRef.Len(); i++ {
-			existing = append(existing, valueRef.Index(i).Interface())
-		}
-	} else {
-		existing = append(existing, value)
-	}
-	(*doc)[field] = existing
+	val, ok := metadata.Conformance[id]
+	return ok && val == shape
 }
 
-func docMainShape(doc *document) string {
-	if shapes, ok := (*doc)["shape"].([]any); ok && len(shapes) > 0 {
-		if id, ok := shapes[0].(string); ok {
-			return id
-		}
-	}
-	return ""
+func fieldName(shape string, property string, fieldType string) string {
+	return base.CleanStringForSolr(shape) + "." + base.CleanStringForSolr(property) + "_" + fieldType
 }
 
 // findLabels collects literal labels for a subject in the graph.

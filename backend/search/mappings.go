@@ -37,8 +37,7 @@ func fieldType(property *shacl.Property) string {
 		// ignore fixed value properties
 		return "t"
 	}
-	// if property.Class || property.In || (shacl.SHACL_IRI.RawValue() == property.NodeKind) {
-	if property.In || (shacl.SHACL_IRI.RawValue() == property.NodeKind) {
+	if property.Class || property.In || (shacl.SHACL_IRI.RawValue() == property.NodeKind) {
 		// these are supposed to be facets
 		return "ss"
 	}
