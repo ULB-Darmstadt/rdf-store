@@ -21,9 +21,11 @@ func ParseAllProfiles() (map[string]*shacl.NodeShape, error) {
 	if err != nil {
 		return nil, err
 	}
+	externalProfileIds := make([]string, 0)
 	Profiles = make(map[string]*shacl.NodeShape)
 	// first pass: parse profiles
 	for _, profileId := range profileIds {
+		externalProfileIds = append(externalProfileIds, profileId)
 		profile, err := GetProfile(profileId)
 		if err != nil {
 			return nil, err
@@ -45,17 +47,11 @@ func ParseAllProfiles() (map[string]*shacl.NodeShape, error) {
 		}
 	}
 
-	// denormalizedProfiles := make(map[*shacl.NodeShape]bool)
 	for _, profile := range Profiles {
-		// profile.DenormalizeQualifiedValueShapes(Profiles)
 		profile.DenormalizePropertyNodeShapes(Profiles)
 	}
 
-	profileIds = make([]string, 0)
-	for id := range Profiles {
-		profileIds = append(profileIds, id)
-	}
-	base.Configuration.Profiles = profileIds
+	base.Configuration.Profiles = externalProfileIds
 	return Profiles, nil
 }
 

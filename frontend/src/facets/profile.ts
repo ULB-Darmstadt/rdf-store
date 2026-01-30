@@ -28,7 +28,7 @@ export class ProfileFacet extends Facet {
 
     onChange() {
         this.selectedValue = this.select.value
-        this.active = (this.selectedValue !== undefined && this.selectedValue.length > 0) || false
+        this.active = this.selectedValue.length > 0
         this.dispatchEvent(new Event('change', { bubbles: true }))
     }
 
@@ -40,15 +40,7 @@ export class ProfileFacet extends Facet {
         if (facet?.buckets?.length) {
             for (const bucket of facet.buckets) {
                 if (bucket.count > 0 && typeof(bucket.val) === 'string') {
-                    values[bucket.val] = { value: bucket.val, docCount: bucket.count }
-                }
-            }
-        }
-        facet = aggs['ref_shapes']
-        if (facet?.buckets?.length) {
-            for (const bucket of facet.buckets) {
-                if (bucket.count > 0 && typeof(bucket.val) === 'string' && !values[bucket.val]) {
-                    values[bucket.val] = { value: bucket.val }
+                    values[bucket.val] = { value: bucket.val, docCount: bucket.count, ref: false }
                 }
             }
         }
@@ -72,7 +64,7 @@ export class ProfileFacet extends Facet {
     }
 
     applyFilterQuery(filter: string[]) {
-        const val = this.selectedValue?.replace(/:/, '\\:')
+        const val = this.selectedValue.replace(/:/, '\\:')
         filter.push(`+(shape:${val} OR ref_shapes:${val})`)
     }
 

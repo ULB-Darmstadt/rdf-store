@@ -8,7 +8,7 @@ import { RokitSnackbar, RokitSnackbarEvent, showSnackbarMessage } from '@ro-kit/
 import { globalStyles } from './styles'
 
 export const dataProvider: DataProvider = {
-    lazyLoad: false,
+    lazyLoad: true,
     classInstances: async (classes) => {
         if (classes.size > 0) {
             const formData = new URLSearchParams()
@@ -60,9 +60,7 @@ export class Editor extends LitElement {
 
     updated(changedProperties: PropertyValues) {
         if (changedProperties.has('open') && this.open) {
-            setTimeout(() => {
-                this.shadowRoot?.querySelector<HTMLInputElement>('rokit-select')?.focus()    
-            })
+            setTimeout(() => this.shadowRoot?.querySelector<HTMLInputElement>('rokit-select')?.focus())
         }
         if (changedProperties.has('selectedShape') && this.selectedShape) {
             this.form!.setDataProvider(dataProvider)
@@ -126,6 +124,7 @@ export class Editor extends LitElement {
                             if (report.conforms) {
                                 this.saveRDF(this.form!.serialize())
                             } else {
+                                this.form!.form.querySelector('.invalid')?.scrollIntoView()
                                 console.log(this.form!.serialize())
                                 console.warn(report)
                             }
