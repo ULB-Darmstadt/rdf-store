@@ -31,7 +31,6 @@ func (node *NodeShape) Parse(id rdf2go.Term, rdf *[]byte) (*NodeShape, error) {
 		if err := node.Graph.Parse(bytes.NewReader(*rdf), "text/turtle"); err != nil {
 			return nil, err
 		}
-
 	}
 	for _, triple := range node.Graph.All(id, nil, nil) {
 		if triple.Predicate.Equal(SHACL_NODE) {

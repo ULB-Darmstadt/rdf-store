@@ -37,7 +37,7 @@ func ParseAllProfiles() (map[string]*shacl.NodeShape, error) {
 		Profiles[profileId] = parsed
 		// register sub profiles (i.e. node shapes previously converted from blank nodes)
 		for _, nodeShapeTriple := range parsed.Graph.All(nil, shacl.RDF_TYPE, shacl.SHACL_NODE_SHAPE) {
-			if nodeShapeTriple.Subject.RawValue() != profileId {
+			if strings.HasPrefix(nodeShapeTriple.Subject.RawValue(), BlankNodeReplacement) {
 				parsedSubProfile, err := new(shacl.NodeShape).Parse(nodeShapeTriple.Subject, &profile)
 				if err != nil {
 					return nil, err
