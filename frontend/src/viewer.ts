@@ -8,7 +8,7 @@ import { i18n } from './i18n'
 import { showSnackbarMessage } from '@ro-kit/ui-widgets'
 import { ShaclForm } from '@ulb-darmstadt/shacl-form'
 import { Config } from '.'
-import { dataProvider } from './editor'
+import { resourceLinkProvider } from './editor'
 
 @customElement('rdf-viewer')
 export class Viewer extends LitElement {
@@ -53,8 +53,8 @@ export class Viewer extends LitElement {
             this.editable = false
             this.load()
         }
-        if ((changedProperties.has('graphView') || changedProperties.has('editMode')) && !this.graphView && this.editMode) {
-            (this.shadowRoot!.querySelector('shacl-form') as ShaclForm)?.setDataProvider(dataProvider)
+        if (changedProperties.has('graphView') && !this.graphView) {
+            (this.shadowRoot!.querySelector('shacl-form') as ShaclForm)?.setResourceLinkProvider(resourceLinkProvider)
         }
     }
 

@@ -222,9 +222,9 @@ func addPaths(spec *openapi3.T) {
 		Tags: []string{TAG_RDF},
 	}})
 
-	spec.Paths.Set("/shape-instances", &openapi3.PathItem{Get: &openapi3.Operation{
-		Summary:     "List instances that conform to a given SHACL shape",
-		OperationID: "getShapeInstances",
+	spec.Paths.Set("/conforming-resources", &openapi3.PathItem{Get: &openapi3.Operation{
+		Summary:     "List resource IDs that conform to a given SHACL shape",
+		OperationID: "listConformingResources",
 		Parameters: openapi3.Parameters{&openapi3.ParameterRef{
 			Value: openapi3.NewQueryParameter("shape").WithRequired(true),
 		}},

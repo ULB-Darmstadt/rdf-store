@@ -43,7 +43,7 @@ func init() {
 	Router.POST(BasePath+"/sparql/query", handleFusekiSparql)
 	Router.GET(BasePath+"/sparql/query", handleFusekiSparql)
 	Router.POST(BasePath+"/class-instances", handleGetClassInstances)
-	Router.GET(BasePath+"/shape-instances", handleGetShapeInstances)
+	Router.GET(BasePath+"/conforming-resources", handleListConformingResources)
 	if base.ExposeFusekiFrontend {
 		Router.Any("/fuseki/*proxyPath", handleFusekiFrontend)
 	}
@@ -228,22 +228,22 @@ func handleGetClassInstances(c *gin.Context) {
 	c.Data(http.StatusOK, "text/turtle", instances)
 }
 
-// handleGetShapeInstances returns all instances that conform to a given SHACL shape.
-func handleGetShapeInstances(c *gin.Context) {
+// handleListConformingResources returns all instances that conform to a given SHACL shape.
+func handleListConformingResources(c *gin.Context) {
 	shape := c.Query("shape")
 	if len(shape) == 0 {
-		slog.Warn("failed retrieving shape instances, request parameter 'shape' missing")
+		slog.Warn("failed listing conforming resources, request parameter 'shape' missing")
 		c.JSON(http.StatusBadRequest, gin.H{"error": "missing request parameter 'shape'"})
 		return
 
 	}
-	instances, err := rdf.GetShapeInstances(shape)
+	resourceIds, err := rdf.ListConformingResources(shape)
 	if err != nil {
-		slog.Error("failed retrieving shape instances", "shape", shape, "error", err)
+		slog.Error("failed listing conforming resources", "shape", shape, "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, instances)
+	c.JSON(http.StatusOK, resourceIds)
 }
 
 // readGraphBytesFromRequest reads raw RDF Turtle bytes from a form parameter.

@@ -11,7 +11,7 @@
     "@fontsource/material-icons": "^5.2.7",
     "@fontsource/roboto": "^5.2.9",
     "@ro-kit/ui-widgets": "1.0.40",
-    "@ulb-darmstadt/shacl-form": "2.1.1-rc1",
+    "@ulb-darmstadt/shacl-form": "2.1.1-rc2",
     "d3": "^7.9.0",
     "leaflet": "^1.9.4",
     "leaflet.fullscreen": "^4.0.0",

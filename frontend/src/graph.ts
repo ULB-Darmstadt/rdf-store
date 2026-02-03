@@ -196,8 +196,8 @@ export class RdfGraph extends LitElement {
             .force("collide", d3.forceCollide<Node>().radius(18).iterations(2))
             .force("x", d3.forceX())
             .force("y", d3.forceY())
-            .alpha(1)
-            .alphaMin(0.02)
+            .alpha(1.8)
+            .alphaMin(0.2)
             .alphaDecay(0.08) 
             .velocityDecay(0.6)
         
@@ -300,7 +300,7 @@ export class RdfGraph extends LitElement {
         })
 
         // pre-tick to advance simulation to stable state
-        for (let i = 0; i < 200; i++) {
+        for (let i = 0; i < 50; i++) {
             simulation.tick()
         }
         

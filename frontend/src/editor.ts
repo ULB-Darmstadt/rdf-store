@@ -1,38 +1,37 @@
 import { customElement, property, query, } from 'lit/decorators.js'
 import { LitElement, PropertyValues, css, html } from 'lit'
-import { ShaclForm, DataProvider } from '@ulb-darmstadt/shacl-form'
+import { ShaclForm, ResourceLinkProvider } from '@ulb-darmstadt/shacl-form'
 import '@ulb-darmstadt/shacl-form/plugins/leaflet.js'
 import { BACKEND_URL } from './constants'
 import { i18n } from './i18n'
 import { RokitSnackbar, RokitSnackbarEvent, showSnackbarMessage } from '@ro-kit/ui-widgets'
 import { globalStyles } from './styles'
 
-export const dataProvider: DataProvider = {
-    lazyLoad: true,
-    classInstances: async (classes) => {
-        if (classes.size > 0) {
-            const formData = new URLSearchParams()
-            for (const clazz of classes) {
-                formData.append('class', clazz)
-            }
-
-            const resp = await fetch(`${BACKEND_URL}/class-instances`, { method: "POST", body: formData })
+export const resourceLinkProvider: ResourceLinkProvider = {
+    lazyLoad: false,
+    listConformingResources: async (shapeIds: string[]) => {
+        const result: Record<string, string[]> =  {}
+        for (const shapeId of shapeIds) {
+            const resp = await fetch(`${BACKEND_URL}/conforming-resources?shape=${shapeId}`)
             if (resp.ok) {
-                return await resp.text()
+                result[shapeId] = await resp.json()
             } else {
-                console.error('failed loading class instances, status was', resp.status)
+                console.error('failed listing conforming resources, status was', resp.status)
             }
         }
-        return ''
+        return result
     },
-    shapeInstances: async (shape) => {
-        const resp = await fetch(`${BACKEND_URL}/shape-instances?shape=${shape}`)
-        if (resp.ok) {
-            return await resp.json()
-        } else {
-            console.error('failed loading shape instances, status was', resp.status)
+    loadResources: async (resourceIds: string[]) => {
+        const result: {resourceId: string, resourceRDF: string}[] = []
+        for (const resourceId of resourceIds) {
+            const resp = await fetch(`${BACKEND_URL}/resource/${encodeURIComponent(resourceId)}?includeLinked`)
+            if (resp.ok) {
+                result.push({ resourceId: resourceId, resourceRDF: await resp.text() })
+            } else {
+                console.error('failed loading resources, status was', resp.status)
+            }
         }
-        return ''
+        return result
     }
 }
 
@@ -63,7 +62,7 @@ export class Editor extends LitElement {
             setTimeout(() => this.shadowRoot?.querySelector<HTMLInputElement>('rokit-select')?.focus())
         }
         if (changedProperties.has('selectedShape') && this.selectedShape) {
-            this.form!.setDataProvider(dataProvider)
+            this.form!.setResourceLinkProvider(resourceLinkProvider)
         }
     }
 
@@ -120,7 +119,7 @@ export class Editor extends LitElement {
                     <span></span>
                     <rokit-button primary ?disabled="${this.saving}" class="${this.saving ? 'loading' : ''}" @click="${async () => {
                         if (this.form!.form.reportValidity()) {
-                            const report = await this.form!.validate() as any
+                            const report = await this.form!.validate()
                             if (report.conforms) {
                                 this.saveRDF(this.form!.serialize())
                             } else {

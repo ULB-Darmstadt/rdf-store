@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"rdf-store-backend/base"
 	"rdf-store-backend/shacl"
 	"slices"
 
@@ -19,27 +20,22 @@ var ErrResourceLinked = errors.New("resource is linked by other resources")
 // GetResource fetches an RDF resource graph with optional linked graph expansion.
 // It returns the resource bytes, metadata, and any error encountered.
 func GetResource(id string, includeLinked bool) (resource []byte, metadata *ResourceMetadata, err error) {
-	if includeLinked {
-		exists, err2 := checkGraphExists(ResourceDataset, id)
-		if err2 != nil {
-			return nil, nil, err2
-		}
-		if !exists {
-			err = fmt.Errorf("graph %s not found in dataset %s", id, ResourceDataset)
-			return nil, nil, err
-		}
-		var bindings []byte
-		if bindings, err = queryDataset(ResourceDataset, fmt.Sprintf(`SELECT ?s ?p ?o ?g WHERE { GRAPH <%s> { ?s (<>|!<>)* ?s . GRAPH ?g { ?s ?p ?o } } }`, id)); err != nil {
-			return
-		}
-		resource, err = sparqlResultToNQuads(bindings)
-	} else {
-		resource, err = loadGraph(ResourceDataset, id)
-	}
+	resource, err = loadGraph(ResourceDataset, id)
 	if err != nil {
 		return
 	}
 	metadata, err = loadResourceMetadata(id)
+	if err != nil {
+		return
+	}
+	if includeLinked {
+		graph, innerErr := base.ParseGraph(bytes.NewReader(resource))
+		if innerErr != nil {
+			err = innerErr
+			return
+		}
+		resource, _, err = resolveLinks(graph, resource, make([]string, 0))
+	}
 	return
 }
 
@@ -185,14 +181,14 @@ func GetClassInstances(classes []string) ([]byte, error) {
 	return sparqlResultToNQuads(bindings)
 }
 
-// GetShapeInstances retrieves all instances that conform to a given SHACL shape.
+// ListConformingResources retrieves all instances that conform to a given SHACL shape.
 // It returns the map mapping from instance ID to its N-Quads bytes and any error encountered.
-func GetShapeInstances(shape string) (map[string]string, error) {
+func ListConformingResources(shape string) ([]string, error) {
 	// prevent SPARQL injection
 	if !isValidIRI(shape) {
 		return nil, fmt.Errorf("invalid shape IRI: %v", shape)
 	}
-	bindings, err := queryDataset(resourceMetaDataset, fmt.Sprintf(`SELECT DISTINCT ?resource WHERE { GRAPH ?g { ?resource <%s> <%s> } }`, shacl.DCTERMS_CONFORMS_TO.RawValue(), shape))
+	bindings, err := queryDataset(resourceMetaDataset, fmt.Sprintf(`SELECT DISTINCT ?g WHERE { GRAPH ?g { ?g <%s> <%s> } }`, shacl.DCTERMS_CONFORMS_TO.RawValue(), shape))
 	if err != nil {
 		return nil, err
 	}
@@ -200,21 +196,13 @@ func GetShapeInstances(shape string) (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	result := make(map[string]string)
+	result := make([]string, 0)
 	for _, row := range res.Solutions() {
-		resource, ok := row["resource"].(rdf.Subject)
+		resource, ok := row["g"].(rdf.Subject)
 		if !ok {
 			return nil, fmt.Errorf("invalid binding: %v", row)
 		}
-		dataBindings, err := queryDataset(ResourceDataset, fmt.Sprintf(`SELECT ?s ?p ?o ?g WHERE { GRAPH ?g { VALUES ?s { <%s> } ?s ?p ?o } }`, resource.String()))
-		if err != nil {
-			return nil, err
-		}
-		rdf, err := sparqlResultToNQuads(dataBindings)
-		if err != nil {
-			return nil, err
-		}
-		result[resource.String()] = string(rdf)
+		result = append(result, resource.String())
 	}
 	return result, nil
 }
