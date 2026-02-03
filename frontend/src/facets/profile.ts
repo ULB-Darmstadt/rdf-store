@@ -60,12 +60,11 @@ export class ProfileFacet extends Facet {
 
     applyAggregationQuery(facets: Record<string, QueryFacet>) {
         facets['shape'] = { field: 'shape', type: 'terms', limit: -1 }
-        facets['ref_shapes'] = { field: 'ref_shapes', type: 'terms', limit: -1 }
     }
 
     applyFilterQuery(filter: string[]) {
         const val = this.selectedValue.replace(/:/, '\\:')
-        filter.push(`+(shape:${val} OR ref_shapes:${val})`)
+        filter.push(`+shape:${val}`)
     }
 
     render() {

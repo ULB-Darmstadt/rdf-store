@@ -24,11 +24,15 @@ export const resourceLinkProvider: ResourceLinkProvider = {
     loadResources: async (resourceIds: string[]) => {
         const result: {resourceId: string, resourceRDF: string}[] = []
         for (const resourceId of resourceIds) {
-            const resp = await fetch(`${BACKEND_URL}/resource/${encodeURIComponent(resourceId)}?includeLinked`)
-            if (resp.ok) {
-                result.push({ resourceId: resourceId, resourceRDF: await resp.text() })
-            } else {
-                console.error('failed loading resources, status was', resp.status)
+            try {
+                const resp = await fetch(`${BACKEND_URL}/resource/${encodeURIComponent(resourceId)}?includeLinked`)
+                if (resp.ok) {
+                    result.push({ resourceId: resourceId, resourceRDF: await resp.text() })
+                } else {
+                    console.error('failed loading resource', resourceId, 'status was', resp.status)
+                }
+            } catch(e) {
+                console.error(e)
             }
         }
         return result

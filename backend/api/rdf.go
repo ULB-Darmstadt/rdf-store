@@ -85,7 +85,11 @@ func handleGetResource(c *gin.Context) {
 	resource, metadata, err := rdf.GetResource(did, includeLinked)
 	if err != nil {
 		slog.Error("failed loading resource", "id", did, "error", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		if errors.Is(err, rdf.ErrNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		}
 		return
 	}
 	if metadata != nil && metadata.Creator != "" {

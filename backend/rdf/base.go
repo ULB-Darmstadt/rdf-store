@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"log/slog"
@@ -27,6 +28,7 @@ var ResourceDataset = base.EnvVar("FUSEKI_RESOURCE_DATASET", "resource")
 var resourceMetaDataset = base.EnvVar("FUSEKI_RESOURCE_META_DATASET", "resourcemeta")
 var profileDataset = base.EnvVar("FUSEKI_PROFILE_DATASET", "profile")
 var labelDataset = base.EnvVar("FUSEKI_LABEL_DATASET", "label")
+var ErrNotFound = errors.New("not found")
 
 // init prepares datasets and imports local resources and labels.
 func init() {
@@ -117,8 +119,8 @@ func loadGraph(dataset string, id string) (data []byte, err error) {
 		return nil, err
 	}
 	if !exists {
-		err = fmt.Errorf("graph %s not found in dataset %s", id, dataset)
-		return nil, err
+		slog.Info("graph not found", "id", id, "dataset", dataset)
+		return nil, ErrNotFound
 	}
 	return queryDataset(dataset, fmt.Sprintf(`CONSTRUCT { ?s ?p ?o } WHERE { GRAPH <%s> { ?s ?p ?o } }`, id))
 }

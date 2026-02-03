@@ -92,7 +92,8 @@ export async function search(index: string, params?: SearchOptions): Promise<Sea
         limit: params?.limit !== undefined ? params.limit : 10,
         offset: params?.offset || 0,
         sort: params?.sort ?  `${params.sort}` : '',
-        fields: ['*', '_nest_parent_'],
+        fields: ['*'],
+        query: '*'
     }
     if (params?.facets) {
         query.facet = {}
@@ -105,7 +106,6 @@ export async function search(index: string, params?: SearchOptions): Promise<Sea
                 }
             }
         }
-        query.query = `{!child of='docType:container'}`
     }
     if (params?.creator) {
         query.filter = query.filter || []

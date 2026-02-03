@@ -21,10 +21,6 @@ var client = solr.NewJSONClient(Endpoint)
 
 type document map[string]any
 
-func (d *document) appendChild(child *document) {
-	d.appendValue("_children_", child)
-}
-
 // appendValue appends values to a multi-value Solr field.
 func (d *document) appendValue(field string, value any) {
 	if value == nil {
@@ -42,20 +38,8 @@ func (d *document) appendValue(field string, value any) {
 	} else {
 		existing = append(existing, value)
 	}
+	fmt.Println("appended value", field, existing)
 	(*d)[field] = existing
-}
-
-func (d *document) mainShape() string {
-	if shapes, ok := (*d)["shape"].([]any); ok && len(shapes) > 0 {
-		if id, ok := shapes[0].(string); ok {
-			return id
-		}
-	}
-	return ""
-}
-
-func (d *document) shapes() any {
-	return (*d)["shape"]
 }
 
 // checkCollectionExists determines whether the Solr collection is reachable and present.
@@ -157,10 +141,10 @@ func updateDoc(doc *document) error {
 	return nil
 }
 
-// deleteDocs deletes all documents beneath a root container id.
+// deleteDoc deletes all documents beneath a root container id.
 // It returns an error if the delete or commit fails.
-func deleteDocs(root string) error {
-	data, err := json.Marshal(map[string]any{"delete": map[string]any{"query": "_root_:\"container_" + root + "\""}})
+func deleteDoc(id string) error {
+	data, err := json.Marshal(map[string]any{"delete": map[string]any{"id": id}})
 	if err != nil {
 		return err
 	}

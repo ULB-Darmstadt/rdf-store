@@ -89,32 +89,24 @@ func IndexResource(resource *rdf2go.Graph, metadata *rdf.ResourceMetadata) error
 
 	slog.Debug("indexing", "resource", metadata.Id.RawValue(), "creator", metadata.Creator)
 
-	containerDocument := &document{
-		"id":           "container_" + metadata.Id.RawValue(),
-		"creator":      metadata.Creator,
-		"lastModified": metadata.LastModified,
-		"docType":      "container",
-	}
-	mainDocument := &document{
+	doc := &document{
 		"id":           metadata.Id.RawValue(),
 		"creator":      metadata.Creator,
 		"lastModified": metadata.LastModified,
 		"label":        findLabels(metadata.Id, resource),
-		"docType":      "main",
 	}
-	containerDocument.appendChild(mainDocument)
-	buildDoc(metadata.Id, profile, false, resource, metadata, mainDocument, mainDocument)
-	return updateDoc(containerDocument)
+	buildDoc(metadata.Id, profile, profile.Id.RawValue(), resource, metadata, doc)
+	return updateDoc(doc)
 }
 
 // DeindexResource removes documents associated with a resource ID.
 // It returns an error if the deletion request fails.
 func DeindexResource(id string) error {
-	return deleteDocs(id)
+	return deleteDoc(id)
 }
 
 // buildDoc recursively constructs Solr documents from RDF graph data.
-func buildDoc(subject rdf2go.Term, profile *shacl.NodeShape, isProperty bool, resource *rdf2go.Graph, metadata *rdf.ResourceMetadata, current *document, parent *document) {
+func buildDoc(subject rdf2go.Term, profile *shacl.NodeShape, profileId string, resource *rdf2go.Graph, metadata *rdf.ResourceMetadata, current *document) {
 	slog.Debug("build doc", "subject", subject.RawValue(), "profile", profile.Id.RawValue(), "current", (*current)["id"])
 	// append shape conformance
 	current.appendValue("shape", profile.Id.RawValue())
@@ -125,7 +117,7 @@ func buildDoc(subject rdf2go.Term, profile *shacl.NodeShape, isProperty bool, re
 			slog.Warn("profile not found", "id", parentId)
 			return
 		}
-		buildDoc(subject, profile, isProperty, resource, metadata, current, parent)
+		buildDoc(subject, profile, profile.Id.RawValue(), resource, metadata, current)
 	}
 
 	// append property values to document
@@ -135,13 +127,8 @@ func buildDoc(subject rdf2go.Term, profile *shacl.NodeShape, isProperty bool, re
 			ft := fieldType(property)
 			for _, value := range resource.All(subject, pathTerm, nil) {
 				if property.QualifiedValueShapeDenormalized != nil && conforms(value.Object.RawValue(), property.QualifiedValueShape, metadata) {
-					childDocument := &document{
-						"id":         value.Object.RawValue(),
-						"label":      findLabels(value.Object, resource),
-						"ref_shapes": parent.shapes(),
-					}
-					current.appendChild(childDocument)
-					buildDoc(value.Object, property.QualifiedValueShapeDenormalized, true, resource, metadata, childDocument, childDocument)
+					current.appendValue("_text_", findLabels(value.Object, resource))
+					buildDoc(value.Object, property.QualifiedValueShapeDenormalized, property.QualifiedValueShapeDenormalized.Id.RawValue(), resource, metadata, current)
 				} else if len(property.NodeShapes) > 0 {
 					for shape := range property.NodeShapes {
 						if conforms(value.Object.RawValue(), shape, metadata) {
@@ -149,26 +136,21 @@ func buildDoc(subject rdf2go.Term, profile *shacl.NodeShape, isProperty bool, re
 							if !ok {
 								slog.Error("profile not found", "id", shape)
 							} else {
-								childDocument := &document{
-									"id":         value.Object.RawValue(),
-									"label":      findLabels(value.Object, resource),
-									"ref_shapes": parent.shapes(),
-								}
-								current.appendChild(childDocument)
-								buildDoc(value.Object, profile, true, resource, metadata, childDocument, childDocument)
+								current.appendValue("_text_", findLabels(value.Object, resource))
+								buildDoc(value.Object, profile, shape, resource, metadata, current)
 							}
 						}
 					}
 				} else {
-					var val string
-					if literial, ok := value.Object.(*rdf2go.Literal); ok {
-						val = literial.RawValue()
-					} else {
-						val = value.Object.String()
-					}
 					if ft == "t" {
-						current.appendValue("_text_", val)
+						current.appendValue("_text_", value.Object.RawValue())
 					} else {
+						var val string
+						if literial, ok := value.Object.(*rdf2go.Literal); ok {
+							val = literial.RawValue()
+						} else {
+							val = value.Object.String()
+						}
 						if ft == "dts" {
 							// convert date to solr format
 							if len(val) == 10 {
@@ -177,13 +159,7 @@ func buildDoc(subject rdf2go.Term, profile *shacl.NodeShape, isProperty bool, re
 								val = val + "Z"
 							}
 						}
-						var targetProfile string
-						if isProperty {
-							targetProfile = parent.mainShape()
-						} else {
-							targetProfile = profile.Id.RawValue()
-						}
-						current.appendValue(fieldName(targetProfile, property.Id.RawValue(), ft), val)
+						current.appendValue(fieldName(profileId, property.Id.RawValue(), ft), val)
 					}
 				}
 			}
