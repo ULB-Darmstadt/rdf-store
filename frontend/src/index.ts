@@ -89,7 +89,7 @@ export class App extends LitElement {
             if (typeof subject === 'string') {
                 path += subject.replace(this.config?.rdfNamespace ?? '', '')
             } else {
-                path += subject._root_.replace('container_', '').replace(this.config?.rdfNamespace ?? '', '')
+                path += subject._root_.replace(this.config?.rdfNamespace ?? '', '')
                 this.viewHiglightSubject = subject.id
             }
         }
