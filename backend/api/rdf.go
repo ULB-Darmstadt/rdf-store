@@ -116,7 +116,11 @@ func handleAddResource(c *gin.Context) {
 	resource, metadata, err := rdf.CreateResource(data, user)
 	if err != nil {
 		slog.Error("failed creating resource", "error", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		if errors.Is(err, rdf.ErrNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		}
 		return
 	}
 	if err = search.IndexResource(resource, metadata); err != nil {
@@ -154,7 +158,11 @@ func handleUpdateResource(c *gin.Context) {
 	resource, metadata, err := rdf.UpdateResource(did, data, user)
 	if err != nil {
 		slog.Error("failed updating resource", "id", did, "error", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		if errors.Is(err, rdf.ErrNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		}
 		return
 	}
 	if err = search.IndexResource(resource, metadata); err != nil {

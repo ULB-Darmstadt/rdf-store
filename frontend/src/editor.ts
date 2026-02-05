@@ -1,9 +1,9 @@
-import { customElement, property, query, } from 'lit/decorators.js'
+import { customElement, property, query, state } from 'lit/decorators.js'
 import { LitElement, PropertyValues, css, html } from 'lit'
 import { ShaclForm, ResourceLinkProvider } from '@ulb-darmstadt/shacl-form'
 import '@ulb-darmstadt/shacl-form/plugins/leaflet.js'
 import { BACKEND_URL } from './constants'
-import { i18n } from './i18n'
+import { fetchLabels, i18n } from './i18n'
 import { RokitSnackbar, RokitSnackbarEvent, showSnackbarMessage } from '@ro-kit/ui-widgets'
 import { globalStyles } from './styles'
 
@@ -58,6 +58,8 @@ export class Editor extends LitElement {
     open = false
     @property()
     saving = false
+    @state()
+    loading = false
     @query('shacl-form')
     form?: ShaclForm
 
@@ -67,6 +69,15 @@ export class Editor extends LitElement {
         }
         if (changedProperties.has('selectedShape') && this.selectedShape) {
             this.form!.setResourceLinkProvider(resourceLinkProvider)
+        }
+        if (changedProperties.has('profiles')) {
+            this.loading = true
+            ;(async() => {
+                if (this.profiles) {
+                    await fetchLabels(this.profiles, true)
+                }
+                this.loading = false
+            })()
         }
     }
 
@@ -136,9 +147,9 @@ export class Editor extends LitElement {
                 </div>
                 <rokit-snackbar></rokit-snackbar>
             ` : html`
-                <rokit-select label="${i18n['selectprofile']}" sort tabindex="-1" fixedOpen @change="${(ev: Event) => this.selectedShape = (ev.target as HTMLSelectElement).value }">
+                <rokit-select label="${i18n['selectprofile']}" class="${this.loading ? 'loading' : ''}" sort tabindex="-1" fixedOpen @change="${(ev: Event) => this.selectedShape = (ev.target as HTMLSelectElement).value }">
                     <ul>
-                        ${this.profiles?.map((id) => html`<li data-value="${id}">${i18n[id] || id}</li>`)}
+                        ${this.loading ? '' : this.profiles?.map((id) => html`<li data-value="${id}">${i18n[id] || id}</li>`)}
                     </ul>
                 </rokit-select>
             `}
