@@ -69,7 +69,7 @@ export class ProfileFacet extends Facet {
 
     render() {
         return html`
-            <rokit-select id="select" dense value="${this.selectedValue}" title="${this.title}" label="${this.label}" @change="${() => this.onChange()}" clearable>
+            <rokit-select id="select" value="${this.selectedValue}" title="${this.title}" label="${this.label}" @change="${() => this.onChange()}" clearable>
                 <span class="material-icons icon" slot="prefix">list</span>
                 <ul>
                 ${this.values.map((v) => html`
