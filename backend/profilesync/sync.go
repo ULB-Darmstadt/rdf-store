@@ -32,10 +32,10 @@ var lock sync.Mutex
 func Synchronize() {
 	if lock.TryLock() {
 		defer lock.Unlock()
-		changedOrDeletedProfiles, err := synchronizeProfiles()
+		profilesAdded, changedOrDeletedProfiles, err := synchronizeProfiles()
 		if err != nil {
 			slog.Error("failed syncing profiles", "error", err)
-		} else if len(changedOrDeletedProfiles) > 0 {
+		} else if len(changedOrDeletedProfiles) > 0 || profilesAdded {
 			_, err := rdf.ParseAllProfiles()
 			if err != nil {
 				slog.Error("failed parsing profiles", "error", err)
@@ -67,12 +67,40 @@ func Synchronize() {
 
 // synchronizeProfiles fetches profiles from sources and updates datasets.
 // It returns IDs of changed or deleted profiles along with any error encountered.
-func synchronizeProfiles() (changedOrDeletedProfiles []string, err error) {
+func synchronizeProfiles() (profilesAdded bool, changedOrDeletedProfiles []string, err error) {
 	slog.Info("syncing profiles...")
 	start := time.Now()
 
-	var profiles []MPSSearchResultItem
-	profileIds := make(map[string]bool)
+	profiles := make(map[string]MPSSearchResultItem)
+
+	// load profiles locally
+	if base.LocalProfilesEnabled {
+		localProfileDir := path.Join("local", "profiles")
+		if files, err := os.ReadDir(localProfileDir); err == nil {
+			for _, file := range files {
+				if !file.IsDir() && strings.HasSuffix(file.Name(), ".ttl") {
+					slog.Debug("loading local profile", "file", file.Name())
+					if fileContent, err := os.ReadFile(path.Join(localProfileDir, file.Name())); err == nil {
+						turtle := string(fileContent)
+						base := ""
+						if match := findBaseRegex.FindAllStringSubmatch(turtle, 1); len(match) > 0 {
+							base = match[0][1]
+						}
+						if len(base) == 0 {
+							slog.Warn("rejecting local profile because it hase no @base definition", "file", file.Name())
+						} else {
+							profiles[base] = MPSSearchResultItem{
+								BaseUrl:    base,
+								Definition: turtle,
+							}
+						}
+					}
+				}
+			}
+		} else {
+			slog.Error("couldn't read local profiles", "error", err)
+		}
+	}
 
 	// load profiles from NFDI4Ing metadata profile service
 	if base.MPSEnabled {
@@ -100,36 +128,15 @@ func synchronizeProfiles() (changedOrDeletedProfiles []string, err error) {
 		if err != nil {
 			return
 		}
-		if err = json.Unmarshal(data, &profiles); err != nil {
+		var mpsProfiles []MPSSearchResultItem
+		if err = json.Unmarshal(data, &mpsProfiles); err != nil {
 			return
 		}
-	}
-	// load profiles locally
-	if base.LocalProfilesEnabled {
-		localProfileDir := path.Join("local", "profiles")
-		if files, err := os.ReadDir(localProfileDir); err == nil {
-			for _, file := range files {
-				if !file.IsDir() && strings.HasSuffix(file.Name(), ".ttl") {
-					slog.Debug("loading local profile", "file", file.Name())
-					if fileContent, err := os.ReadFile(path.Join(localProfileDir, file.Name())); err == nil {
-						turtle := string(fileContent)
-						base := ""
-						if match := findBaseRegex.FindAllStringSubmatch(turtle, 1); len(match) > 0 {
-							base = match[0][1]
-						}
-						if len(base) == 0 {
-							slog.Warn("rejecting local profile because it hase no @base definition", "file", file.Name())
-						} else {
-							profiles = append(profiles, MPSSearchResultItem{
-								BaseUrl:    base,
-								Definition: turtle,
-							})
-						}
-					}
-				}
+		for _, mpsProfile := range mpsProfiles {
+			// check if profile with same id is already loaded locally. if so, priorize local profile
+			if _, ok := profiles[mpsProfile.BaseUrl]; !ok {
+				profiles[mpsProfile.BaseUrl] = mpsProfile
 			}
-		} else {
-			slog.Error("couldn't read local profiles", "error", err)
 		}
 	}
 
@@ -139,7 +146,6 @@ func synchronizeProfiles() (changedOrDeletedProfiles []string, err error) {
 
 	// first pass: store changed or new profiles
 	for _, profile := range profiles {
-		profileIds[profile.BaseUrl] = true
 		// check if profile changed or is new
 		profileData := []byte(profile.Definition)
 		profileData = base.FixBooleansInRDF(profileData)
@@ -152,14 +158,14 @@ func synchronizeProfiles() (changedOrDeletedProfiles []string, err error) {
 				// no hash -> new profile, so store it
 				graph, err := rdf.UpdateProfile(profile.BaseUrl, profileData)
 				if err != nil {
-					return nil, err
+					return false, nil, err
 				}
 				newProfiles[profile.BaseUrl] = graph
 			} else if inputHash != *existingHash {
 				// hash changed -> profile changed, so update it
 				graph, err := rdf.UpdateProfile(profile.BaseUrl, profileData)
 				if err != nil {
-					return nil, err
+					return false, nil, err
 				}
 				changedProfiles[profile.BaseUrl] = graph
 			}
@@ -172,7 +178,7 @@ func synchronizeProfiles() (changedOrDeletedProfiles []string, err error) {
 		slog.Error("failed loading profile IDs", "error", err)
 	} else {
 		for _, existingProfileId := range existingProfileIds {
-			if _, ok := profileIds[existingProfileId]; !ok {
+			if _, ok := profiles[existingProfileId]; !ok {
 				slog.Info("deleting existing profile", "id", existingProfileId)
 				if err := rdf.DeleteProfile(existingProfileId); err != nil {
 					slog.Error("failed deleting existing profile", "id", existingProfileId, "error", err)
@@ -185,10 +191,13 @@ func synchronizeProfiles() (changedOrDeletedProfiles []string, err error) {
 
 	// third pass: extract labels from owl:imports of changed or new profiles
 	for _, graph := range changedProfiles {
-		extractLabelsFromOwlImports(graph, profileIds)
+		extractLabelsFromOwlImports(graph, profiles)
 	}
-	for _, graph := range newProfiles {
-		extractLabelsFromOwlImports(graph, profileIds)
+	if len(newProfiles) > 0 {
+		profilesAdded = true
+		for _, graph := range newProfiles {
+			extractLabelsFromOwlImports(graph, profiles)
+		}
 	}
 	changedOrDeletedProfiles = make([]string, 0)
 	for id := range changedProfiles {
@@ -203,7 +212,7 @@ func synchronizeProfiles() (changedOrDeletedProfiles []string, err error) {
 }
 
 // extractLabelsFromOwlImports recursively imports labels from owl:imports.
-func extractLabelsFromOwlImports(graph *rdf2go.Graph, profileIds map[string]bool) {
+func extractLabelsFromOwlImports(graph *rdf2go.Graph, profileIds map[string]MPSSearchResultItem) {
 	for _, importsStatement := range graph.All(nil, shacl.OWL_IMPORTS, nil) {
 		url := importsStatement.Object.RawValue()
 		// ignore owl:imports that reference profiles
