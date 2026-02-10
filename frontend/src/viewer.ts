@@ -76,13 +76,13 @@ export class Viewer extends LitElement {
                     const creator = resp.headers.get('X-Creator')
                     this.editable = (!this.config?.authEnabled || (this.config?.authUser && this.config?.authUser === creator)) ? true : false
                 } else {
-                    throw new Error(i18n['noresults'])
+                    throw new Error(`${i18n['noresults']}, ${resp.statusText}`)
                 }
                 resp = await fetch(`${BACKEND_URL}/resource/${encodeURIComponent(subject)}?includeLinked`)
                 if (resp.ok) {
                     this.rdfWithLinked = await resp.text()
                 } else {
-                    throw new Error(i18n['noresults'])
+                    throw new Error(`${i18n['noresults']}, ${resp.statusText}`)
                 }
             } catch(e) {
                 showSnackbarMessage({message: '' + e, ttl: 0, cssClass: 'error' })

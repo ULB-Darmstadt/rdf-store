@@ -161,7 +161,7 @@ func buildResourceMetadata(id rdf2go.Term, resource []byte, creator string, last
 
 	// resolve linked resources since they are needed for validation
 	var linkedResources []string
-	resource, linkedResources, err = resolveLinks(graph, resource, linkedResources)
+	resource, linkedResources, err = resolveLinks(graph, resource)
 	conformance, err := shacl.Validate(string(*shapesGraph.RDF), profile.Id.RawValue(), string(resource), validID.RawValue())
 	if err != nil {
 		return

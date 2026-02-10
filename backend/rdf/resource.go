@@ -34,7 +34,7 @@ func GetResource(id string, includeLinked bool) (resource []byte, metadata *Reso
 			err = innerErr
 			return
 		}
-		resource, _, err = resolveLinks(graph, resource, make([]string, 0))
+		resource, _, err = resolveLinks(graph, resource)
 	}
 	return
 }
