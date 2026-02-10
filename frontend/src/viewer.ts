@@ -16,7 +16,7 @@ export class Viewer extends LitElement {
         :host { --background-color: #F5F5F5; position: relative; background-color: var(--background-color); display: flex; flex-direction: column; }
         .main { display: flex; flex-direction: column; flex-grow: 1; padding: 5px; }
         .header { display: flex; gap: 5px; align-items: center; border-bottom: 2px solid #CCC; padding: 2px 5px 2px 5px; background-color: #EEE; }
-        shacl-form, rdf-graph { flex-grow: 1; }
+        shacl-form, rdf-graph { flex-grow: 1; --shacl-bg: transparent; }
         .placeholder { display: flex; justify-content: center; align-items: center; flex-grow: 1; color: #888; }
         .arrow-left:before { content: '\\21E6'; font-size: 28px; padding-right: 10px; }
         .header rokit-button[text] { margin-bottom: -4px; border-bottom: 2px solid transparent; }

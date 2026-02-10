@@ -44,7 +44,7 @@ export class Editor extends LitElement {
     static styles = [globalStyles, css`
         rokit-dialog::part(dialog) { min-height: min(434px, 90vh); width: min(90vw, 600px); }
         .main { display: flex; flex-direction: column; flex-grow: 1; }
-        .main shacl-form { flex-grow: 1; }
+        .main shacl-form { flex-grow: 1; --shacl-bg: transparent; }
         .buttons { display: flex; gap:16px; justify-content: space-between; padding-top: 16px; align-items: center; }
         #delete-button { --rokit-light-background-color: #FEE; color: #F00; }
     `]
