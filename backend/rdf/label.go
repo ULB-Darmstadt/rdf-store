@@ -24,6 +24,8 @@ var LabelPredicates = map[string]bool{
 	shacl.RDFS_LABEL.RawValue():      true,
 	shacl.DCTERMS_TITLE.RawValue():   true,
 	shacl.FOAF_NAME.RawValue():       true,
+	shacl.FOAF_LAST_NAME.RawValue():  true,
+	shacl.FOAF_FIRST_NAME.RawValue(): true,
 }
 var labelTargetPredicate = shacl.RDFS_LABEL.String()
 var labelsQuery = `
