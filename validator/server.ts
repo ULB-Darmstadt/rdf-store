@@ -39,7 +39,7 @@ server.on('request', (req, res) => {
                 res.end(response)
                 console.log('validated', form.dataID, 'against', form.shapeID, ':', conforms)
             } catch(e) {
-                console.error('error validating', form)
+                console.error('error validating', form, e)
                 res.writeHead(500)
                 res.end(`{ "error": ${JSON.stringify(e)} }`)
             }

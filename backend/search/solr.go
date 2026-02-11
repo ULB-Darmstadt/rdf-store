@@ -38,7 +38,7 @@ func (d *document) appendValue(field string, value any) {
 	} else {
 		existing = append(existing, value)
 	}
-	fmt.Println("appended value", field, existing)
+	// fmt.Println("appended value", field, existing)
 	(*d)[field] = existing
 }
 

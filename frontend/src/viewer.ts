@@ -108,6 +108,7 @@ export class Viewer extends LitElement {
         if (form.form.reportValidity()) {
             const report = await form.validate() as any
             const ttl = form.serialize()
+            console.log(ttl)
             if (report.conforms) {
                 this.saving = true
                 const formData = new URLSearchParams()

@@ -28,14 +28,14 @@ export async function validate(shapesGraph: string, rootShaclShapeID: string, da
         cache = {}
         prefixes = {}
     }
-
+console.log('--- data', dataGraph)
     const dataset = new Store()
     const importedUrls: string[] = []
 
     await importRDF(parseRDF(shapesGraph), shapesGraphName, dataset, importedUrls)
     await importRDF(parseRDF(dataGraph), dataGraphName, dataset, importedUrls)
 
-    const validator = new Validator(dataset, { factory: DataFactory, details: true, debug: true })
+    const validator = new Validator(dataset, { factory: DataFactory, details: false, debug: false })
     const lists = dataset.extractLists()
     const subjectToShapeConformance: Record<string, string> = {} // RDF subjects conforming to SHACL shape IDs
     await validateShape(DataFactory.namedNode(resourceID), DataFactory.namedNode(rootShaclShapeID), subjectToShapeConformance, dataset, validator, lists)
@@ -86,6 +86,42 @@ async function registerConformance(resourceID: Term, shapeID: Term, subjectToSha
         subjectToShapeConformance[resourceID.value] = shapeID.value
         return true
     }
+    const seen = new WeakSet<object>()
+    const printReport = (value: unknown, key = 'report', depth = 0) => {
+        if (depth > 8) return
+        const indent = '  '.repeat(depth)
+        if (value === null) {
+            console.error(`${indent}${key}: null`)
+            return
+        }
+        const valueType = typeof value
+        if (valueType !== 'object') {
+            if (value && valueType !== 'function') {
+                console.error(`${indent}${key}: ${String(value)}`)
+            }
+            return
+        }
+        const objectValue = value as object
+        if (seen.has(objectValue)) {
+            console.error(`${indent}${key}: [Circular]`)
+            return
+        }
+        seen.add(objectValue)
+        if (Array.isArray(value)) {
+            console.error(`${indent}${key}: [Array(${value.length})]`)
+            for (let i = 0; i < value.length; i++) {
+                printReport(value[i], `[${i}]`, depth + 1)
+            }
+            return
+        }
+        if (value) {
+            console.error(`${indent}${key}:`)
+        }
+        for (const [childKey, childValue] of Object.entries(value as Record<string, unknown>)) {
+            printReport(childValue, childKey, depth + 1)
+        }
+    }
+    // printReport(report.results)
     return false
 }
 
