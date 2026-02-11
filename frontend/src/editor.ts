@@ -135,11 +135,11 @@ export class Editor extends LitElement {
                     <rokit-button primary ?disabled="${this.saving}" class="${this.saving ? 'loading' : ''}" @click="${async () => {
                         if (this.form!.form.reportValidity()) {
                             const report = await this.form!.validate()
-                            console.log(this.form!.serialize())
                             if (report.conforms) {
                                 this.saveRDF(this.form!.serialize())
                             } else {
                                 this.form!.form.querySelector('.invalid')?.scrollIntoView()
+                                console.log(this.form!.serialize())
                                 console.warn(report)
                             }
                         }

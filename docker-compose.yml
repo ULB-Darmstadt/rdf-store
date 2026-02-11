@@ -2,8 +2,8 @@ services:
   fuseki:
     image: stain/jena-fuseki:5.1.0
     restart: unless-stopped
-    ports:
-      - 127.0.0.1:3030:3030
+    # ports:
+    #   - 127.0.0.1:3030:3030
     volumes:
       - fusekidata:/fuseki
     environment:
@@ -23,8 +23,8 @@ services:
       - bash
       - "-c"
       - "solr -c -f -q"
-    ports:
-      - 127.0.0.1:8983:8983
+    # ports:
+    #   - 127.0.0.1:8983:8983
     volumes:
       - solrdata:/var/solr
     healthcheck:
