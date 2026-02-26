@@ -132,7 +132,8 @@ export class App extends LitElement {
     }
 
     filterChanged(fromPager = false) {
-        this.querySelector('#main')?.classList.add('loading')
+        console.log(this.shadowRoot?.querySelector('#main'))
+        this.shadowRoot?.querySelector('#main')?.classList.add('loading')
         clearTimeout(this.debounceTimeout)
         this.debounceTimeout = setTimeout(async() => {
             try {
@@ -160,7 +161,7 @@ export class App extends LitElement {
                 console.error(e)
                 showSnackbarMessage({ message: '' + e, ttl: 0, cssClass: 'error'})
             } finally {
-                this.querySelector('#main')?.classList.remove('loading')
+                this.shadowRoot?.querySelector('#main')?.classList.remove('loading')
             }
         }, 20)
     }

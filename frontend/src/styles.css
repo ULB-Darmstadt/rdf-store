@@ -1,7 +1,7 @@
 :host { font-family: "Roboto"; display: flex; flex-direction: column; flex-grow: 1; --secondary-color: #FF7A04; }
 layout-header {
   border-bottom: 2px solid #DDD;
-  #header-buttons { display: flex; gap: 10px; flex-direction: column; align-items: flex-end; }
+  #header-buttons { display: flex; gap: 4px; flex-direction: column; align-items: flex-end; }
   #sign-out { color:#AAA; text-decoration: none; }
   #sign-out:hover { color: inherit; }
 }
