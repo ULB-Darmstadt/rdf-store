@@ -120,7 +120,7 @@ func ExtractLabels(id string, graph *rdf2go.Graph, convertShaclProperties bool) 
 						if len(lang) == 0 {
 							lang = "en"
 						}
-						if graph.One(triple.Subject, shacl.SHACL_QUALIFIED_VALUE_SHAPE, nil) != nil || graph.One(triple.Subject, shacl.SHACL_NODE, nil) != nil {
+						if prefixQualifiedPropertyLabels && graph.One(triple.Subject, shacl.SHACL_QUALIFIED_VALUE_SHAPE, nil) != nil || graph.One(triple.Subject, shacl.SHACL_NODE, nil) != nil {
 							if profileLabel, ok := profileLables[lang]; ok {
 								prefixedLabel = profileLabel + " > " + prefixedLabel
 							}

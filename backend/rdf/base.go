@@ -29,6 +29,7 @@ var resourceMetaDataset = base.EnvVar("FUSEKI_RESOURCE_META_DATASET", "resourcem
 var profileDataset = base.EnvVar("FUSEKI_PROFILE_DATASET", "profile")
 var labelDataset = base.EnvVar("FUSEKI_LABEL_DATASET", "label")
 var ErrNotFound = errors.New("not found")
+var prefixQualifiedPropertyLabels = base.EnvVarAsBool("PREFIX_QUALIFIED_PROPERTY_LABELS", false)
 
 // init prepares datasets and imports local resources and labels.
 func init() {
