@@ -1,4 +1,4 @@
-FROM solr:latest
+FROM solr:10
 
 ENV JTS_VERSION=1.20.0
 USER root

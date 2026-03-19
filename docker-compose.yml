@@ -22,7 +22,7 @@ services:
     command:
       - bash
       - "-c"
-      - "solr -c -f -q"
+      - "solr start -f -q"
     # ports:
     #   - 127.0.0.1:8983:8983
     volumes:
