@@ -43,31 +43,39 @@ export class Footer extends LitElement {
     .logos {
         display: flex;
         justify-content: space-between;
-        align-items: center;
         padding: 10px;
         gap: 10px;
 
         img { height: 60px; }
-        span { font-size: 12px; color: #0009; }
+        span, a { font-size: 12px; color: #0009; }
     }
-    .right { text-align: right; }
     a { color: inherit; }
+    .d-flex { display: flex; }
     .legal-info { display: flex; background-color: #F5F5F5; padding: 3px 5px; font-size: 0.8em; }
     .spacer { flex-grow: 1; }
+    @media (max-width: 767px) {
+        .logos { flex-direction: column; }
+    }
+    @media (min-width: 768px) {
+        .logos { align-items: flex-end; }
+        .logos > :last-child { display: flex; flex-direction: column; justify-content: flex-end; }
+    }
     `
 
     render() {
         return html`
         <div class="logos">
             <div>
-                <div>
+                <div class="d-flex">
                     <a href="https://www.ulb.tu-darmstadt.de"><img src="${new URL('../_shared/ULB_RGB-B9igTOm_.jpg', import.meta.url).href}" alt="ULB logo"></a>
                     <a href="https://www.tu-darmstadt.de"><img src="${new URL('../_shared/tud_logo-DY5K59Zv.png', import.meta.url).href}" alt="TUD logo"></a>
                 </div>
                 <span>${i18n['service_provided_by']}</span>
             </div>
+            <div><a href="https://www.ulb.tu-darmstadt.de/impressum.de.jsp">${i18n['imprint']}</a></div>
+            <div><a href="https://www.tu-darmstadt.de/datenschutzerklaerung.de.jsp">${i18n['privacy']}</a></div>
             <div>
-                <div class="right">
+                <div class="d-flex">
                     <a href="https://www.nfdi4ing.de"><img class="mt-1" src="${new URL('../_shared/NFDI4ING_Wort-Bildmarke_POS_RGB-BflV2Uxx.svg', import.meta.url).href}" alt="NFDI4ING logo"></a>
                     <a href="https://www.dfg.de"><img src="${new URL('../_shared/dfg_logo_schriftzug_blau_foerderung_4c-DXLBvhFM.jpg', import.meta.url).href}" alt="DFG logo"></a>
                 </div>

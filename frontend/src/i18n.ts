@@ -41,6 +41,8 @@ const appLabels: Record<string, Literal[]> = {
     'detail_view' : [ DataFactory.literal('Detail view', 'en'), DataFactory.literal('Detailanzeige', 'de') ],
     'last_modified' : [ DataFactory.literal('Last modified', 'en'), DataFactory.literal('Zuletzt geändert', 'de') ],
     'api_documentation' : [ DataFactory.literal('API documentation', 'en'), DataFactory.literal('API Dokumentation', 'de') ],
+    'imprint' : [ DataFactory.literal('Imprint', 'en'), DataFactory.literal('Impressum', 'de') ],
+    'privacy' : [ DataFactory.literal('Privacy Statement', 'en'), DataFactory.literal('Datenschutzerklärung', 'de') ],
 }
 
 export function registerLabel(key: string, literals: Literal[]) {
