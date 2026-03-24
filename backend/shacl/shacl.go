@@ -14,6 +14,7 @@ type NodeShape struct {
 	Properties map[string][]*Property // path -> property
 	RDF        *[]byte
 	Graph      *rdf2go.Graph
+	Class      bool
 }
 
 // Parse loads a NodeShape from RDF data into the NodeShape struct.
@@ -45,6 +46,8 @@ func (node *NodeShape) Parse(id rdf2go.Term, rdf *[]byte) (*NodeShape, error) {
 				return nil, err
 			}
 			node.AddProperty(property)
+		} else if triple.Predicate.Equal(SHACL_CLASS) {
+			node.Class = true
 		}
 	}
 	return node, nil

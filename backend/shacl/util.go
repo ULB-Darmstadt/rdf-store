@@ -33,6 +33,7 @@ func (node *NodeShape) DenormalizePropertyNodeShapes(shapes map[string]*NodeShap
 					denormalizedQualifiedValueShape.Parents = make(map[string]bool)
 					denormalizedQualifiedValueShape.Properties = make(map[string][]*Property)
 					denormalizedQualifiedValueShape.RDF = node.RDF
+					denormalizedQualifiedValueShape.Class = shapeToDenormalizeFrom.Class
 					denormalizeShape(shapeToDenormalizeFrom, denormalizedQualifiedValueShape, shapes)
 					prop.QualifiedValueShapeDenormalized = denormalizedQualifiedValueShape
 					// shapes[denormalizedQualifiedValueShape.Id.RawValue()] = denormalizedQualifiedValueShape
