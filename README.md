@@ -18,7 +18,6 @@ Afterwards, open browser at http://localhost:8089
    - `FUSEKI_PASSWORD`: admin password for Fuseki. Needs to be set before first starting the services.
    - `OAUTH2_PROXY_*`: OIDC/OAuth settings (issuer, client id/secret, cookie secret).
    - `DISABLE_OAUTH`: set to a non-empty value to bypass OAuth2 proxy.
-   - `ALLOWED_ORIGINS`: optional CORS origins.
    - `RDF_NAMESPACE`, `LOG_LEVEL`: optional service tuning.
 
 
