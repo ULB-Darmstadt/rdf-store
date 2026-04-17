@@ -233,7 +233,7 @@ export class App extends LitElement {
                 ${!this.config.authUser ? nothing : html`
                     <div class="own"><label><input id="search-own" type="checkbox">${i18n['search_filter_own']}</label></div>
                 `}
-                ${!this.facets ? nothing : Object.keys(this.facets.facets).sort((a, b) => i18n[a]?.localeCompare(i18n[b])).map(profile => !this.facets?.hasValidFacet(profile) ? nothing : html`
+                ${!this.facets ? nothing : Object.keys(this.facets.facets).sort((a, b) => String(i18n[a] ?? a).localeCompare(String(i18n[b] ?? b))).map(profile => !this.facets?.hasValidFacet(profile) ? nothing : html`
                     <div class="profile-wrapper">
                         <header>${i18n[profile]}</header>
                         ${this.facets.facets[profile].sort((a, b) => a.label.localeCompare(b.label)).map((facet) => facet.valid ? html`${facet}` : nothing)}
