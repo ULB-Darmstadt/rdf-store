@@ -138,7 +138,7 @@ type Property struct {
 	QualifiedMinCount               int
 	MaxCount                        int
 	NodeShapes                      map[string]bool
-	Or                              map[string]bool
+	Or                              map[*Property]bool
 	NodeKind                        string
 	Facet                           *bool
 }
@@ -164,7 +164,7 @@ func (prop *Property) Parse(id rdf2go.Term, parent *NodeShape, graph *rdf2go.Gra
 	prop.Id = id
 	prop.Parent = parent
 	prop.NodeShapes = make(map[string]bool)
-	prop.Or = make(map[string]bool)
+	prop.Or = make(map[*Property]bool)
 
 	for _, triple := range graph.All(id, nil, nil) {
 		if triple.Predicate.Equal(SHACL_DATATYPE) {
@@ -216,7 +216,11 @@ func (prop *Property) Parse(id rdf2go.Term, parent *NodeShape, graph *rdf2go.Gra
 			prop.Facet = &boolValue
 		} else if triple.Predicate.Equal(SHACL_OR) || triple.Predicate.Equal(SHACL_XONE) {
 			for _, option := range parseList(triple.Object, graph) {
-				prop.Or[option.RawValue()] = true
+				optionProp, err := new(Property).Parse(option, parent, graph)
+				if err != nil {
+					return nil, err
+				}
+				prop.Or[optionProp] = true
 			}
 		}
 	}

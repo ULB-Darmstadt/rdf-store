@@ -12,16 +12,16 @@ var prefixXSD = "http://www.w3.org/2001/XMLSchema#%s"
 
 var datatypeMappings = map[string]string{
 	fmt.Sprintf(prefixXSD, "string"):        "t",
-	fmt.Sprintf(prefixXSD, "integer"):       "is",
-	fmt.Sprintf(prefixXSD, "int"):           "is",
-	fmt.Sprintf(prefixXSD, "short"):         "is",
-	fmt.Sprintf(prefixXSD, "byte"):          "is",
-	fmt.Sprintf(prefixXSD, "unsignedInt"):   "is",
-	fmt.Sprintf(prefixXSD, "unsignedShort"): "is",
-	fmt.Sprintf(prefixXSD, "unsignedByte"):  "is",
-	fmt.Sprintf(prefixXSD, "long"):          "ls",
-	fmt.Sprintf(prefixXSD, "unsignedLong"):  "ls",
-	fmt.Sprintf(prefixXSD, "float"):         "fs",
+	fmt.Sprintf(prefixXSD, "integer"):       "ds",
+	fmt.Sprintf(prefixXSD, "int"):           "ds",
+	fmt.Sprintf(prefixXSD, "short"):         "ds",
+	fmt.Sprintf(prefixXSD, "byte"):          "ds",
+	fmt.Sprintf(prefixXSD, "unsignedInt"):   "ds",
+	fmt.Sprintf(prefixXSD, "unsignedShort"): "ds",
+	fmt.Sprintf(prefixXSD, "unsignedByte"):  "ds",
+	fmt.Sprintf(prefixXSD, "long"):          "ds",
+	fmt.Sprintf(prefixXSD, "unsignedLong"):  "ds",
+	fmt.Sprintf(prefixXSD, "float"):         "ds",
 	fmt.Sprintf(prefixXSD, "double"):        "ds",
 	fmt.Sprintf(prefixXSD, "decimal"):       "ds",
 	fmt.Sprintf(prefixXSD, "date"):          "dts",
@@ -49,6 +49,24 @@ func fieldType(property *shacl.Property) string {
 		if value, ok := datatypeMappings[property.Datatype]; ok {
 			// depending on datatype, these are supposed to be facets too
 			return value
+		}
+	}
+	if len(property.Or) > 0 {
+		// check if sh:or/sh:xone options resolve to a distinct facet
+		var uniqueType string
+		for option := range property.Or {
+			ft := fieldType(option)
+			if uniqueType == "" {
+				uniqueType = ft
+			} else {
+				if ft != uniqueType {
+					uniqueType = ""
+					break
+				}
+			}
+		}
+		if uniqueType != "" {
+			return uniqueType
 		}
 	}
 	return "t"
