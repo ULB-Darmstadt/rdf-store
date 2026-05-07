@@ -21,6 +21,8 @@ type ResourceMetadata struct {
 	Id rdf2go.Term
 	// Creator is the user name or identifier supplied when the resource was created.
 	Creator string
+	// Created is the timestamp recorded for the first insert.
+	Created time.Time
 	// LastModified is the timestamp recorded for the latest update.
 	LastModified time.Time
 	// Conformance maps resource identifiers to their conforming SHACL shape identifiers.
@@ -49,15 +51,14 @@ func FindConformingResources(profileId string) ([]string, error) {
 	return conformingResources, nil
 }
 
-// UpdateResourceMetadata rebuilds metadata for a resource.
+// RebuildResourceConformance rebuilds metadata for a resource.
 // It returns the updated metadata, parsed graph, and any error encountered.
-func UpdateResourceMetadata(id string) (metadata *ResourceMetadata, graph *rdf2go.Graph, err error) {
+func RebuildResourceConformance(id string) (metadata *ResourceMetadata, graph *rdf2go.Graph, err error) {
 	resource, metadata, err := GetResource(id, false)
 	if err != nil {
 		return nil, nil, err
 	}
-	idTerm := rdf2go.NewResource(id)
-	return updateResourceMetadata(idTerm, resource, metadata.Creator, &metadata.LastModified)
+	return updateResourceMetadata(rdf2go.NewResource(id), resource, metadata.Creator)
 }
 
 // metadataUpdateTemplate renders the RDF triples persisted to the metadata dataset.
@@ -66,7 +67,8 @@ var metadataUpdateTemplate = template.Must(template.New("").Funcs(template.FuncM
 		return t.UTC().Format(time.RFC3339)
 	},
 }).Parse(`
-	{{.Id}} <` + shacl.DCTERMS_MODIFIED.RawValue() + `> "{{FormatTime .LastModified}}"^^<http://www.w3.org/2001/XMLSchema#dateTime>  .
+	{{.Id}} <` + shacl.DCTERMS_MODIFIED.RawValue() + `> "{{FormatTime .LastModified}}"^^<http://www.w3.org/2001/XMLSchema#dateTime> .
+	{{.Id}} <` + shacl.DCTERMS_CREATED.RawValue() + `> "{{FormatTime .Created}}"^^<http://www.w3.org/2001/XMLSchema#dateTime> .
 	{{if gt (len (.Creator)) 0}}
 	{{.Id}} <` + shacl.DCTERMS_CREATOR.RawValue() + `> "{{.Creator}}" .
 	{{- end}}
@@ -78,7 +80,10 @@ var metadataUpdateTemplate = template.Must(template.New("").Funcs(template.FuncM
 // loadResourceMetadata reads resource metadata triples.
 // It returns the parsed metadata and any error encountered.
 func loadResourceMetadata(id string) (metadata *ResourceMetadata, err error) {
-	metadata = newResourceMetadata(rdf2go.NewResource(id), "", nil)
+	metadata = &ResourceMetadata{
+		Id:          rdf2go.NewResource(id),
+		Conformance: make(map[string]string),
+	}
 	bindings, err := queryDataset(resourceMetaDataset, fmt.Sprintf(`SELECT * WHERE { GRAPH <%s> { ?s ?p ?o } }`, id))
 	if err != nil {
 		return
@@ -99,6 +104,12 @@ func loadResourceMetadata(id string) (metadata *ResourceMetadata, err error) {
 			if s.String() == id {
 				metadata.Creator = o.String()
 			}
+		case shacl.DCTERMS_CREATED.RawValue():
+			if s.String() == id {
+				if date, err := time.Parse(time.RFC3339, o.String()); err == nil {
+					metadata.Created = date
+				}
+			}
 		case shacl.DCTERMS_MODIFIED.RawValue():
 			if s.String() == id {
 				if date, err := time.Parse(time.RFC3339, o.String()); err == nil {
@@ -114,11 +125,25 @@ func loadResourceMetadata(id string) (metadata *ResourceMetadata, err error) {
 
 // updateResourceMetadata writes creator, modified timestamp, and shape conformance triples.
 // It returns the updated metadata, parsed graph, and any error encountered.
-func updateResourceMetadata(id rdf2go.Term, resource []byte, creator string, lastModified *time.Time) (metadata *ResourceMetadata, graph *rdf2go.Graph, err error) {
-	metadata, graph, err = buildResourceMetadata(id, resource, creator, lastModified)
+func updateResourceMetadata(id rdf2go.Term, resource []byte, creator string) (metadata *ResourceMetadata, graph *rdf2go.Graph, err error) {
+	var created time.Time
+	lastModified := time.Now().UTC()
+	if id != nil {
+		// preserve created date
+		if metadata, err = loadResourceMetadata(id.RawValue()); err != nil {
+			return
+		}
+		created = metadata.Created
+	} else {
+		created = lastModified
+	}
+	metadata, graph, err = buildResourceConformance(id, resource)
 	if err != nil {
 		return
 	}
+	metadata.Creator = creator
+	metadata.Created = created
+	metadata.LastModified = lastModified
 	if id != nil {
 		if err = deleteResourceMetadata(id.RawValue()); err != nil {
 			return
@@ -138,9 +163,9 @@ func deleteResourceMetadata(id string) error {
 	return deleteGraph(resourceMetaDataset, id)
 }
 
-// buildResourceMetadata validates the resource and builds a shape conformance map for contained sub-resources.
+// buildResourceConformance validates the resource and builds a shape conformance map for contained sub-resources.
 // It returns the metadata, parsed graph, and any error encountered.
-func buildResourceMetadata(id rdf2go.Term, resource []byte, creator string, lastModified *time.Time) (metadata *ResourceMetadata, graph *rdf2go.Graph, err error) {
+func buildResourceConformance(id rdf2go.Term, resource []byte) (metadata *ResourceMetadata, graph *rdf2go.Graph, err error) {
 	graph, err = base.ParseGraph(bytes.NewReader(resource))
 	if err != nil {
 		return
@@ -178,8 +203,10 @@ func buildResourceMetadata(id rdf2go.Term, resource []byte, creator string, last
 			delete(conformance, resourceID)
 		}
 	}
-	metadata = newResourceMetadata(validID, creator, lastModified)
-	metadata.Conformance = conformance
+	metadata = &ResourceMetadata{
+		Id:          validID,
+		Conformance: conformance,
+	}
 	return
 }
 
@@ -213,19 +240,4 @@ func findResourceProfile(graph *rdf2go.Graph, id rdf2go.Term) (resourceID rdf2go
 		return nil, nil, errors.New("resource graph has no relation " + shacl.DCTERMS_CONFORMS_TO.String() + " or " + shacl.RDF_TYPE.String() + " to a known SHACL profile")
 	}
 	return
-}
-
-// newResourceMetadata initializes a ResourceMetadata instance with defaults.
-// It returns the constructed metadata value.
-func newResourceMetadata(id rdf2go.Term, creator string, lastModified *time.Time) *ResourceMetadata {
-	if lastModified == nil {
-		now := time.Now().UTC()
-		lastModified = &now
-	}
-	return &ResourceMetadata{
-		Id:           id,
-		Creator:      creator,
-		LastModified: *lastModified,
-		Conformance:  make(map[string]string),
-	}
 }

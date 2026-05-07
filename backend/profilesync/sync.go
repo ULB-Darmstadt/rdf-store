@@ -47,7 +47,7 @@ func Synchronize() {
 					} else {
 						for _, resourceId := range resourcesToUpdate {
 							slog.Debug("updating metadata and search index for resource", "id", resourceId)
-							metadata, graph, err := rdf.UpdateResourceMetadata(resourceId)
+							metadata, graph, err := rdf.RebuildResourceConformance(resourceId)
 							if err != nil {
 								slog.Error("failed updating resource metadata", "id", resourceId, "error", err)
 							} else {

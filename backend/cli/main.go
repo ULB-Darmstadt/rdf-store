@@ -48,7 +48,7 @@ func rebuildResourceMeta() {
 	}
 	for _, resourceId := range resourceIds {
 		fmt.Println("update resource meta for", resourceId)
-		_, _, err := rdf.UpdateResourceMetadata(resourceId)
+		_, _, err := rdf.RebuildResourceConformance(resourceId)
 		if err != nil {
 			fmt.Println(err)
 		}
