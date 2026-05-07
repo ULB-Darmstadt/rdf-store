@@ -22,8 +22,12 @@ COPY --from=build-swagger-stage /app/dist /app/swagger/
 # pull in and verify dependencies
 RUN go mod download && go mod verify
 # production build
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-w -s" -o rdf-store-backend .
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-w -s" -o rdf-store-cli ./cli/main.go
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-w -s" -o rdf-store-backend .
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-w -s" -o rdf-store-cli ./cli/main.go
 
 FROM busybox:1.37
 ARG TZ
