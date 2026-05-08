@@ -58,7 +58,7 @@ func RebuildResourceConformance(id string) (metadata *ResourceMetadata, graph *r
 	if err != nil {
 		return nil, nil, err
 	}
-	return updateResourceMetadata(rdf2go.NewResource(id), resource, metadata.Creator)
+	return updateResourceMetadata(rdf2go.NewResource(id), resource, true)
 }
 
 // metadataUpdateTemplate renders the RDF triples persisted to the metadata dataset.
@@ -123,31 +123,49 @@ func loadResourceMetadata(id string) (metadata *ResourceMetadata, err error) {
 	return
 }
 
-// updateResourceMetadata writes creator, modified timestamp, and shape conformance triples.
-// It returns the updated metadata, parsed graph, and any error encountered.
-func updateResourceMetadata(id rdf2go.Term, resource []byte, creator string) (metadata *ResourceMetadata, graph *rdf2go.Graph, err error) {
-	var created time.Time
-	lastModified := time.Now().UTC()
-	if id != nil {
-		// preserve created date
-		if metadata, err = loadResourceMetadata(id.RawValue()); err != nil {
-			return
-		}
-		created = metadata.Created
-	} else {
-		created = lastModified
-	}
-	metadata, graph, err = buildResourceConformance(id, resource)
+func createResourceMetadata(resource []byte, creator string) (metadata *ResourceMetadata, graph *rdf2go.Graph, err error) {
+	metadata, graph, err = buildResourceConformance(nil, resource)
 	if err != nil {
 		return
 	}
+	if exists, err := checkGraphExists(resourceMetaDataset, metadata.Id.RawValue()); exists || err != nil {
+		return nil, nil, ErrExists
+	}
 	metadata.Creator = creator
-	metadata.Created = created
-	metadata.LastModified = lastModified
-	if id != nil {
-		if err = deleteResourceMetadata(id.RawValue()); err != nil {
-			return
-		}
+	metadata.Created = time.Now().UTC()
+	metadata.LastModified = metadata.Created
+	var buf bytes.Buffer
+	if err = metadataUpdateTemplate.Execute(&buf, metadata); err != nil {
+		return
+	}
+	err = uploadGraph(resourceMetaDataset, metadata.Id.RawValue(), buf.Bytes(), nil)
+	return
+}
+
+// updateResourceMetadata writes creator, modified timestamp, and shape conformance triples.
+// It returns the updated metadata, parsed graph, and any error encountered.
+func updateResourceMetadata(id rdf2go.Term, resource []byte, preserveLastModified bool) (metadata *ResourceMetadata, graph *rdf2go.Graph, err error) {
+	if metadata, err = loadResourceMetadata(id.RawValue()); err != nil {
+		return
+	}
+	// check if exists
+	if metadata.LastModified.IsZero() {
+		return nil, nil, ErrNotFound
+	}
+	var updatedMetadata *ResourceMetadata
+	updatedMetadata, graph, err = buildResourceConformance(id, resource)
+	if err != nil {
+		return
+	}
+	if !metadata.Id.Equal(updatedMetadata.Id) {
+		return nil, nil, fmt.Errorf("id mismatch")
+	}
+	if !preserveLastModified {
+		metadata.LastModified = time.Now().UTC()
+	}
+	metadata.Conformance = updatedMetadata.Conformance
+	if err = deleteResourceMetadata(id.RawValue()); err != nil {
+		return
 	}
 	var buf bytes.Buffer
 	if err = metadataUpdateTemplate.Execute(&buf, metadata); err != nil {
