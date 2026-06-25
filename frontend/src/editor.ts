@@ -149,7 +149,7 @@ export class Editor extends LitElement {
             ` : html`
                 <rokit-select label="${i18n['selectprofile']}" class="${this.loading ? 'loading' : ''}" sort tabindex="-1" fixedOpen @change="${(ev: Event) => this.selectedShape = (ev.target as HTMLSelectElement).value }">
                     <ul>
-                        ${this.loading ? '' : this.profiles?.map((id) => html`<li data-value="${id}">${i18n[id] || id}</li>`)}
+                        ${this.loading ? '' : this.profiles?.map((id) => html`<li data-value="${id}" title="${id}">${i18n[id] || id}</li>`)}
                     </ul>
                 </rokit-select>
             `}
