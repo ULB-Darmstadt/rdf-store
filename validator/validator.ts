@@ -1,4 +1,4 @@
-import { Store, DataFactory, NamedNode, Quad, StreamParser, Literal } from 'n3'
+import { Store, DataFactory, NamedNode, Quad, StreamParser } from 'n3'
 import { RdfXmlParser } from 'rdfxml-streaming-parser'
 import jsonld from 'jsonld'
 // @ts-expect-error shacl-engine has no type definitions
@@ -28,6 +28,7 @@ export async function validate(shapesGraph: string, rootShaclShapeID: string, da
         cache = {}
         prefixes = {}
     }
+    console.log(shapesGraph)
     const dataset = new Store()
     const importedUrls: string[] = []
 
@@ -85,7 +86,84 @@ async function registerConformance(resourceID: Term, shapeID: Term, subjectToSha
         subjectToShapeConformance[resourceID.value] = shapeID.value
         return true
     }
+    logValidationFailure(resourceID, shapeID, report.results)
     return false
+}
+
+function logValidationFailure(resourceID: Term, shapeID: Term, results: any[] = []) {
+    const violations = flattenValidationResults(results).map((result) => formatValidationResult(resourceID, shapeID, result))
+    console.warn(`SHACL validation failed for ${resourceID.value} against ${shapeID.value}${violations.length > 0 ? `:\n- ${violations.join('\n- ')}` : ''}`)
+}
+
+function flattenValidationResults(results: any[]): any[] {
+    const flattened: any[] = []
+    for (const result of results) {
+        flattened.push(result)
+        if (result.results?.length) {
+            flattened.push(...flattenValidationResults(result.results))
+        }
+    }
+    return flattened
+}
+
+function formatValidationResult(resourceID: Term, shapeID: Term, result: any) {
+    const details = [
+        `constraint=${result.constraintComponent?.value ?? 'unknown'}`,
+        `message=${getValidationMessage(result) || 'unknown violation'}`
+    ]
+    const path = formatValidationPath(result.path)
+    const focusNode = firstTermValue(result.focusNode?.terms)
+    const value = firstTermValue(result.value?.terms)
+    const sourceShape = firstTermValue(result.shape?.ptr?.terms)
+    if (path) {
+        details.push(`path=${path}`)
+    }
+    if (focusNode && focusNode !== resourceID.value) {
+        details.push(`focusNode=${focusNode}`)
+    }
+    if (value) {
+        details.push(`value=${value}`)
+    }
+    if (sourceShape && sourceShape !== shapeID.value) {
+        details.push(`sourceShape=${sourceShape}`)
+    }
+    return details.join(', ')
+}
+
+function getValidationMessage(result: any) {
+    try {
+        const message = formatValidationMessages(result.message)
+        if (message) {
+            return message
+        }
+    } catch {
+    }
+    return formatValidationMessages(result.shape?.message)
+}
+
+function formatValidationMessages(messages: Array<{ value?: string }> = []) {
+    return messages.map((message) => message.value).filter(Boolean).join(' | ')
+}
+
+function formatValidationPath(path: any[] = []) {
+    return path.map((step) => {
+        const predicates = step.predicates?.map((predicate: Term) => predicate.value).join('|') ?? ''
+        const prefix = step.start === 'object' ? '^' : ''
+        if (step.quantifier === 'zeroOrMore') {
+            return `${prefix}${predicates}*`
+        }
+        if (step.quantifier === 'oneOrMore') {
+            return `${prefix}${predicates}+`
+        }
+        if (step.quantifier === 'zeroOrOne') {
+            return `${prefix}${predicates}?`
+        }
+        return `${prefix}${predicates}`
+    }).join(' / ')
+}
+
+function firstTermValue(terms?: Term[]) {
+    return terms?.[0]?.value
 }
 
 async function importRDF(rdf: Promise<Quad[]>, graph: NamedNode, store: Store, importedUrls: string[]) {
