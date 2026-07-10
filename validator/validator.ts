@@ -28,7 +28,6 @@ export async function validate(shapesGraph: string, rootShaclShapeID: string, da
         cache = {}
         prefixes = {}
     }
-    console.log(shapesGraph)
     const dataset = new Store()
     const importedUrls: string[] = []
 
