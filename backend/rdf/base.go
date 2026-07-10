@@ -12,8 +12,6 @@ import (
 	"net/http"
 	"net/textproto"
 	"net/url"
-	"os"
-	"path"
 	"rdf-store-backend/base"
 	"strings"
 
@@ -36,9 +34,6 @@ var prefixQualifiedPropertyLabels = base.EnvVarAsBool("PREFIX_QUALIFIED_PROPERTY
 func init() {
 	if err := initDatasets(); err != nil {
 		log.Fatal("failed initializing datasets", err)
-	}
-	if err := importLocalResources(); err != nil {
-		slog.Error("failed importing local resources", "error", err)
 	}
 	if err := importLabelsFromStandardTaxonomies(); err != nil {
 		slog.Error("failed importing standard taxonomies", "error", err)
@@ -73,27 +68,6 @@ func initDatasets() error {
 			}
 			if !statusIsOK(status) {
 				return newHTTPError(fmt.Sprintf("failed creating dataset %s", dataset), status, body)
-			}
-		}
-	}
-	return nil
-}
-
-// importLocalResources loads local RDF graphs into the resource dataset.
-// It returns an error if any local graph cannot be read or uploaded.
-func importLocalResources() error {
-	baseDir := path.Join("local", "datagraph")
-	if files, err := os.ReadDir(baseDir); err == nil {
-		for _, file := range files {
-			if !file.IsDir() && strings.HasSuffix(file.Name(), ".ttl") {
-				slog.Info("importing resource graph", "file", file.Name())
-				data, err := os.ReadFile(path.Join(baseDir, file.Name()))
-				if err != nil {
-					return err
-				}
-				if err = uploadGraph(ResourceDataset, file.Name(), data, nil); err != nil {
-					return err
-				}
 			}
 		}
 	}
