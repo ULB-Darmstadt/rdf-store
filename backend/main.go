@@ -130,7 +130,11 @@ func importLocalResources() error {
 				if err != nil {
 					return err
 				}
-				if _, _, err = rdf.CreateResource(data, ""); err != nil {
+				resource, metadata, err := rdf.CreateResource(data, "")
+				if err != nil {
+					return err
+				}
+				if err = search.IndexResource(resource, metadata); err != nil {
 					return err
 				}
 			}
