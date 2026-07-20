@@ -4,7 +4,7 @@ import { ShaclForm, ResourceLinkProvider } from '@ulb-darmstadt/shacl-form'
 import '@ulb-darmstadt/shacl-form/plugins/leaflet.js'
 import { BACKEND_URL } from './constants'
 import { fetchLabels, i18n } from './i18n'
-import { RokitSnackbar, RokitSnackbarEvent, showSnackbarMessage } from '@ro-kit/ui-widgets'
+import { RokitSelect, RokitSnackbar, RokitSnackbarEvent, showSnackbarMessage } from '@ro-kit/ui-widgets'
 import { globalStyles } from './styles'
 
 export const resourceLinkProvider: ResourceLinkProvider = {
@@ -62,22 +62,36 @@ export class Editor extends LitElement {
     loading = false
     @query('shacl-form')
     form?: ShaclForm
+    @query('rokit-select')
+    profileSelect?: RokitSelect
 
-    updated(changedProperties: PropertyValues) {
+    willUpdate(changedProperties: PropertyValues) {
+        if (changedProperties.has('profiles')) {
+            this.loading = true
+            void this.loadProfileLabels(this.profiles)
+        }
+    }
+
+    async updated(changedProperties: PropertyValues) {
         if (changedProperties.has('open') && this.open) {
-            setTimeout(() => this.shadowRoot?.querySelector<HTMLInputElement>('rokit-select')?.focus())
+            await this.profileSelect?.updateComplete
+            await this.profileSelect?.input.updateComplete
+            if (this.profileSelect) {
+                this.profileSelect.collapsible.content.scrollTop = 0
+            }
+            this.profileSelect?.input.inputElement.focus()
         }
         if (changedProperties.has('selectedShape') && this.selectedShape) {
             this.form!.setResourceLinkProvider(resourceLinkProvider)
         }
-        if (changedProperties.has('profiles')) {
-            this.loading = true
-            ;(async() => {
-                if (this.profiles) {
-                    await fetchLabels(this.profiles, true)
-                }
-                this.loading = false
-            })()
+    }
+
+    private async loadProfileLabels(profiles: string[] | undefined) {
+        if (profiles) {
+            await fetchLabels(profiles, true)
+        }
+        if (this.profiles === profiles) {
+            this.loading = false
         }
     }
 

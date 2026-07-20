@@ -19,6 +19,7 @@ Afterwards, open browser at http://localhost:8089
    - `OAUTH2_PROXY_*`: OIDC/OAuth settings (issuer, client id/secret, cookie secret).
    - `DISABLE_OAUTH`: set to a non-empty value to bypass OAuth2 proxy authentication. For this to work, activate the port mapping `3000:3000` for the `app` service in `docker-compose.yml`. The base URL of the application then is `http://localhost:3000`
    - `RDF_NAMESPACE`, `LOG_LEVEL`: optional service tuning.
+   - `SHACL_QUERY_MODE`: set to `true` to opt into the SHACL-driven Solr query UI. It defaults to `false`, which preserves simple search facets.
 
 
 ## Updating
@@ -30,6 +31,11 @@ docker compose up -d --build --force-recreate
 
 ## SHACL shapes (aka application profiles)
 RDF store supports loading SHACL shapes locally from the directory `rdf-store/backend/local/profiles/` or remotely from the [NFDI4Ing metadata profiles service](https://profiles.nfdi4ing.de). See the [.env.example](./.env.example) file on how to enable/disable/configure these sources.
+
+## Optional SHACL query mode
+
+Set `SHACL_QUERY_MODE=true` to replace the search sidebar's generated facets with a SHACL-driven query form. The default is `false`.
+
 
 ## Backend API
 The backend API is exposed under `http://localhost:8089/api/v1/` when running via Docker Compose.

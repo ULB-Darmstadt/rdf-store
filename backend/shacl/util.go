@@ -2,6 +2,8 @@ package shacl
 
 import (
 	"log/slog"
+
+	"github.com/deiu/rdf2go"
 )
 
 // DenormalizeQualifiedValueShapes expands qualified value shapes into properties.
@@ -10,6 +12,7 @@ func (node *NodeShape) DenormalizeQualifiedValueShapes(shapes map[string]*NodeSh
 		denormalizedShape := new(NodeShape)
 		denormalizedShape.Id = prop.Id
 		denormalizedShape.Parents = make(map[string]bool)
+		denormalizedShape.Alternatives = make(map[string]bool)
 		denormalizedShape.Properties = make(map[string][]*Property)
 		denormalizedShape.RDF = node.RDF
 
@@ -31,6 +34,7 @@ func (node *NodeShape) DenormalizePropertyNodeShapes(shapes map[string]*NodeShap
 					denormalizedQualifiedValueShape := new(NodeShape)
 					denormalizedQualifiedValueShape.Id = prop.Id
 					denormalizedQualifiedValueShape.Parents = make(map[string]bool)
+					denormalizedQualifiedValueShape.Alternatives = make(map[string]bool)
 					denormalizedQualifiedValueShape.Properties = make(map[string][]*Property)
 					denormalizedQualifiedValueShape.RDF = node.RDF
 					denormalizedQualifiedValueShape.Class = shapeToDenormalizeFrom.Class
@@ -43,6 +47,32 @@ func (node *NodeShape) DenormalizePropertyNodeShapes(shapes map[string]*NodeShap
 			}
 		}
 	}
+}
+
+// ReferencedNodeShapes returns node-shape terms referenced directly or through
+// SHACL composition lists. The result may contain untyped blank-node shapes.
+func ReferencedNodeShapes(graph *rdf2go.Graph) []rdf2go.Term {
+	seen := make(map[string]bool)
+	result := make([]rdf2go.Term, 0)
+	add := func(term rdf2go.Term) {
+		if term != nil && !seen[term.RawValue()] {
+			seen[term.RawValue()] = true
+			result = append(result, term)
+		}
+	}
+	for _, predicate := range []rdf2go.Term{SHACL_NODE, SHACL_QUALIFIED_VALUE_SHAPE} {
+		for _, triple := range graph.All(nil, predicate, nil) {
+			add(triple.Object)
+		}
+	}
+	for _, predicate := range []rdf2go.Term{SHACL_AND, SHACL_OR, SHACL_XONE} {
+		for _, triple := range graph.All(nil, predicate, nil) {
+			for _, term := range parseList(triple.Object, graph) {
+				add(term)
+			}
+		}
+	}
+	return result
 }
 
 // denormalizeShape flattens parent properties into the target shape.

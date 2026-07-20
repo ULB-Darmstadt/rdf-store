@@ -9,12 +9,13 @@ import (
 )
 
 type NodeShape struct {
-	Id         rdf2go.Term
-	Parents    map[string]bool
-	Properties map[string][]*Property // path -> property
-	RDF        *[]byte
-	Graph      *rdf2go.Graph
-	Class      bool
+	Id           rdf2go.Term
+	Parents      map[string]bool
+	Alternatives map[string]bool
+	Properties   map[string][]*Property // path -> property
+	RDF          *[]byte
+	Graph        *rdf2go.Graph
+	Class        bool
 }
 
 // Parse loads a NodeShape from RDF data into the NodeShape struct.
@@ -22,6 +23,7 @@ type NodeShape struct {
 func (node *NodeShape) Parse(id rdf2go.Term, rdf *[]byte) (*NodeShape, error) {
 	node.Id = id
 	node.Parents = make(map[string]bool)
+	node.Alternatives = make(map[string]bool)
 	node.Properties = make(map[string][]*Property)
 	node.RDF = rdf
 	if node.Graph == nil {
@@ -39,6 +41,10 @@ func (node *NodeShape) Parse(id rdf2go.Term, rdf *[]byte) (*NodeShape, error) {
 		} else if triple.Predicate.Equal(SHACL_AND) {
 			for _, parent := range parseList(triple.Object, node.Graph) {
 				node.Parents[parent.RawValue()] = true
+			}
+		} else if triple.Predicate.Equal(SHACL_OR) || triple.Predicate.Equal(SHACL_XONE) {
+			for _, alternative := range parseList(triple.Object, node.Graph) {
+				node.Alternatives[alternative.RawValue()] = true
 			}
 		} else if triple.Predicate.Equal(SHACL_PROPERTY) {
 			property, err := new(Property).Parse(triple.Object, node, node.Graph)
@@ -138,6 +144,7 @@ type Property struct {
 	QualifiedMinCount               int
 	MaxCount                        int
 	NodeShapes                      map[string]bool
+	AlternativeNodeShapes           map[string]bool
 	Or                              map[*Property]bool
 	NodeKind                        string
 	Facet                           *bool
@@ -164,6 +171,7 @@ func (prop *Property) Parse(id rdf2go.Term, parent *NodeShape, graph *rdf2go.Gra
 	prop.Id = id
 	prop.Parent = parent
 	prop.NodeShapes = make(map[string]bool)
+	prop.AlternativeNodeShapes = make(map[string]bool)
 	prop.Or = make(map[*Property]bool)
 
 	for _, triple := range graph.All(id, nil, nil) {
@@ -180,10 +188,6 @@ func (prop *Property) Parse(id rdf2go.Term, parent *NodeShape, graph *rdf2go.Gra
 		} else if triple.Predicate.Equal(SHACL_NODE) {
 			prop.NodeShapes[triple.Object.RawValue()] = true
 		} else if triple.Predicate.Equal(SHACL_AND) {
-			for _, shape := range parseList(triple.Object, graph) {
-				prop.NodeShapes[shape.RawValue()] = true
-			}
-		} else if triple.Predicate.Equal(SHACL_OR) {
 			for _, shape := range parseList(triple.Object, graph) {
 				prop.NodeShapes[shape.RawValue()] = true
 			}
@@ -221,6 +225,9 @@ func (prop *Property) Parse(id rdf2go.Term, parent *NodeShape, graph *rdf2go.Gra
 					return nil, err
 				}
 				prop.Or[optionProp] = true
+				for shape := range optionProp.NodeShapes {
+					prop.AlternativeNodeShapes[shape] = true
+				}
 			}
 		}
 	}
@@ -249,6 +256,12 @@ func (prop *Property) Merge(other *Property) {
 	}
 	for k := range other.NodeShapes {
 		prop.NodeShapes[k] = true
+	}
+	for k := range other.AlternativeNodeShapes {
+		prop.AlternativeNodeShapes[k] = true
+	}
+	for option := range other.Or {
+		prop.Or[option] = true
 	}
 }
 

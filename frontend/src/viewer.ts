@@ -17,7 +17,7 @@ export class Viewer extends LitElement {
         .main { display: flex; flex-direction: column; flex-grow: 1; padding: 5px; }
         .header { display: flex; gap: 5px; align-items: center; border-bottom: 2px solid #CCC; padding: 2px 5px 2px 5px; background-color: #EEE; }
         shacl-form, rdf-graph { flex-grow: 1; --shacl-bg: transparent; }
-        .placeholder { display: flex; justify-content: center; align-items: center; flex-grow: 1; color: #888; }
+        .placeholder { position: sticky; top: 50%; transform: translateY(-50%); display: flex; justify-content: center; align-items: center; color: #888; }
         .arrow-left:before { content: '\\21E6'; font-size: 28px; padding-right: 10px; }
         .header rokit-button[text] { margin-bottom: -4px; border-bottom: 2px solid transparent; }
         .header rokit-button[text][primary] { border-bottom: 2px solid var(--rokit-primary-color) }
@@ -46,11 +46,21 @@ export class Viewer extends LitElement {
     saving = false
     private loadTimeout?: number
 
-    updated(changedProperties: PropertyValues) {
+    willUpdate(changedProperties: PropertyValues) {
+        if (changedProperties.has('rdfSubject') && !this.rdfSubject) {
+            window.clearTimeout(this.loadTimeout)
+            this.rdf = ''
+            this.rdfWithLinked = ''
+        }
         if ((changedProperties.has('rdfSubject') || changedProperties.has('highlightSubject')) && this.rdfSubject) {
             this.highlightSubject = this.highlightSubject || this.rdfSubject
             this.editMode = false
             this.editable = false
+        }
+    }
+
+    updated(changedProperties: PropertyValues) {
+        if ((changedProperties.has('rdfSubject') || changedProperties.has('highlightSubject')) && this.rdfSubject) {
             this.load()
         }
         if (changedProperties.has('graphView') && !this.graphView) {
@@ -201,8 +211,7 @@ export class Viewer extends LitElement {
                 ></shacl-form>
             `}
             </div>
-        ` :
-        html`
+        ` : html`
             <div class="placeholder">
                 <span class="arrow-left"></span> ${i18n['click_hit_to_view']}
             </div>

@@ -21,25 +21,30 @@ var client = solr.NewJSONClient(Endpoint)
 
 type document map[string]any
 
-// appendValue appends values to a multi-value Solr field.
+// appendValue appends values that are not already present in a multi-value
+// Solr field. Duplicate values do not carry additional search information.
 func (d *document) appendValue(field string, value any) {
 	if value == nil {
 		return
 	}
-	existing, ok := (*d)[field].([]any)
-	if !ok {
-		existing = make([]any, 0)
-	}
 	valueRef := reflect.ValueOf(value)
 	if valueRef.Kind() == reflect.Slice {
 		for i := 0; i < valueRef.Len(); i++ {
-			existing = append(existing, valueRef.Index(i).Interface())
+			d.appendValue(field, valueRef.Index(i).Interface())
+		}
+		return
+	}
+	existing, ok := (*d)[field].([]any)
+	if ok {
+		for _, current := range existing {
+			if reflect.DeepEqual(current, value) {
+				return
+			}
 		}
 	} else {
-		existing = append(existing, value)
+		existing = make([]any, 0)
 	}
-	// fmt.Println("appended value", field, existing)
-	(*d)[field] = existing
+	(*d)[field] = append(existing, value)
 }
 
 // checkCollectionExists determines whether the Solr collection is reachable and present.

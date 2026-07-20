@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "start": "npx ts-node ./server.ts"
+    "start": "npx ts-node ./server.ts",
+    "test": "ts-node-esm --transpile-only --compiler-options '{\"allowImportingTsExtensions\":true,\"module\":\"NodeNext\",\"moduleResolution\":\"NodeNext\"}' validator.test.ts"
   },
   "dependencies": {
     "jsonld": "^9.0.0",

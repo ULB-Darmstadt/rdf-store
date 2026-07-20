@@ -77,7 +77,8 @@ func fieldType(property *shacl.Property) string {
 func createCollectionSchema() (fields []solr.Field) {
 	fields = append(fields, solr.Field{Name: "label", Type: "string", Indexed: true, Stored: true, MultiValued: true})
 	fields = append(fields, solr.Field{Name: "shape", Type: "string", Indexed: true, Stored: true, MultiValued: true})
-	fields = append(fields, solr.Field{Name: "creator", Type: "string", Indexed: false, Stored: true})
-	fields = append(fields, solr.Field{Name: "lastModified", Type: "pdate", Indexed: false, Stored: false})
+	fields = append(fields, solr.Field{Name: "rootShape", Type: "string", Indexed: true, Stored: true})
+	fields = append(fields, solr.Field{Name: "creator", Type: "string", Indexed: true, Stored: true})
+	fields = append(fields, solr.Field{Name: "lastModified", Type: "pdate", Indexed: true, Stored: true})
 	return fields
 }

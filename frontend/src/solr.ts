@@ -16,6 +16,7 @@ export type SearchOptions = {
     facets?: Facets
     offset?: number
     limit?: number
+    filters?: string[]
 }
 
 export type SearchRequest = {
@@ -87,12 +88,23 @@ export async function fetchFields(index: string): Promise<string[]> {
     return fieldList.split(',').map(field => field.trim())
 }
 
+export async function executeSolrRequest(index: string, query: SearchRequest, signal?: AbortSignal): Promise<SearchResponse> {
+    const resp = await fetch(`${BACKEND_URL}/solr/${index}/query`, {
+        method: "POST",
+        cache: "no-cache",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(query),
+        signal,
+    })
+    return await resp.json() as SearchResponse
+}
+
 export async function search(index: string, params?: SearchOptions): Promise<SearchResponse> {
     const query: SearchRequest = {
         limit: params?.limit !== undefined ? params.limit : 10,
         offset: params?.offset || 0,
         sort: params?.sort ?  `${params.sort}` : '',
-        fields: ['*'],
+        fields: ['id', 'label', 'shape', 'lastModified', '_root_'],
         query: '*'
     }
     if (params?.facets) {
@@ -116,14 +128,11 @@ export async function search(index: string, params?: SearchOptions): Promise<Sea
         // escape characters that would break the SOLR query
         query.filter.push(`_text_:*${params.term.replace(/([+\-!(){}[\]^"~*?:\\/]|&&|\|\|)/g, '\\$1')}`)
     }
+    if (params?.filters?.length) {
+        query.filter = [...(query.filter || []), ...params.filters]
+    }
 
-    const resp = await fetch(`${BACKEND_URL}/solr/${index}/query`, {
-        method: "POST",
-        cache: "no-cache",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(query)
-    })
-    const response = await resp.json() as SearchResponse
+    const response = await executeSolrRequest(index, query)
     // update facet values
     if (params?.facets && response.facets) {
         for (const profile of Object.keys(params.facets.facets)) {

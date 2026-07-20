@@ -1,13 +1,15 @@
 import { html, css, unsafeCSS, nothing } from 'lit'
 import { customElement, query } from 'lit/decorators.js'
 import leafletCss from 'leaflet/dist/leaflet.css?inline'
-import leafletFullscreenCss from 'leaflet.fullscreen/Control.FullScreen.css?inline'
-import 'leaflet.fullscreen/Control.FullScreen.js'
+import leafletFullscreenCss from 'leaflet.fullscreen/dist/Control.FullScreen.css?inline'
+import 'leaflet.fullscreen'
 import 'leaflet.heat/dist/leaflet-heat.js'
 import * as L from 'leaflet'
 
 import { Facet } from './base'
 import { AggregationFacet, QueryFacet } from '../solr'
+
+const scopedLeafletFullscreenCss = leafletFullscreenCss.replace(':root', ':host')
 
 var worldBounds: L.LatLngBounds = L.latLngBounds({ lng: -180, lat: -90}, { lng: 180, lat: 90 })
 
@@ -18,7 +20,7 @@ export class GeoLocationFacet extends Facet {
         #map { height: 250px; width: 100%; }
         #map .leaflet-pane, #map .leaflet-top { z-index: 0; }
         #map .leaflet-heatmap-layer { opacity: 0.5; }
-    `, unsafeCSS(leafletCss), unsafeCSS(leafletFullscreenCss)]
+    `, unsafeCSS(leafletCss), unsafeCSS(scopedLeafletFullscreenCss)]
 
     @query('#map')
     container!: HTMLElement

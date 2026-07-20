@@ -36,6 +36,9 @@ export async function initFacets(index: string, solrMaxAggregations: number): Pr
     facets.add('', new ProfileFacet(solrMaxAggregations))
     const labelIds: Set<string> = new Set()
     for (const field of fieldList) {
+        if (field.startsWith('_query_.')) {
+            continue
+        }
         const facet = facetFactory(field, solrMaxAggregations)
         if (facet) {
             facets.add(facet.profile, facet)

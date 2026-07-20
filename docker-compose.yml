@@ -23,8 +23,8 @@ services:
       - bash
       - "-c"
       - "solr start -f -q"
-    # ports:
-    #   - 127.0.0.1:8983:8983
+    ports:
+      - 127.0.0.1:8983:8983
     volumes:
       - solrdata:/var/solr
     healthcheck:
@@ -98,8 +98,8 @@ services:
     build:
       context: ./validator
     restart: unless-stopped
-    # ports:
-    #   - 127.0.0.1:8000:8000
+    ports:
+      - 127.0.0.1:8000:8000
     environment:
       - PROXY=http://app:3000/api/v1/rdfproxy?url=
     healthcheck:
@@ -113,8 +113,8 @@ services:
     build:
       context: .
     restart: unless-stopped
-    # ports:
-    #   - 127.0.0.1:3000:3000
+    ports:
+      - 127.0.0.1:3000:3000
     volumes:
       - ./backend/local:/app/local
     environment:
@@ -137,6 +137,7 @@ services:
       - CRON=${CRON:-}
       - EXPOSE_FUSEKI_FRONTEND=${EXPOSE_FUSEKI_FRONTEND:-false}
       - LOG_LEVEL=${LOG_LEVEL}
+      - SHACL_QUERY_MODE=${SHACL_QUERY_MODE:-false}
     healthcheck:
         test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/v1/healthz >/dev/null || exit 1"]
         start_period: 10s

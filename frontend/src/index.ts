@@ -1,5 +1,5 @@
 import { customElement, property, query, state } from 'lit/decorators.js'
-import { LitElement, html, nothing, unsafeCSS } from 'lit'
+import { LitElement, PropertyValues, html, nothing, unsafeCSS } from 'lit'
 import '@fontsource/roboto'
 import '@fontsource/material-icons'
 import styles from './styles.css?inline'
@@ -13,9 +13,10 @@ import { search, SearchDocument } from './solr'
 import { fetchLabels, i18n } from './i18n'
 import { Editor } from './editor'
 import { map } from 'lit/directives/map.js'
-import { registerPlugin } from '@ulb-darmstadt/shacl-form'
+import { registerPlugin, ShaclForm, Query } from '@ulb-darmstadt/shacl-form'
 import { LeafletPlugin } from '@ulb-darmstadt/shacl-form/plugins/leaflet.js'
 import { Facets } from './facets/base'
+import { SolrQueryFacetProvider } from './shacl-query'
 
 export type Config = {
     layout: string
@@ -23,6 +24,7 @@ export type Config = {
     index: string
     geoDataType: string
     solrMaxAggregations: number
+    shaclQueryMode: boolean
     authEnabled: boolean
     authWriteAccess: boolean
     authUser: string
@@ -55,11 +57,19 @@ export class App extends LitElement {
     viewHiglightSubject?: string
     @state()
     config: Config | undefined
+    @state()
+    selectedQueryProfile = ''
+    @state()
+    query?: Query
+
+    queryFacetProvider?: SolrQueryFacetProvider
 
     @query('#search-field')
     searchField?: RokitInput
     @query('#search-own')
     searchOwn?: HTMLInputElement
+    @query('#query-form')
+    queryForm?: ShaclForm
 
     debounceTimeout: ReturnType<typeof setTimeout> | undefined
     handleLocationChange = () => {
@@ -85,12 +95,17 @@ export class App extends LitElement {
     viewResource(subject: string | SearchDocument | null) {
         let path = APP_PATH
         if (subject) {
-            path += 'resource/'
             if (typeof subject === 'string') {
-                path += subject.replace(this.config?.rdfNamespace ?? '', '')
+                path += 'resource/' + subject.replace(this.config?.rdfNamespace ?? '', '')
             } else {
-                path += subject._root_.replace(this.config?.rdfNamespace ?? '', '')
-                this.viewHiglightSubject = subject.id
+                // support unselecting a currently selected hit
+                if (this.viewHiglightSubject !== subject.id) {
+                    path += 'resource/' + subject._root_.replace(this.config?.rdfNamespace ?? '', '')
+                    this.viewHiglightSubject = subject.id
+                } else {
+                    this.viewRdfSubject = undefined
+                    this.viewHiglightSubject = undefined
+                }
             }
         }
         history.pushState('', '', path)
@@ -108,7 +123,16 @@ export class App extends LitElement {
 
               // fetch labels for profiles. this is needed for the editor dialog, which renders before the keyword facet can load the labels
             await fetchLabels(this.config.profiles, true)
-            this.facets = await initFacets(this.config.index, this.config.solrMaxAggregations)
+            if (this.config.shaclQueryMode) {
+                // this.selectedQueryProfile = this.config.profiles[0] || ''
+                this.query = this.selectedQueryProfile ? {
+                    rootShapeId: this.selectedQueryProfile,
+                    criteria: [],
+                } : undefined
+                this.queryFacetProvider = new SolrQueryFacetProvider(this.config.index, this.config.solrMaxAggregations)
+            } else {
+                this.facets = await initFacets(this.config.index, this.config.solrMaxAggregations)
+            }
             if (this.config.geoDataType) {
                 registerPlugin(new LeafletPlugin({ datatype: this.config.geoDataType }))
             }
@@ -131,6 +155,12 @@ export class App extends LitElement {
         }
     }
 
+    updated(changedProperties: PropertyValues) {
+        if (this.config?.shaclQueryMode && (changedProperties.has('selectedQueryProfile') || changedProperties.has('config'))) {
+            this.queryForm?.setQueryFacetProvider(this.queryFacetProvider!)
+        }
+    }
+
     filterChanged(fromPager = false) {
         this.shadowRoot?.querySelector('#main')?.classList.add('loading')
         clearTimeout(this.debounceTimeout)
@@ -138,6 +168,12 @@ export class App extends LitElement {
             try {
                 this.searchTerm = this.searchField?.value || ''
                 this.searchCreator = this.searchOwn?.checked ? this.config?.authUser : undefined
+                let queryFilters: string[] | undefined
+                if (this.config?.shaclQueryMode && this.queryFacetProvider && this.query) {
+                    this.queryFacetProvider.setSearchContext(this.searchTerm, this.searchCreator)
+                    queryFilters = await this.queryFacetProvider.buildFilters(this.query)
+                    this.queryForm?.refreshQueryFacets()
+                }
                 if (fromPager) {
                     scrollTo(0, 0)
                 } else {
@@ -147,9 +183,10 @@ export class App extends LitElement {
                     offset: this.offset,
                     limit: this.limit,
                     sort: `lastModified desc`,
-                    term: this.searchTerm,
-                    creator: this.searchCreator,
+                    term: this.config!.shaclQueryMode ? undefined : this.searchTerm,
+                    creator: this.config!.shaclQueryMode ? undefined : this.searchCreator,
                     facets: this.facets,
+                    filters: queryFilters,
                 })
                 if (searchResult.error) {
                     throw searchResult.error.msg || searchResult.error.trace
@@ -226,66 +263,104 @@ export class App extends LitElement {
         </layout-header>
         <div id="main">
             <rokit-progressbar class="progress"></rokit-progressbar>
-            <div id="search-filter">
-                <rokit-input id="search-field" label="${i18n['fulltextsearch']}" placeholder="${i18n['fulltextsearchplaceholder']}" value="${this.searchTerm}" clearable>
-                    <span slot="prefix" class="material-icons icon">search</span>
-                </rokit-input>
-                ${!this.config.authUser ? nothing : html`
-                    <div class="own"><label><input id="search-own" type="checkbox">${i18n['search_filter_own']}</label></div>
-                `}
-                ${!this.facets ? nothing : Object.keys(this.facets.facets).sort((a, b) => String(i18n[a] ?? a).localeCompare(String(i18n[b] ?? b))).map(profile => !this.facets?.hasValidFacet(profile) ? nothing : html`
-                    <div class="profile-wrapper">
-                        <header>${i18n[profile]}</header>
-                        ${this.facets.facets[profile].sort((a, b) => a.label.localeCompare(b.label)).map((facet) => facet.valid ? html`${facet}` : nothing)}
-                    </div>
-                `)}
-            </div>
-            <rokit-splitpane class="flex-grow-1" minPos="25" maxPos="65">
-                <div id="search-result" slot="pane1">
-                    <div class="stats">
-                        ${this.totalHits < 1 ?
-                        html`<span>${i18n['noresults']}</span>` :
-                        html`${i18n['results']} <span class="secondary">${this.offset + 1}</span> - <span class="secondary">${this.offset + this.searchHits.length}</span> ${i18n['of']} <span class="secondary">${this.totalHits}</span>: <span class="loading">${i18n['loading']}...</span>`}
-                    </div>
-                    ${this.totalHits < 1 ? nothing : html`
-                        <div class="hits">
-                        ${this.searchHits.map((hit) => html`
-                            <div class="hit${(hit.id === this.viewHiglightSubject || (!this.viewHiglightSubject && hit.id === this.viewRdfSubject)) ? ' active' : ''}" @click="${() => this.viewResource(hit)}">
-                                <div class="header">
-                                    ${hit.label?.length ? hit.label.join(', ') : hit.id}
-                                </div>
-                                <div>${i18n['shape']}: ${hit.shape?.length ? (i18n[hit.shape[0]] ? i18n[hit.shape[0]] : hit.shape[0]) : 'No profile'}</div>
-                                ${!hit.lastModified ? nothing : html`<div>${i18n['last_modified']}: ${new Date(hit.lastModified).toDateString()}</div>`}
-                            </div>`
-                        )}
+            <rokit-splitpane id="main-splitpane" class="flex-grow-1" minPos="15" maxPos="50" pos="20%">
+                <div id="search-filter" slot="pane1">
+                    <rokit-input id="search-field" label="${i18n['fulltextsearch']}" placeholder="${i18n['fulltextsearchplaceholder']}" value="${this.searchTerm}" clearable>
+                        <span slot="prefix" class="material-icons icon">search</span>
+                    </rokit-input>
+                    ${!this.config.authUser ? nothing : html`
+                        <div class="own"><label><input id="search-own" type="checkbox">${i18n['search_filter_own']}</label></div>
+                    `}
+                    ${this.config.shaclQueryMode ? html`
+                        <div class="query-profile">
+                            <rokit-select label="${i18n['selectprofile']}" value="${this.selectedQueryProfile}" clearable @change="${(event: Event) => {
+                                this.selectedQueryProfile = (event.target as HTMLSelectElement).value
+                                this.query = {
+                                    rootShapeId: this.selectedQueryProfile,
+                                    criteria: [],
+                                }
+                                this.filterChanged()
+                            }}">
+                                <ul>${this.config.profiles.map(profile => html`<li data-value="${profile}">${i18n[profile] || profile}</li>`)}</ul>
+                            </rokit-select>
+                            ${this.selectedQueryProfile ? html`
+                                <shacl-form
+                                    id="query-form"
+                                    class="p-1"
+                                    data-mode="query"
+                                    data-loading="${i18n['loading_filters']}"
+                                    data-shape-subject="${this.selectedQueryProfile}"
+                                    data-shapes-url="${this.selectedQueryProfile}"
+                                    data-proxy="${BACKEND_URL}/rdfproxy?url="
+                                    data-hierarchy-colors
+                                    @query="${(event: CustomEvent<Query>) => {
+                                        this.query = event.detail
+                                        this.filterChanged()
+                                    }}"
+                                    @queryerror="${(event: CustomEvent<unknown>) => {
+                                        console.error(event.detail)
+                                        showSnackbarMessage({ message: '' + event.detail, ttl: 0, cssClass: 'error' })
+                                    }}"
+                                ></shacl-form>
+                                <div class="no-filters p-2">${i18n['no_filters']}</div>
+                            ` : html`
+                                <div class="selectprofile-hint">${i18n['selectprofile-hint']}</div>
+                            `}
                         </div>
-                        ${this.totalHits <= this.limit ? nothing : html`
-                        <div class="pager">
-                            ${i18n['pages']}:
-                            ${map(this.getPagerItems(Math.ceil(this.totalHits / this.limit), Math.floor(this.offset / this.limit) + 1),
-                                item => item === 'ellipsis'
-                                    ? html`<span class="ellipsis">…</span>`
-                                    : html`
-                                        <rokit-button
-                                            ?primary="${this.offset == this.limit * (item - 1)}"
-                                            disabled="${this.offset == this.limit * (item - 1) || nothing}"
-                                            @click="${() => {
-                                                this.offset = this.limit * (item - 1)
-                                                this.filterChanged(true)
-                                            }}">${item}</rokit-button>`
-                            )}
+                    ` : !this.facets ? nothing : Object.keys(this.facets.facets).sort((a, b) => String(i18n[a] ?? a).localeCompare(String(i18n[b] ?? b))).map(profile => !this.facets?.hasValidFacet(profile) ? nothing : html`
+                        <div class="profile-wrapper">
+                            <header>${i18n[profile]}</header>
+                            ${this.facets.facets[profile].sort((a, b) => a.label.localeCompare(b.label)).map((facet) => facet.valid ? html`${facet}` : nothing)}
                         </div>
-                        `}
-                    `
-                    }
+                    `)}
                 </div>
-                <rdf-viewer slot="pane2"
-                    rdfSubject="${this.viewRdfSubject}"
-                    rdfNamespace="${this.config.rdfNamespace}"
-                    highlightSubject="${this.viewHiglightSubject}"
-                    .config="${this.config}"
-                    @delete="${() => { this.viewResource(null); this.filterChanged() }}"
-                ></rdf-viewer>
+                <rokit-splitpane id="result-splitpane" minPos="25" maxPos="65" pos="30%" slot="pane2">
+                    <div id="search-result" slot="pane1">
+                        <div class="stats">
+                            ${this.totalHits < 1 ?
+                            html`<span>${i18n['noresults']}</span>` :
+                            html`${i18n['results']} <span class="secondary">${this.offset + 1}</span> - <span class="secondary">${this.offset + this.searchHits.length}</span> ${i18n['of']} <span class="secondary">${this.totalHits}</span>: <span class="loading">${i18n['loading']}...</span>`}
+                        </div>
+                        ${this.totalHits < 1 ? nothing : html`
+                            <div class="hits">
+                            ${this.searchHits.map((hit) => html`
+                                <div class="hit${(hit.id === this.viewHiglightSubject || (!this.viewHiglightSubject && hit.id === this.viewRdfSubject)) ? ' active' : ''}" @click="${() => this.viewResource(hit)}">
+                                    <div class="header">
+                                        ${hit.label?.length ? hit.label.join(', ') : hit.id}
+                                    </div>
+                                    <div>${i18n['shape']}: ${hit.shape?.length ? (i18n[hit.shape[0]] ? i18n[hit.shape[0]] : hit.shape[0]) : 'No profile'}</div>
+                                    ${!hit.lastModified ? nothing : html`<div>${i18n['last_modified']}: ${new Date(hit.lastModified).toDateString()}</div>`}
+                                </div>`
+                            )}
+                            </div>
+                            ${this.totalHits <= this.limit ? nothing : html`
+                            <div class="pager">
+                                ${i18n['pages']}:
+                                ${map(this.getPagerItems(Math.ceil(this.totalHits / this.limit), Math.floor(this.offset / this.limit) + 1),
+                                    item => item === 'ellipsis'
+                                        ? html`<span class="ellipsis">…</span>`
+                                        : html`
+                                            <rokit-button
+                                                ?primary="${this.offset == this.limit * (item - 1)}"
+                                                disabled="${this.offset == this.limit * (item - 1) || nothing}"
+                                                @click="${() => {
+                                                    this.offset = this.limit * (item - 1)
+                                                    this.filterChanged(true)
+                                                }}">${item}</rokit-button>`
+                                )}
+                            </div>
+                            `}
+                        `
+                        }
+                    </div>
+                    <rdf-viewer slot="pane2"
+                        rdfSubject="${this.viewRdfSubject}"
+                        rdfNamespace="${this.config.rdfNamespace}"
+                        highlightSubject="${this.viewHiglightSubject}"
+                        .config="${this.config}"
+                        @delete="${() => { this.viewResource(null); this.filterChanged() }}"
+                    ></rdf-viewer>
+                </rokit-splitpane>
             </rokit-splitpane>
         ${!this.config.authWriteAccess ?  nothing : html`
             <rdf-editor

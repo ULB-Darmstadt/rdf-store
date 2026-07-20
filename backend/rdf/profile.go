@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"fmt"
 	"rdf-store-backend/base"
+	"rdf-store-backend/shacl"
 	"strconv"
+	"strings"
 
 	"github.com/deiu/rdf2go"
 	"github.com/google/uuid"
@@ -14,6 +16,61 @@ import (
 
 var hashPredicate = "<spdx:checksumValue>"
 var BlankNodeReplacement = "urn:"
+var Profiles map[string]*shacl.NodeShape
+
+// ParseAllProfiles loads all profiles, parses shapes, and atomically replaces the cache.
+// It returns the parsed profile map and any error encountered.
+func ParseAllProfiles() (map[string]*shacl.NodeShape, error) {
+	profileIDs, err := GetAllProfileIds()
+	if err != nil {
+		return nil, err
+	}
+
+	profiles := make(map[string]*shacl.NodeShape, len(profileIDs))
+	configuredProfileIDs := append([]string(nil), profileIDs...)
+	for _, profileID := range profileIDs {
+		profile, err := GetProfile(profileID)
+		if err != nil {
+			return nil, err
+		}
+		parsed, err := new(shacl.NodeShape).Parse(rdf2go.NewResource(profileID), &profile)
+		if err != nil {
+			return nil, err
+		}
+		profiles[profileID] = parsed
+
+		for _, nodeShapeTriple := range parsed.Graph.All(nil, shacl.RDF_TYPE, shacl.SHACL_NODE_SHAPE) {
+			subProfileID := nodeShapeTriple.Subject.RawValue()
+			parsedSubProfile, err := new(shacl.NodeShape).Parse(nodeShapeTriple.Subject, &profile)
+			if err != nil {
+				return nil, err
+			}
+			profiles[subProfileID] = parsedSubProfile
+			if strings.HasPrefix(subProfileID, BlankNodeReplacement) {
+				configuredProfileIDs = append(configuredProfileIDs, subProfileID)
+			}
+		}
+
+		for _, referencedShape := range shacl.ReferencedNodeShapes(parsed.Graph) {
+			referencedID := referencedShape.RawValue()
+			if _, exists := profiles[referencedID]; exists {
+				continue
+			}
+			parsedReferenced, err := new(shacl.NodeShape).Parse(referencedShape, &profile)
+			if err != nil {
+				return nil, err
+			}
+			profiles[referencedID] = parsedReferenced
+		}
+	}
+
+	for _, profile := range profiles {
+		profile.DenormalizePropertyNodeShapes(profiles)
+	}
+	Profiles = profiles
+	base.Configuration.Profiles = configuredProfileIDs
+	return profiles, nil
+}
 
 // GetProfile loads a profile graph from the profile dataset storage.
 // It returns the serialized profile bytes and any error encountered.

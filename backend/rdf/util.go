@@ -5,53 +5,8 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"rdf-store-backend/base"
-	"rdf-store-backend/shacl"
 	"strings"
-
-	"github.com/deiu/rdf2go"
 )
-
-var Profiles map[string]*shacl.NodeShape
-
-// ParseAllProfiles loads all profiles, parses shapes, and populates cache.
-// It returns the parsed profile map and any error encountered.
-func ParseAllProfiles() (map[string]*shacl.NodeShape, error) {
-	profileIds, err := GetAllProfileIds()
-	if err != nil {
-		return nil, err
-	}
-	base.Configuration.Profiles = profileIds
-	Profiles = make(map[string]*shacl.NodeShape)
-	// first pass: parse profiles
-	for _, profileId := range profileIds {
-		profile, err := GetProfile(profileId)
-		if err != nil {
-			return nil, err
-		}
-		parsed, err := new(shacl.NodeShape).Parse(rdf2go.NewResource(profileId), &profile)
-		if err != nil {
-			return nil, err
-		}
-		Profiles[profileId] = parsed
-		// register sub profiles (i.e. node shapes previously converted from blank nodes)
-		for _, nodeShapeTriple := range parsed.Graph.All(nil, shacl.RDF_TYPE, shacl.SHACL_NODE_SHAPE) {
-			if strings.HasPrefix(nodeShapeTriple.Subject.RawValue(), BlankNodeReplacement) {
-				parsedSubProfile, err := new(shacl.NodeShape).Parse(nodeShapeTriple.Subject, &profile)
-				if err != nil {
-					return nil, err
-				}
-				Profiles[nodeShapeTriple.Subject.RawValue()] = parsedSubProfile
-				base.Configuration.Profiles = append(base.Configuration.Profiles, nodeShapeTriple.Subject.RawValue())
-			}
-		}
-	}
-
-	for _, profile := range Profiles {
-		profile.DenormalizePropertyNodeShapes(Profiles)
-	}
-	return Profiles, nil
-}
 
 // isValidIRI validates that a value is a URL-like IRI.
 // It returns true when parsing succeeds and a scheme is present.

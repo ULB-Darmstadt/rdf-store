@@ -1,7 +1,6 @@
 import { Store, DataFactory, NamedNode, Quad, StreamParser } from 'n3'
 import { RdfXmlParser } from 'rdfxml-streaming-parser'
 import jsonld from 'jsonld'
-// @ts-expect-error shacl-engine has no type definitions
 import { Validator } from 'shacl-engine'
 import type { Term } from '@rdfjs/types'
 
@@ -36,54 +35,58 @@ export async function validate(shapesGraph: string, rootShaclShapeID: string, da
 
     const validator = new Validator(dataset, { factory: DataFactory, details: false, debug: false })
     const lists = dataset.extractLists()
-    const subjectToShapeConformance: Record<string, string> = {} // RDF subjects conforming to SHACL shape IDs
+    const subjectToShapeConformance: Record<string, string[]> = {} // RDF subjects conforming to SHACL shape IDs
     await validateShape(DataFactory.namedNode(resourceID), DataFactory.namedNode(rootShaclShapeID), subjectToShapeConformance, dataset, validator, lists)
     return subjectToShapeConformance
 }
 
-async function validateShape(resourceID: Term, shapeID: Term, subjectToShapeConformance: Record<string, string>, dataset: Store, validator: Validator, lists: RdfListIndex, visited: Set<string> = new Set()) {
+async function validateShape(resourceID: Term, shapeID: Term, subjectToShapeConformance: Record<string, string[]>, dataset: Store, validator: Validator, lists: RdfListIndex, visited: Set<string> = new Set()) {
     const visitKey = `${resourceID.termType}:${resourceID.value}|${shapeID.termType}:${shapeID.value}`
-    if (visited.has(visitKey) || subjectToShapeConformance[resourceID.value]) {
+    if (visited.has(visitKey)) {
         return
     }
     visited.add(visitKey)
-    const conforms = await registerConformance(resourceID, shapeID, subjectToShapeConformance, dataset, validator)
-    if (conforms) {
-        // resource validates, so dive into all sh:property's in this node shape's inheritance tree
-        const nodeShapes = [shapeID, ...getValueNodeShapes(shapeID, true, dataset, lists)]
-        for (const shape of nodeShapes) {
-            const properties = dataset.getObjects(shape, shaclProperty, shapesGraphName)
-            for (const property of properties) {
-                const paths = dataset.getObjects(property, shaclPath, shapesGraphName)
-                const propertyShapes = getValueNodeShapes(property, false, dataset, lists)
-                if (paths.length === 0 || propertyShapes.length === 0) {
+    const accepted = await registerConformance(resourceID, shapeID, subjectToShapeConformance, dataset, validator)
+    if (accepted) {
+        for (const extendedShape of getValueNodeShapes(shapeID, dataset, lists)) {
+            await validateShape(resourceID, extendedShape, subjectToShapeConformance, dataset, validator, lists, visited)
+        }
+
+        for (const property of dataset.getObjects(shapeID, shaclProperty, shapesGraphName)) {
+            const paths = dataset.getObjects(property, shaclPath, shapesGraphName)
+            const propertyShapes = getValueNodeShapes(property, dataset, lists)
+            if (paths.length === 0 || propertyShapes.length === 0) {
+                continue
+            }
+            for (const path of paths) {
+                if (path.termType !== 'NamedNode') {
                     continue
                 }
-                for (const path of paths) {
-                    if (path.termType !== 'NamedNode') {
-                        continue
-                    }
-                    const values = dataset.getObjects(resourceID, path, dataGraphName)
-                    for (const value of values) {
-                        if (value.termType === 'Literal') {
-                            continue
-                        }
-                        for (const propertyShape of propertyShapes) {
-                            await validateShape(value, propertyShape, subjectToShapeConformance, dataset, validator, lists, visited)
-                        }
+                const values = dataset.getObjects(resourceID, path, dataGraphName)
+                for (const value of values) {
+                    for (const propertyShape of propertyShapes) {
+                        await validateShape(value, propertyShape, subjectToShapeConformance, dataset, validator, lists, visited)
                     }
                 }
             }
         }
     }
-    return conforms
+    return accepted
 }
 
-async function registerConformance(resourceID: Term, shapeID: Term, subjectToShapeConformance: Record<string, string>, dataset: Store, validator: Validator) {
+function addConformance(resourceID: Term, shapeID: Term, subjectToShapeConformance: Record<string, string[]>) {
+    const shapes = subjectToShapeConformance[resourceID.value] ?? []
+    if (!shapes.includes(shapeID.value)) {
+        shapes.push(shapeID.value)
+    }
+    subjectToShapeConformance[resourceID.value] = shapes
+    return true
+}
+
+async function registerConformance(resourceID: Term, shapeID: Term, subjectToShapeConformance: Record<string, string[]>, dataset: Store, validator: Validator) {
     const report = await validator.validate({ dataset: dataset, terms: [ resourceID ] }, [{ terms: [ shapeID ] }])
     if (report.conforms) {
-        subjectToShapeConformance[resourceID.value] = shapeID.value
-        return true
+        return addConformance(resourceID, shapeID, subjectToShapeConformance)
     }
     logValidationFailure(resourceID, shapeID, report.results)
     return false
@@ -141,10 +144,16 @@ function getValidationMessage(result: any) {
 }
 
 function formatValidationMessages(messages: Array<{ value?: string }> = []) {
+    if (!Array.isArray(messages)) {
+        return ''
+    }
     return messages.map((message) => message.value).filter(Boolean).join(' | ')
 }
 
 function formatValidationPath(path: any[] = []) {
+    if (!Array.isArray(path)) {
+        return ''
+    }
     return path.map((step) => {
         const predicates = step.predicates?.map((predicate: Term) => predicate.value).join('|') ?? ''
         const prefix = step.start === 'object' ? '^' : ''
@@ -280,55 +289,15 @@ function guessContentType(input: string) {
     return 'ttl'
 }
 
-function getValueNodeShapes(subject: Term, withIneritance: boolean, dataset: Store, lists: RdfListIndex, visited: Set<string> = new Set()) {
-    const visitKey = `${subject.termType}:${subject.value}`
-    if (visited.has(visitKey)) {
-        return []
-    }
-    visited.add(visitKey)
-    const extendedShapes: Term[] = []
-    const shapesToVisit: Term[] = []
-
-    // sh:qualifiedValueShape
-    shapesToVisit.push(...dataset.getObjects(subject, shaclQualifiedValueShape, shapesGraphName))
-    // sh:node
-    shapesToVisit.push(...dataset.getObjects(subject, shaclNode, shapesGraphName))
-    // sh:and
-    const andLists = dataset.getQuads(subject, shaclAnd, null, shapesGraphName)
-    // sh:or
-    const orLists = dataset.getQuads(subject, shaclOr, null, shapesGraphName)
-    // sh:xone
-    const xoneLists = dataset.getQuads(subject, shaclXone, null, shapesGraphName)
-    if (andLists.length > 0) {
-        for (const andList of andLists) {
-            const terms = lists[andList.object.value] ?? []
-            for (const term of terms) {
-                shapesToVisit.push(...getValueNodeShapes(term, withIneritance, dataset, lists, visited))
-            }
+function getValueNodeShapes(subject: Term, dataset: Store, lists: RdfListIndex) {
+    const shapes: Term[] = [
+        ...dataset.getObjects(subject, shaclQualifiedValueShape, shapesGraphName),
+        ...dataset.getObjects(subject, shaclNode, shapesGraphName),
+    ]
+    for (const predicate of [shaclAnd, shaclOr, shaclXone]) {
+        for (const list of dataset.getQuads(subject, predicate, null, shapesGraphName)) {
+            shapes.push(...(lists[list.object.value] ?? []))
         }
     }
-    if (orLists.length > 0) {
-        for (const orList of orLists) {
-            const terms = lists[orList.object.value] ?? []
-            for (const term of terms) {
-                shapesToVisit.push(...getValueNodeShapes(term, withIneritance, dataset, lists, visited))
-            }
-        }
-    }
-    if (xoneLists.length > 0) {
-        for (const xoneList of xoneLists) {
-            const terms = lists[xoneList.object.value] ?? []
-            for (const term of terms) {
-                shapesToVisit.push(...getValueNodeShapes(term, withIneritance, dataset, lists, visited))
-            }
-        }
-    }
-    for (const shape of shapesToVisit) {
-        extendedShapes.push(shape)
-        if (withIneritance) {
-            // recurse up
-            extendedShapes.push(...getValueNodeShapes(shape, withIneritance, dataset, lists, visited))
-        }
-    }
-    return extendedShapes
+    return shapes
 }

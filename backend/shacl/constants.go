@@ -50,3 +50,4 @@ var DASH_FACET = rdf2go.NewResource(fmt.Sprintf(prefixDASH, "facet"))
 
 var RDF_LIST_FIRST = rdf2go.NewResource(fmt.Sprintf(prefixRDF, "first"))
 var RDF_LIST_REST = rdf2go.NewResource(fmt.Sprintf(prefixRDF, "rest"))
+var RDF_LIST_NIL = rdf2go.NewResource(fmt.Sprintf(prefixRDF, "nil"))

@@ -10,6 +10,9 @@ export default defineConfig(({ mode}) => {
                 // Provide an explicit app-level constant derived from an env var.
                 __APP_ENV__: JSON.stringify(env.APP_ENV),
             },
-            base: env.APP_PATH ?? '/'
+            base: env.APP_PATH ?? './',
+            resolve: {
+                dedupe: ['@ro-kit/ui-widgets'],
+            },
         }
     })

@@ -26,7 +26,7 @@ type ResourceMetadata struct {
 	// LastModified is the timestamp recorded for the latest update.
 	LastModified time.Time
 	// Conformance maps resource identifiers to their conforming SHACL shape identifiers.
-	Conformance map[string]string
+	Conformance map[string][]string
 }
 
 // FindConformingResources returns IDs of resources that conform to a profile.
@@ -72,9 +72,11 @@ var metadataUpdateTemplate = template.Must(template.New("").Funcs(template.FuncM
 	{{if gt (len (.Creator)) 0}}
 	{{.Id}} <` + shacl.DCTERMS_CREATOR.RawValue() + `> "{{.Creator}}" .
 	{{- end}}
-	{{range $key, $value := .Conformance}}
-   	<{{$key}}> <` + shacl.DCTERMS_CONFORMS_TO.RawValue() + `> <{{$value}}> .
-	{{- end }}
+	{{range $key, $values := .Conformance}}
+	{{- range $values}}
+	<{{$key}}> <` + shacl.DCTERMS_CONFORMS_TO.RawValue() + `> <{{.}}> .
+	{{- end}}
+	{{- end}}
 `))
 
 // loadResourceMetadata reads resource metadata triples.
@@ -82,7 +84,7 @@ var metadataUpdateTemplate = template.Must(template.New("").Funcs(template.FuncM
 func loadResourceMetadata(id string) (metadata *ResourceMetadata, err error) {
 	metadata = &ResourceMetadata{
 		Id:          rdf2go.NewResource(id),
-		Conformance: make(map[string]string),
+		Conformance: make(map[string][]string),
 	}
 	bindings, err := queryDataset(resourceMetaDataset, fmt.Sprintf(`SELECT * WHERE { GRAPH <%s> { ?s ?p ?o } }`, id))
 	if err != nil {
@@ -117,7 +119,7 @@ func loadResourceMetadata(id string) (metadata *ResourceMetadata, err error) {
 				}
 			}
 		case shacl.DCTERMS_CONFORMS_TO.RawValue():
-			metadata.Conformance[s.String()] = o.String()
+			metadata.Conformance[s.String()] = append(metadata.Conformance[s.String()], o.String())
 		}
 	}
 	return
@@ -188,7 +190,7 @@ func buildResourceConformance(id rdf2go.Term, resource []byte) (metadata *Resour
 	if err != nil {
 		return
 	}
-	validID, profile, err := findResourceProfile(graph, id)
+	validID, profile, err := FindResourceProfile(graph, id)
 	if err != nil {
 		return
 	}
@@ -201,18 +203,26 @@ func buildResourceConformance(id rdf2go.Term, resource []byte) (metadata *Resour
 		err = ErrNotFound
 		return
 	}
+	validationShapes, err := shacl.SerializeProfileClosure(shapesGraph, Profiles)
+	if err != nil {
+		return nil, nil, err
+	}
 
 	// resolve linked resources since they are needed for validation
 	var linkedResources []string
 	resource, linkedResources, err = resolveLinks(graph, resource)
-	conformance, err := shacl.Validate(string(*shapesGraph.RDF), profile.Id.RawValue(), string(resource), validID.RawValue())
+	strictConformance, err := shacl.Validate(string(*shapesGraph.RDF), profile.Id.RawValue(), string(resource), validID.RawValue())
 	if err != nil {
 		return
 	}
 	// check if conformance map contains the expected SHACL profile for the main resource
-	if rootShape, ok := conformance[validID.RawValue()]; !ok || rootShape != profile.Id.RawValue() {
+	if rootShapes, ok := strictConformance[validID.RawValue()]; !ok || !slices.Contains(rootShapes, profile.Id.RawValue()) {
 		err = fmt.Errorf("resource does not conform to expected shape %s", profile.Id.RawValue())
 		return
+	}
+	conformance, err := shacl.Validate(string(validationShapes), profile.Id.RawValue(), string(resource), validID.RawValue())
+	if err != nil {
+		return nil, nil, err
 	}
 	// filter out shape conformance for linked resources.
 	// we assume that if an ID is not a subject in the original resource graph, then it is a linked resource that has been pulled in by the SPARQL query above.
@@ -230,7 +240,7 @@ func buildResourceConformance(id rdf2go.Term, resource []byte) (metadata *Resour
 
 // FindResourceProfile identifies the profile matching a resource graph.
 // It returns the resource ID, matched profile, and any error encountered.
-func findResourceProfile(graph *rdf2go.Graph, id rdf2go.Term) (resourceID rdf2go.Term, profile *shacl.NodeShape, err error) {
+func FindResourceProfile(graph *rdf2go.Graph, id rdf2go.Term) (resourceID rdf2go.Term, profile *shacl.NodeShape, err error) {
 	var refs []*rdf2go.Triple
 	if id == nil {
 		refs = graph.All(nil, shacl.DCTERMS_CONFORMS_TO, nil)

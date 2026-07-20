@@ -103,6 +103,7 @@ func addSchemas(spec *openapi3.T) {
 		WithProperty("index", openapi3.NewStringSchema()).
 		WithProperty("geoDataType", openapi3.NewStringSchema()).
 		WithProperty("solrMaxAggregations", openapi3.NewIntegerSchema()).
+		WithProperty("shaclQueryMode", openapi3.NewBoolSchema()).
 		WithProperty("authEnabled", openapi3.NewBoolSchema()).
 		WithProperty("authWriteAccess", openapi3.NewBoolSchema()).
 		WithProperty("authUser", openapi3.NewStringSchema()).
