@@ -20,8 +20,8 @@ const queryFieldPrefixes = new Map<string, Promise<string>>()
 type SolrFacetBucket = { val: string | number | boolean, count: number }
 type SolrFacetResult = { count?: number, buckets?: SolrFacetBucket[] }
 
-function queryFieldPrefix(rootShapeId: string, field: QueryField): Promise<string> {
-    const input = [rootShapeId, ...(field.shapePath || field.path)].join('\0')
+function queryFieldPrefix(rootShapeId: string, path: string[]): Promise<string> {
+    const input = [rootShapeId, ...path].join('\0')
     let prefix = queryFieldPrefixes.get(input)
     if (!prefix) {
         prefix = crypto.subtle.digest('SHA-256', new TextEncoder().encode(input)).then(digest => {
@@ -31,6 +31,39 @@ function queryFieldPrefix(rootShapeId: string, field: QueryField): Promise<strin
         queryFieldPrefixes.set(input, prefix)
     }
     return prefix
+}
+
+function queryFieldPaths(field: QueryField): string[][] {
+    if (!field.shapePath || field.shapePath.length !== field.path.length) return [field.path]
+
+    const paths: string[][] = []
+    const seen = new Set<string>()
+    const differingSegments = field.shapePath.flatMap((segment, index) =>
+        segment === field.path[index] ? [] : [index]
+    )
+
+    // Prefer the qualified SHACL path. The indexer can also reach the same value
+    // through an inherited, unqualified property and then stores that segment as
+    // its RDF predicate. Try increasingly less-specific paths as fallbacks.
+    for (let replacements = 0; replacements <= differingSegments.length; replacements++) {
+        const visit = (start: number, selected: number[]) => {
+            if (selected.length === replacements) {
+                const path = [...field.shapePath!]
+                for (const index of selected) path[index] = field.path[index]
+                const key = path.join('\0')
+                if (!seen.has(key)) {
+                    seen.add(key)
+                    paths.push(path)
+                }
+                return
+            }
+            for (let index = start; index < differingSegments.length; index++) {
+                visit(index + 1, [...selected, differingSegments[index]])
+            }
+        }
+        visit(0, [])
+    }
+    return paths
 }
 
 function quote(value: string): string {
@@ -206,6 +239,7 @@ export class SolrQueryFacetProvider implements QueryFacetProvider {
             }
             result.push(queryFacet)
         }
+        console.log('--- facets', result)
         return result
     }
 
@@ -222,7 +256,6 @@ export class SolrQueryFacetProvider implements QueryFacetProvider {
 
     private async resolveField(rootShapeId: string, field: QueryField, fields: ReadonlySet<string>, criterion?: QueryCriterion): Promise<string | undefined> {
         if (!field.path.length) return undefined
-        const prefix = await queryFieldPrefix(rootShapeId, field)
         const suffixes = criterion?.operator === 'contains'
             ? ['txt']
             : isRangeQueryField(field)
@@ -230,8 +263,13 @@ export class SolrQueryFacetProvider implements QueryFacetProvider {
                 : field.datatype === `${XSD}boolean`
                     ? ['bs', 'ss']
                     : ['srpt', 'txt', 'ss']
-        return suffixes.map(suffix => `${prefix}${suffix}`).find(name => fields.has(name))
-            ?? Array.from(fields).find(name => name.startsWith(prefix))
+        for (const path of queryFieldPaths(field)) {
+            const prefix = await queryFieldPrefix(rootShapeId, path)
+            const resolved = suffixes.map(suffix => `${prefix}${suffix}`).find(name => fields.has(name))
+                ?? Array.from(fields).find(name => name.startsWith(prefix))
+            if (resolved) return resolved
+        }
+        return undefined
     }
 
     private criterionFilter(criterion: QueryCriterion, indexField: string): string | undefined {
