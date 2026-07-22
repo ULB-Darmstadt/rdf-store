@@ -58,6 +58,8 @@ layout-footer {
 rdf-viewer { height: 100%; }
 rokit-splitpane { height: 100%; }
 rokit-splitpane::part(separator) { background-color: #DDD; }
+shacl-form[loading] { --shacl-font-size: 16px; padding: 8px; }
 shacl-form::part(facet-count) { color: var(--secondary-color) }
 .no-filters { display: none; }
+shacl-form.query-facets-empty { display: none; }
 shacl-form.query-facets-empty + .no-filters { display: block; }
