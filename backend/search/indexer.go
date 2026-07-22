@@ -93,14 +93,39 @@ func IndexResource(resource *rdf2go.Graph, metadata *rdf.ResourceMetadata) error
 
 	doc := &document{
 		"id":           metadata.Id.RawValue(),
-		"rootShape":    rootProfileId,
 		"creator":      metadata.Creator,
 		"lastModified": metadata.LastModified,
 		"label":        findLabels(metadata.Id, resource),
 	}
 	buildDoc(metadata.Id, profile, profile.Id.RawValue(), resource, metadata, doc)
-	buildQueryDoc(metadata.Id, profile, rootProfileId, nil, nil, resource, metadata, doc, newQueryTraversalState())
+	buildRootQueryDocs(metadata.Id, profile, resource, metadata, doc)
 	return updateDoc(doc)
+}
+
+// buildRootQueryDocs indexes a resource for its concrete root shape and every
+// shape that it inherits. The frontend can therefore select a base shape and
+// use the query fields derived from that base shape to find specialized
+// resources as well.
+func buildRootQueryDocs(subject rdf2go.Term, profile *shacl.NodeShape, resource *rdf2go.Graph, metadata *rdf.ResourceMetadata, current *document) {
+	visited := make(map[string]bool)
+	var visit func(*shacl.NodeShape)
+	visit = func(currentProfile *shacl.NodeShape) {
+		profileID := currentProfile.Id.RawValue()
+		if visited[profileID] {
+			return
+		}
+		visited[profileID] = true
+		current.appendValue("rootShape", profileID)
+		buildQueryDoc(subject, currentProfile, profileID, nil, nil, resource, metadata, current, newQueryTraversalState())
+		for parentID := range currentProfile.Parents {
+			if parent, ok := rdf.Profiles[parentID]; ok {
+				visit(parent)
+			} else {
+				slog.Warn("profile not found", "id", parentID)
+			}
+		}
+	}
+	visit(profile)
 }
 
 // DeindexResource removes documents associated with a resource ID.

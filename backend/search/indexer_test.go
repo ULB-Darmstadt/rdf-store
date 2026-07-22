@@ -31,6 +31,18 @@ func TestDocumentAppendValueDeduplicatesValues(t *testing.T) {
 	}
 }
 
+func TestRootShapeSchemaIsMultiValued(t *testing.T) {
+	for _, field := range createCollectionSchema() {
+		if field.Name == "rootShape" {
+			if !field.MultiValued {
+				t.Fatal("expected rootShape to accept inherited shape IDs")
+			}
+			return
+		}
+	}
+	t.Fatal("rootShape field is missing from the collection schema")
+}
+
 func TestBuildQueryDocIndexesNestedInheritedNumericValue(t *testing.T) {
 	rootID := "http://example.org/Root"
 	derivedID := "http://example.org/Derived"
@@ -96,6 +108,75 @@ func TestBuildQueryDocIndexesNestedInheritedNumericValue(t *testing.T) {
 	values, ok := doc[field].([]any)
 	if !ok || len(values) != 1 || values[0] != "12.5" {
 		t.Fatalf("expected nested numeric query field %q, got %#v", field, doc[field])
+	}
+}
+
+func TestBuildRootQueryDocsIndexesInheritedShapeContexts(t *testing.T) {
+	const (
+		derivedID = "http://example.org/Derived"
+		middleID  = "http://example.org/Middle"
+		baseID    = "http://example.org/Base"
+		namePath  = "http://example.org/name"
+	)
+
+	derived := &shacl.NodeShape{
+		Id:           rdf2go.NewResource(derivedID),
+		Parents:      map[string]bool{middleID: true},
+		Alternatives: map[string]bool{},
+		Properties:   map[string][]*shacl.Property{},
+	}
+	middle := &shacl.NodeShape{
+		Id:           rdf2go.NewResource(middleID),
+		Parents:      map[string]bool{baseID: true},
+		Alternatives: map[string]bool{},
+		Properties:   map[string][]*shacl.Property{},
+	}
+	base := &shacl.NodeShape{
+		Id:           rdf2go.NewResource(baseID),
+		Parents:      map[string]bool{},
+		Alternatives: map[string]bool{},
+		Properties: map[string][]*shacl.Property{
+			namePath: {{
+				Id:       rdf2go.NewResource("urn:property:name"),
+				Datatype: "http://www.w3.org/2001/XMLSchema#string",
+			}},
+		},
+	}
+
+	previousProfiles := rdf.Profiles
+	rdf.Profiles = map[string]*shacl.NodeShape{derivedID: derived, middleID: middle, baseID: base}
+	t.Cleanup(func() { rdf.Profiles = previousProfiles })
+
+	subject := rdf2go.NewResource("http://example.org/resource")
+	graph := rdf2go.NewGraph("")
+	graph.AddTriple(subject, rdf2go.NewResource(namePath), rdf2go.NewLiteral("Inherited result"))
+	metadata := &rdf.ResourceMetadata{Conformance: map[string][]string{
+		subject.RawValue(): {derivedID},
+	}}
+	doc := document{}
+
+	buildRootQueryDocs(subject, derived, graph, metadata, &doc)
+
+	rootShapes, ok := doc["rootShape"].([]any)
+	if !ok || len(rootShapes) != 3 {
+		t.Fatalf("expected concrete and inherited root shapes, got %#v", doc["rootShape"])
+	}
+	for _, shapeID := range []string{derivedID, middleID, baseID} {
+		found := false
+		for _, indexedShapeID := range rootShapes {
+			if indexedShapeID == shapeID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected root shape %q in %#v", shapeID, rootShapes)
+		}
+	}
+
+	baseField := queryFieldName(baseID, []string{namePath}, "txt")
+	if values, ok := doc[baseField].([]any); !ok || len(values) != 1 || values[0] != "Inherited result" {
+		t.Fatalf("expected inherited root query field %q, got %#v", baseField, doc[baseField])
 	}
 }
 
