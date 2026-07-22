@@ -239,7 +239,6 @@ export class SolrQueryFacetProvider implements QueryFacetProvider {
             }
             result.push(queryFacet)
         }
-        console.log('--- facets', result)
         return result
     }
 
