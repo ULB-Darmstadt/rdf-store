@@ -77,7 +77,7 @@ export class App extends LitElement {
         if (index > -1) {
             const id = window.location.pathname.substring(index + 10)
             if (id && this.config) {
-                this.viewRdfSubject = this.config.rdfNamespace + id
+                this.viewRdfSubject = decodeURIComponent(id)
             }
         }
     }
@@ -96,11 +96,11 @@ export class App extends LitElement {
         let path = APP_PATH
         if (subject) {
             if (typeof subject === 'string') {
-                path += 'resource/' + subject.replace(this.config?.rdfNamespace ?? '', '')
+                path += 'resource/' + encodeURIComponent(subject)
             } else {
                 // support unselecting a currently selected hit
                 if (this.viewHiglightSubject !== subject.id) {
-                    path += 'resource/' + subject._root_.replace(this.config?.rdfNamespace ?? '', '')
+                    path += 'resource/' + encodeURIComponent(subject._root_)
                     this.viewHiglightSubject = subject.id
                 } else {
                     this.viewRdfSubject = undefined
