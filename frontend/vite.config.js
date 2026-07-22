@@ -14,5 +14,8 @@ export default defineConfig(({ mode}) => {
             resolve: {
                 dedupe: ['@ro-kit/ui-widgets'],
             },
+            optimizeDeps: {
+                exclude: ['@ro-kit/ui-widgets'],
+            },
         }
     })
