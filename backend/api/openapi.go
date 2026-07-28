@@ -114,6 +114,9 @@ func addSchemas(spec *openapi3.T) {
 		WithAdditionalProperties(openapi3.NewStringSchema()))
 	spec.Components.Schemas["ShapeInstancesResponse"] = openapi3.NewSchemaRef("", openapi3.NewSchema().
 		WithAdditionalProperties(openapi3.NewStringSchema()))
+	spec.Components.Schemas["ProfileSummary"] = openapi3.NewSchemaRef("", openapi3.NewObjectSchema().
+		WithProperty("id", openapi3.NewStringSchema()).
+		WithProperty("parents", openapi3.NewArraySchema().WithItems(openapi3.NewStringSchema())))
 	spec.Components.Schemas["Error"] = openapi3.NewSchemaRef("", openapi3.NewSchema().
 		WithProperty("error", openapi3.NewStringSchema()))
 }
@@ -207,6 +210,17 @@ func addPaths(spec *openapi3.T) {
 		Responses: responses(map[string]*openapi3.Response{
 			"200": turtleResponse(),
 			"400": errorResponse(),
+		}),
+		Tags: []string{TAG_RDF},
+	}})
+
+	profilesSchema := openapi3.NewArraySchema()
+	profilesSchema.Items = openapi3.NewSchemaRef("#/components/schemas/ProfileSummary", nil)
+	spec.Paths.Set("/profiles", &openapi3.PathItem{Get: &openapi3.Operation{
+		Summary:     "List profiles and direct inheritance relationships",
+		OperationID: "listProfiles",
+		Responses: responses(map[string]*openapi3.Response{
+			"200": jsonSchemaResponse(profilesSchema.NewRef(), "OK"),
 		}),
 		Tags: []string{TAG_RDF},
 	}})

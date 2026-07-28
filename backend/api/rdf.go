@@ -10,6 +10,7 @@ import (
 	"rdf-store-backend/base"
 	"rdf-store-backend/rdf"
 	"rdf-store-backend/search"
+	"sort"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -39,6 +40,7 @@ func init() {
 	Router.POST(BasePath+"/resource", handleAddResource)
 	Router.PUT(BasePath+"/resource/*id", handleUpdateResource)
 	Router.DELETE(BasePath+"/resource/*id", handleDeleteResource)
+	Router.GET(BasePath+"/profiles", handleListProfiles)
 	Router.GET(BasePath+"/profile/*id", handleGetProfile)
 	Router.POST(BasePath+"/sparql/query", handleFusekiSparql)
 	Router.GET(BasePath+"/sparql/query", handleFusekiSparql)
@@ -47,6 +49,35 @@ func init() {
 	if base.ExposeFusekiFrontend {
 		Router.Any("/fuseki/*proxyPath", handleFusekiFrontend)
 	}
+}
+
+type profileSummary struct {
+	ID      string   `json:"id"`
+	Parents []string `json:"parents"`
+}
+
+// handleListProfiles returns selectable profiles and their direct inheritance
+// relationships without requiring clients to load every profile graph.
+func handleListProfiles(c *gin.Context) {
+	configured := make(map[string]bool, len(base.Configuration.Profiles))
+	for _, id := range base.Configuration.Profiles {
+		configured[id] = true
+	}
+
+	profiles := make([]profileSummary, 0, len(base.Configuration.Profiles))
+	for _, id := range base.Configuration.Profiles {
+		parents := make([]string, 0)
+		if profile := rdf.Profiles[id]; profile != nil {
+			for parent := range profile.Parents {
+				if configured[parent] {
+					parents = append(parents, parent)
+				}
+			}
+			sort.Strings(parents)
+		}
+		profiles = append(profiles, profileSummary{ID: id, Parents: parents})
+	}
+	c.JSON(http.StatusOK, profiles)
 }
 
 // handleFusekiSparql proxies SPARQL queries to Fuseki with auth header.

@@ -33,13 +33,22 @@ function queryFieldPrefix(rootShapeId: string, path: string[]): Promise<string> 
     return prefix
 }
 
+function expandQueryPath(path: QueryField['path']): string[][] {
+    return path.reduce<string[][]>((paths, segment) => {
+        const alternatives = Array.isArray(segment) ? segment : [segment]
+        return paths.flatMap(path => alternatives.map(alternative => [...path, alternative]))
+    }, [[]])
+}
+
 function queryFieldPaths(field: QueryField): string[][] {
-    if (!field.shapePath || field.shapePath.length !== field.path.length) return [field.path]
+    if (!field.shapePath || field.shapePath.length !== field.path.length) {
+        return expandQueryPath(field.path)
+    }
 
     const paths: string[][] = []
     const seen = new Set<string>()
     const differingSegments = field.shapePath.flatMap((segment, index) =>
-        segment === field.path[index] ? [] : [index]
+        !Array.isArray(field.path[index]) && segment === field.path[index] ? [] : [index]
     )
 
     // Prefer the qualified SHACL path. The indexer can also reach the same value
@@ -48,12 +57,14 @@ function queryFieldPaths(field: QueryField): string[][] {
     for (let replacements = 0; replacements <= differingSegments.length; replacements++) {
         const visit = (start: number, selected: number[]) => {
             if (selected.length === replacements) {
-                const path = [...field.shapePath!]
+                const path: QueryField['path'] = [...field.shapePath!]
                 for (const index of selected) path[index] = field.path[index]
-                const key = path.join('\0')
-                if (!seen.has(key)) {
-                    seen.add(key)
-                    paths.push(path)
+                for (const expandedPath of expandQueryPath(path)) {
+                    const key = expandedPath.join('\0')
+                    if (!seen.has(key)) {
+                        seen.add(key)
+                        paths.push(expandedPath)
+                    }
                 }
                 return
             }

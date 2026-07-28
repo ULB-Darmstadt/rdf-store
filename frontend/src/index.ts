@@ -276,7 +276,17 @@ export class App extends LitElement {
                     `}
                     ${this.config.shaclQueryMode ? html`
                         <div class="query-profile">
-                            <profile-chooser></profile-chooser>
+                            <profile-chooser
+                                .index="${this.config.index}"
+                                .selectedProfile="${this.selectedQueryProfile}"
+                                @change="${(event: Event) => {
+                                    this.selectedQueryProfile = (event.currentTarget as HTMLElement & { selectedProfile: string }).selectedProfile
+                                    this.query = this.selectedQueryProfile ? {
+                                        rootShapeId: this.selectedQueryProfile,
+                                        criteria: [],
+                                    } : undefined
+                                }}"
+                            ></profile-chooser>
                             ${this.selectedQueryProfile ? html`
                                 <shacl-form
                                     id="query-form"
