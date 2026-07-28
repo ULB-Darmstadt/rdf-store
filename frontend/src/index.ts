@@ -186,7 +186,7 @@ export class App extends LitElement {
                     offset: this.offset,
                     limit: this.limit,
                     sort: `lastModified desc`,
-                    term: this.config!.shaclQueryMode ? undefined : this.searchTerm,
+                    term: this.searchTerm,
                     creator: this.config!.shaclQueryMode ? undefined : this.searchCreator,
                     facets: this.facets,
                     filters: queryFilters,
