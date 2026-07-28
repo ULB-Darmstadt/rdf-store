@@ -12,12 +12,14 @@ export class DateRangeFacet extends NumberRangeFacet {
 
     firstUpdated() {
         super.firstUpdated()
-        this.slider!.labelFormatter = (value) => { return epochToDate(value, true) }
+        this.slider!.labelFormatter = (value) => {
+            return epochToDate(value, true)
+        }
     }
 
     updateValues(aggs: Record<string, string>) {
         // convert dates to epoch milliseconds so that parent class can handle all the facet logic
-        const numbered: Record<string, number> =  {}
+        const numbered: Record<string, number> = {}
         Object.entries(aggs).forEach((value) => {
             numbered[value[0]] = new Date(value[1]).getTime() / 1000
         })

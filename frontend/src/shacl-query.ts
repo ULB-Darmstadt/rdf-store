@@ -58,7 +58,9 @@ function queryFieldPaths(field: QueryField): string[][] {
         const visit = (start: number, selected: number[]) => {
             if (selected.length === replacements) {
                 const path: QueryField['path'] = [...field.shapePath!]
-                for (const index of selected) path[index] = field.path[index]
+                for (const index of selected) {
+                    path[index] = field.path[index]
+                }
                 for (const expandedPath of expandQueryPath(path)) {
                     const key = expandedPath.join('\0')
                     if (!seen.has(key)) {
@@ -82,12 +84,16 @@ function quote(value: string): string {
 }
 
 function normalizeDate(value: string): string {
-    if (value.length === 10) return `${value}T00:00:00Z`
+    if (value.length === 10) {
+        return `${value}T00:00:00Z`
+    }
     return /(?:Z|[+-]\d\d:\d\d)$/.test(value) ? value : `${value}Z`
 }
 
 function storedValue(term: Term, field: QueryField): string {
-    if (term.termType === 'NamedNode') return `<${term.value}>`
+    if (term.termType === 'NamedNode') {
+        return `<${term.value}>`
+    }
     return field.datatype && DATE_TYPES.has(field.datatype) ? normalizeDate(term.value) : term.value
 }
 
@@ -99,12 +105,16 @@ const WORLD_BOUNDS = '[-90,-180 TO 90,180]'
 
 function wktPolygonToBbox(wkt: string): string | undefined {
     const match = wkt.match(/^POLYGON[(]{2}(.*)[)]{2}$/)
-    if (!match) return undefined
+    if (!match) {
+        return undefined
+    }
     const coords = match[1].split(',').map(pair => {
         const [x, y] = pair.trim().split(/\s+/).map(Number)
         return [x, y] as [number, number]
     })
-    if (coords.length < 3) return undefined
+    if (coords.length < 3) {
+        return undefined
+    }
     const lngs = coords.map(c => c[0])
     const lats = coords.map(c => c[1])
     const west = Math.min(...lngs)
@@ -132,7 +142,7 @@ export class SolrQueryFacetProvider implements QueryFacetProvider {
 
     constructor(
         private readonly index: string,
-        private readonly bucketLimit = 100,
+        private readonly bucketLimit = 100
     ) {}
 
     setBaseFilters(filters: string[]) {
@@ -141,8 +151,12 @@ export class SolrQueryFacetProvider implements QueryFacetProvider {
 
     setSearchContext(term?: string, creator?: string) {
         const filters: string[] = []
-        if (creator) filters.push(`creator:${quote(creator)}`)
-        if (term) filters.push(`_text_:*${term.replace(LUCENE_SPECIAL_RE, '\\$1')}*`)
+        if (creator) {
+            filters.push(`creator:${quote(creator)}`)
+        }
+        if (term) {
+            filters.push(`_text_:*${term.replace(LUCENE_SPECIAL_RE, '\\$1')}*`)
+        }
         this.setBaseFilters(filters)
     }
 
@@ -164,7 +178,9 @@ export class SolrQueryFacetProvider implements QueryFacetProvider {
                 return
             }
             const filter = this.criterionFilter(criterion, indexField)
-            if (filter) filters.push(filter)
+            if (filter) {
+                filters.push(filter)
+            }
         })
         return filters
     }
@@ -201,20 +217,28 @@ export class SolrQueryFacetProvider implements QueryFacetProvider {
             }
         })
 
-        if (resolved.size === 0) return result
+        if (resolved.size === 0) {
+            return result
+        }
         const query: SearchRequest = { query: '*', filter: filters, facet: facet as SearchRequest['facet'], limit: 0, offset: 0 }
         const response = await executeSolrRequest(this.index, query, request.signal)
-        if (response.error) throw new Error(response.error.msg || response.error.trace || 'Solr facet request failed')
+        if (response.error) {
+            throw new Error(response.error.msg || response.error.trace || 'Solr facet request failed')
+        }
         const aggregations = response.facets || {}
 
         const labelIds = new Set<string>()
         for (const index of resolved.keys()) {
             const field = request.fields[index]
-            if (isRangeQueryField(field) || isSpatialField(resolved.get(index)!)) continue
+            if (isRangeQueryField(field) || isSpatialField(resolved.get(index)!)) {
+                continue
+            }
             const bucketResult = aggregations[`f${index}_buckets`] as SolrFacetResult | undefined
             for (const bucket of bucketResult?.buckets || []) {
                 const value = termFromSolr(bucket.val, field)
-                if (value.termType === 'NamedNode') labelIds.add(value.value)
+                if (value.termType === 'NamedNode') {
+                    labelIds.add(value.value)
+                }
             }
         }
         await fetchLabels(Array.from(labelIds), true)
@@ -226,8 +250,12 @@ export class SolrQueryFacetProvider implements QueryFacetProvider {
             if (isRangeQueryField(field)) {
                 const min = aggregations[`f${index}_min`]
                 const max = aggregations[`f${index}_max`]
-                if (min !== undefined && typeof min !== 'object') queryFacet.min = termFromSolr(min, field)
-                if (max !== undefined && typeof max !== 'object') queryFacet.max = termFromSolr(max, field)
+                if (min !== undefined && typeof min !== 'object') {
+                    queryFacet.min = termFromSolr(min, field)
+                }
+                if (max !== undefined && typeof max !== 'object') {
+                    queryFacet.max = termFromSolr(max, field)
+                }
             } else if (isSpatialField(resolved.get(index)!)) {
                 const heatmap = aggregations[`f${index}_heatmap`] as AggregationFacet | undefined
                 if (heatmap?.counts_ints2D?.length) {
@@ -265,7 +293,9 @@ export class SolrQueryFacetProvider implements QueryFacetProvider {
     }
 
     private async resolveField(rootShapeId: string, field: QueryField, fields: ReadonlySet<string>, criterion?: QueryCriterion): Promise<string | undefined> {
-        if (!field.path.length) return undefined
+        if (!field.path.length) {
+            return undefined
+        }
         const suffixes = criterion?.operator === 'contains'
             ? ['txt']
             : isRangeQueryField(field)
@@ -277,7 +307,9 @@ export class SolrQueryFacetProvider implements QueryFacetProvider {
             const prefix = await queryFieldPrefix(rootShapeId, path)
             const resolved = suffixes.map(suffix => `${prefix}${suffix}`).find(name => fields.has(name))
                 ?? Array.from(fields).find(name => name.startsWith(prefix))
-            if (resolved) return resolved
+            if (resolved) {
+                return resolved
+            }
         }
         return undefined
     }
@@ -290,14 +322,18 @@ export class SolrQueryFacetProvider implements QueryFacetProvider {
         if (criterion.operator === 'equals' && criterion.value) {
             if (indexField.endsWith('_srpt')) {
                 const bbox = wktPolygonToBbox(criterion.value.value)
-                if (bbox) return `${indexField}:${bbox}`
+                if (bbox) {
+                    return `${indexField}:${bbox}`
+                }
             }
             return `${indexField}:${quote(storedValue(criterion.value, criterion.field))}`
         }
         if (criterion.operator === 'range') {
             const min = criterion.min ? quote(storedValue(criterion.min, criterion.field)) : '*'
             const max = criterion.max ? quote(storedValue(criterion.max, criterion.field)) : '*'
-            if (min !== '*' || max !== '*') return `${indexField}:[${min} TO ${max}]`
+            if (min !== '*' || max !== '*') {
+                return `${indexField}:[${min} TO ${max}]`
+            }
         }
         return undefined
     }

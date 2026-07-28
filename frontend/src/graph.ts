@@ -1,6 +1,6 @@
 import { css, html, LitElement, type PropertyValues } from 'lit'
 import { customElement, property, query } from 'lit/decorators.js'
-import  * as d3 from 'd3'
+import * as d3 from 'd3'
 import { type D3DragEvent, type Simulation, type SimulationLinkDatum, type SimulationNodeDatum } from 'd3'
 import { RDF_TYPE } from './constants'
 import { fetchLabels, i18n } from './i18n'
@@ -11,7 +11,7 @@ type Node = SimulationNodeDatum & {
     label?: string
     type?: string
     properties: Record<string, string[]>
-} 
+}
 
 type Edge = SimulationLinkDatum<Node> & {
     type: string
@@ -89,11 +89,11 @@ export class RdfGraph extends LitElement {
         }
         for (const [key, values] of Object.entries(node.properties)) {
             for (const value of values) {
-            const dt = document.createElement('dt')
-            dt.textContent = i18n[key] || key
-            const dd = document.createElement('dd')
-            dd.textContent = i18n[value] || value
-            list.append(dt, dd)
+                const dt = document.createElement('dt')
+                dt.textContent = i18n[key] || key
+                const dd = document.createElement('dd')
+                dd.textContent = i18n[value] || value
+                list.append(dt, dd)
             }
         }
         pane.appendChild(list)
@@ -108,8 +108,12 @@ export class RdfGraph extends LitElement {
             this.infopane.classList.remove('pinned')
         }
     }
-    
-    keyListener = (event: KeyboardEvent) => { if (event.key === 'Escape') { this.hideInfoPane(undefined) }}
+
+    keyListener = (event: KeyboardEvent) => {
+        if (event.key === 'Escape') {
+            this.hideInfoPane(undefined)
+        }
+    }
 
     updated(pv: PropertyValues) {
         if (pv.has('rdfSubject') || pv.has('highlightSubject') || pv.has('rdf')) {
@@ -130,7 +134,9 @@ export class RdfGraph extends LitElement {
     firstUpdated() {
         window.addEventListener('keydown', this.keyListener)
         this.addEventListener('click', this.hideInfoPane)
-        this.infopane.addEventListener('click', event => { event.stopPropagation() })
+        this.infopane.addEventListener('click', event => {
+            event.stopPropagation()
+        })
     }
 
     disconnectedCallback() {
@@ -174,7 +180,7 @@ export class RdfGraph extends LitElement {
         for (const node of nodeArray) {
             node.label = i18n[node.id]
             if (node.type) {
-                let typeLabel = i18n[node.type] || node.type
+                const typeLabel = i18n[node.type] || node.type
                 if (node.label) {
                     node.label += ` <tspan class="type node-type">&lt;${typeLabel}&gt;</tspan>`
                 } else {
@@ -191,119 +197,119 @@ export class RdfGraph extends LitElement {
         const linkId = (_: Edge, i: number) => `link-path-${i}`
 
         const simulation = d3.forceSimulation<Node, Edge>(nodeArray)
-            .force("link", d3.forceLink<Node, Edge>(links).id(d => d.id))
-            .force("charge", d3.forceManyBody().strength(-1200))
-            .force("collide", d3.forceCollide<Node>().radius(18).iterations(2))
-            .force("x", d3.forceX())
-            .force("y", d3.forceY())
+            .force('link', d3.forceLink<Node, Edge>(links).id(d => d.id))
+            .force('charge', d3.forceManyBody().strength(-1200))
+            .force('collide', d3.forceCollide<Node>().radius(18).iterations(2))
+            .force('x', d3.forceX())
+            .force('y', d3.forceY())
             .alpha(1.8)
             .alphaMin(0.2)
-            .alphaDecay(0.08) 
+            .alphaDecay(0.08)
             .velocityDecay(0.6)
-        
-        const svg = d3.create("svg").attr("viewBox", `${-width/2} ${-height/2} ${width} ${height}`)
-        const scene = svg.append("g").attr("id", "scene")
-        const zoom = d3.zoom<SVGSVGElement, unknown>().scaleExtent([0.3, 1.3]).on("zoom", event => scene.attr("transform", event.transform))
-        svg.call(zoom as any)
+
+        const svg = d3.create('svg').attr('viewBox', `${-width / 2} ${-height / 2} ${width} ${height}`)
+        const scene = svg.append('g').attr('id', 'scene')
+        const zoom = d3.zoom<SVGSVGElement, undefined>().scaleExtent([0.3, 1.3]).on('zoom', event => scene.attr('transform', event.transform))
+        svg.call(zoom)
 
         // arrow heads
-        svg.append("defs").selectAll("marker")
+        svg.append('defs').selectAll('marker')
             .data(types)
-            .join("marker")
-            .attr("id", d => `arrow-${d}`)
+            .join('marker')
+            .attr('id', d => `arrow-${d}`)
             // .attr("id", d => markerId(d))
-            .attr("viewBox", "0 -5 10 10")
-            .attr("refX", 11)
-            .attr("refY", -1)
-            .attr("markerWidth", 6)
-            .attr("markerHeight", 6)
-            .attr("orient", "auto")
-            .attr("stroke", "var(--background-color, white)")
-            .attr("stroke-width", 2)
-            .append("path")
-            .attr("fill", color)
-            .attr("d", "M0,-5L10,0L0,5")
+            .attr('viewBox', '0 -5 10 10')
+            .attr('refX', 11)
+            .attr('refY', -1)
+            .attr('markerWidth', 6)
+            .attr('markerHeight', 6)
+            .attr('orient', 'auto')
+            .attr('stroke', 'var(--background-color, white)')
+            .attr('stroke-width', 2)
+            .append('path')
+            .attr('fill', color)
+            .attr('d', 'M0,-5L10,0L0,5')
 
         // links
-        const link = scene.append("g")
-            .attr("fill", "none")
-            .attr("stroke-width", 2)
-            .attr("class", "links")
-            .selectAll("path")
+        const link = scene.append('g')
+            .attr('fill', 'none')
+            .attr('stroke-width', 2)
+            .attr('class', 'links')
+            .selectAll('path')
             .data(links)
-            .join("path")
-            .attr("id", linkId)
-            .attr("stroke", d => color(d.type))
-            .attr("marker-end", d => `url(${new URL(`#arrow-${d.type}`, location.toString())})`)
+            .join('path')
+            .attr('id', linkId)
+            .attr('stroke', d => color(d.type))
+            .attr('marker-end', d => `url(${new URL(`#arrow-${d.type}`, location.toString())})`)
 
         // link labels
-        scene.append("g")
-            .attr("class", "link-labels")
-            .selectAll("text")
+        scene.append('g')
+            .attr('class', 'link-labels')
+            .selectAll('text')
             .data(links)
-            .join("text")
-            .attr("font-size", 7)
-            .attr("dy", "-0.3em")
-            .append("textPath")
-            .attr("fill", d => color(d.type))
-            .attr("href", (_, i) => `#${linkId(_, i)}`)
-            .attr("startOffset", "45%")
-            .attr("text-anchor", "middle")
+            .join('text')
+            .attr('font-size', 7)
+            .attr('dy', '-0.3em')
+            .append('textPath')
+            .attr('fill', d => color(d.type))
+            .attr('href', (_, i) => `#${linkId(_, i)}`)
+            .attr('startOffset', '45%')
+            .attr('text-anchor', 'middle')
             .text(d => d.label || d.type)
 
         // nodes
-        const node = scene.append("g")
-            .attr("fill", "#888")
-            .selectAll("g")
+        const node = scene.append('g')
+            .attr('fill', '#888')
+            .selectAll<SVGGElement, Node>('g')
             .data(nodeArray)
-            .join("g")
-            .attr("class", d => `node${d.id === this.rdfSubject ? ' root' : ''}${d.id === this.highlightSubject ? ' highlight' : ''}`)
-            .call(drag(simulation) as any, undefined)
+            .join('g')
+            .attr('class', d => `node${d.id === this.rdfSubject ? ' root' : ''}${d.id === this.highlightSubject ? ' highlight' : ''}`)
+            .call(drag(simulation))
 
         // pulse ring for highlighing animation
-        node.append("circle")
-            .attr("class", "pulse-ring")
-            .attr("r", 4)
+        node.append('circle')
+            .attr('class', 'pulse-ring')
+            .attr('r', 4)
 
-        node.append("circle")
-            .attr("stroke", "var(--background-color, white)")
-            .attr("stroke-width", 0.5)
-            .attr("r", d => d.id === this.rdfSubject ? 7 : 4) // make root node larger
+        node.append('circle')
+            .attr('stroke', 'var(--background-color, white)')
+            .attr('stroke-width', 0.5)
+            .attr('r', d => d.id === this.rdfSubject ? 7 : 4) // make root node larger
 
         // labels
-        node.append("text")
-            .attr("x", 8)
-            .attr("y", "0.31em")
+        node.append('text')
+            .attr('x', 8)
+            .attr('y', '0.31em')
             .html(d => d.label ?? d.id)
             .clone(true).lower()
-            .attr("fill", "none")
-            .attr("stroke", "var(--background-color, white)")
-            .attr("stroke-width", 1)
+            .attr('fill', 'none')
+            .attr('stroke', 'var(--background-color, white)')
+            .attr('stroke-width', 1)
 
-        node.on("mouseenter", (_, d: Node) => {
+        node.on('mouseenter', (_, d: Node) => {
             if (!this.infopane.classList.contains('pinned')) {
                 this.showInfoPane(d, false)
             }
         })
-        node.on("mouseleave", () => {
+        node.on('mouseleave', () => {
             this.hideInfoPane(undefined, false)
         })
-        node.on("click", (e, d: Node) => {
+        node.on('click', (e, d: Node) => {
             e.stopPropagation()
             this.showInfoPane(d, true)
         })
-        node.on("pointerdown", (e) => e.stopPropagation())
+        node.on('pointerdown', (e) => e.stopPropagation())
 
-        simulation.on("tick", () => {
-            link.attr("d", linkArc)
-            node.attr("transform", d => `translate(${d.x},${d.y})`)
+        simulation.on('tick', () => {
+            link.attr('d', linkArc)
+            node.attr('transform', d => `translate(${d.x},${d.y})`)
         })
 
         // pre-tick to advance simulation to stable state
         for (let i = 0; i < 50; i++) {
             simulation.tick()
         }
-        
+
         return Object.assign(svg.node()!, { scales: { color }, zoomBehaviour: zoom })
     }
 
@@ -318,7 +324,9 @@ export class RdfGraph extends LitElement {
 
 function fitToView(svg: SVGSVGElement) {
     const scene = svg.querySelector<SVGGElement>('#scene')
-    const zoom = (svg as any)['zoomBehaviour'] as d3.ZoomBehavior<SVGSVGElement, unknown>
+    const zoom = (svg as SVGSVGElement & {
+        zoomBehaviour?: d3.ZoomBehavior<SVGSVGElement, undefined>
+    }).zoomBehaviour
     if (scene && zoom) {
         const bbox = scene.getBBox()
         if (!bbox.width || !bbox.height) {
@@ -332,7 +340,7 @@ function fitToView(svg: SVGSVGElement) {
             .scale(scale)
             .translate(-(bbox.x + bbox.width / 2), -bbox.y)
 
-        d3.select(svg).call(zoom.transform as any, transform)
+        d3.select<SVGSVGElement, undefined>(svg).call(zoom.transform, transform)
     }
 }
 
@@ -347,36 +355,41 @@ function linkArc(d: Edge) {
 }
 
 const drag = (simulation: Simulation<Node, Edge>) => {
-    let startX = 0, startY = 0;
+    let startX = 0, startY = 0
 
-    function dragstarted(event: D3DragEvent<Element, undefined, undefined>, d: Node) {
-        const se = event.sourceEvent as PointerEvent | MouseEvent | undefined;
-        startX = se?.clientX ?? 0;
-        startY = se?.clientY ?? 0;
-        d.fx = d.x;
-        d.fy = d.y;
+    function dragstarted(event: D3DragEvent<SVGGElement, Node, Node>, d: Node) {
+        const se = event.sourceEvent as PointerEvent | MouseEvent | undefined
+        startX = se?.clientX ?? 0
+        startY = se?.clientY ?? 0
+        d.fx = d.x
+        d.fy = d.y
     }
 
-    function dragged(event: D3DragEvent<Element, undefined, undefined>, d: Node) {
-        const se = event.sourceEvent as PointerEvent | MouseEvent | undefined;
-        const dx = (se?.clientX ?? 0) - startX;
-        const dy = (se?.clientY ?? 0) - startY;
+    function dragged(event: D3DragEvent<SVGGElement, Node, Node>, d: Node) {
+        const se = event.sourceEvent as PointerEvent | MouseEvent | undefined
+        const dx = (se?.clientX ?? 0) - startX
+        const dy = (se?.clientY ?? 0) - startY
 
         // only “wake” simulation after a tiny move
         if (Math.hypot(dx, dy) > 2) {
-            simulation.alphaTarget(0.3).restart();
+            simulation.alphaTarget(0.3).restart()
         }
 
-        d.fx = event.x;
-        d.fy = event.y;
+        d.fx = event.x
+        d.fy = event.y
     }
 
-    function dragended(event: D3DragEvent<Element, undefined, undefined>, d: Node) {
-        if (!event.active) simulation.alphaTarget(0)
+    function dragended(event: D3DragEvent<SVGGElement, Node, Node>, d: Node) {
+        if (!event.active) {
+            simulation.alphaTarget(0)
+        }
         simulation.stop()
         d.fx = null
         d.fy = null
     }
 
-    return d3.drag().on("start", dragstarted as any).on("drag", dragged as any).on("end", dragended as any)
+    return d3.drag<SVGGElement, Node, Node>()
+        .on('start', dragstarted)
+        .on('drag', dragged)
+        .on('end', dragended)
 }

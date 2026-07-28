@@ -98,29 +98,29 @@ export class Viewer extends LitElement {
                 } else {
                     throw new Error(`${i18n['noresults']}, ${resp.statusText}`)
                 }
-            } catch(e) {
-                showSnackbarMessage({message: '' + e, ttl: 0, cssClass: 'error' })
+            } catch (e) {
+                showSnackbarMessage({ message: '' + e, ttl: 0, cssClass: 'error' })
             }
         })
     }
 
     private export() {
         if (this.rdf) {
-          const link = document.createElement('a')
-          link.href = window.URL.createObjectURL(new Blob([this.rdf], { type: "text/turtle" }))
-          link.download = 'metadata.ttl'
-          link.click()
+            const link = document.createElement('a')
+            link.href = window.URL.createObjectURL(new Blob([this.rdf], { type: 'text/turtle' }))
+            link.download = 'metadata.ttl'
+            link.click()
         }
     }
 
     private async save() {
         const form = this.shadowRoot?.querySelector<ShaclForm>('#form')
         if (!form) {
-            showSnackbarMessage({message: 'form not found', cssClass: 'error' })
+            showSnackbarMessage({ message: 'form not found', cssClass: 'error' })
             return
         }
         if (form.form.reportValidity()) {
-            const report = await form.validate() as any
+            const report = await form.validate()
             const ttl = form.serialize()
             if (report.conforms) {
                 this.saving = true
@@ -137,14 +137,14 @@ export class Viewer extends LitElement {
                                 message += '<br><small>' + i18n['error'] + ': ' + data.error + '</small>'
                             }
                         }
-                        showSnackbarMessage({message: message, ttl: 0, cssClass: 'error' })
+                        showSnackbarMessage({ message: message, ttl: 0, cssClass: 'error' })
                     } else {
                         showSnackbarMessage({ message: i18n['resource_save_succeeded'], cssClass: 'success' })
                         this.editMode = false
                         this.load()
                     }
-                } catch(e) {
-                    showSnackbarMessage({message: '' + e, ttl: 0, cssClass: 'error' })
+                } catch (e) {
+                    showSnackbarMessage({ message: '' + e, ttl: 0, cssClass: 'error' })
                 } finally {
                     this.saving = false
                 }
@@ -168,7 +168,7 @@ export class Viewer extends LitElement {
                         message += '<br><small>' + i18n['error'] + ': ' + data.error + '</small>'
                     }
                 }
-                throw(message)
+                throw (message)
             }
             this.rdfSubject = ''
             this.highlightSubject = ''
@@ -176,8 +176,8 @@ export class Viewer extends LitElement {
             this.editMode = false
             showSnackbarMessage({ message: i18n['resource_delete_succeeded'], cssClass: 'success' })
             this.dispatchEvent(new Event('delete'))
-        } catch(e) {
-            showSnackbarMessage({message: '' + e, ttl: 0, cssClass: 'error' })
+        } catch (e) {
+            showSnackbarMessage({ message: '' + e, ttl: 0, cssClass: 'error' })
         }
     }
 

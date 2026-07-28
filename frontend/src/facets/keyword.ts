@@ -75,6 +75,6 @@ export class KeywordFacet extends Facet {
                 `)}
                 </ul>
             </rokit-select>
-        ` 
+        `
     }
 }

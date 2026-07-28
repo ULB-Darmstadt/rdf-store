@@ -11,7 +11,7 @@ import { AggregationFacet, QueryFacet } from '../solr'
 
 const scopedLeafletFullscreenCss = leafletFullscreenCss.replace(':root', ':host')
 
-var worldBounds: L.LatLngBounds = L.latLngBounds({ lng: -180, lat: -90}, { lng: 180, lat: 90 })
+const worldBounds: L.LatLngBounds = L.latLngBounds({ lng: -180, lat: -90 }, { lng: 180, lat: 90 })
 
 @customElement('geolocation-facet')
 export class GeoLocationFacet extends Facet {
@@ -25,7 +25,7 @@ export class GeoLocationFacet extends Facet {
     @query('#map')
     container!: HTMLElement
     map!: L.Map
-    // @ts-ignoref
+    // @ts-expect-error -- leaflet.heat augments Leaflet without complete TypeScript declarations
     heatLayer = L.heatLayer([])
     mapBounds = worldBounds
 
@@ -43,7 +43,7 @@ export class GeoLocationFacet extends Facet {
                 layers: [
                     L.tileLayer('https://tile.openstreetmap.de/{z}/{x}/{y}.png'),
                     // L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'),
-                    this.heatLayer,
+                    this.heatLayer
                 ]
             })
             this.map.fitBounds(worldBounds).setMaxBounds(worldBounds)
@@ -63,7 +63,7 @@ export class GeoLocationFacet extends Facet {
             const maxLat = heatmap.maxY!
             const dLng = (heatmap.maxX! - minLng) / heatmap.columns!
             const dLat = (heatmap.maxY! - heatmap.minY!) / heatmap.rows!
-            
+
             for (let y = 0; y < heatmap.counts_ints2D.length; y++) {
                 const row = heatmap.counts_ints2D[y]
                 if (row !== null) {
@@ -74,7 +74,7 @@ export class GeoLocationFacet extends Facet {
                     }
                 }
             }
-            this.heatLayer.setOptions({ maxZoom:this.map?.getZoom() || 0 })
+            this.heatLayer.setOptions({ maxZoom: this.map?.getZoom() || 0 })
         }
         this.heatLayer.setLatLngs(heatData)
         // if facet is active, declare it as valid to prevent deadlock (=non-resettable facet) when navigating to a map region not containing bucket values

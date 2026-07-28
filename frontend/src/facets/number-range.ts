@@ -76,7 +76,7 @@ export class NumberRangeFacet extends Facet {
     }
 
     render() {
-        return  html`
+        return html`
             <rokit-slider id="slider" dense title="${this.title}" label="${this.label}" class="w-100" min="${this.min}" max="${this.max}" @change="${() => this.onChange()}" range clearable>
                 <span class="material-icons icon" slot="prefix">${this.icon}</span>
             </rokit-slider>

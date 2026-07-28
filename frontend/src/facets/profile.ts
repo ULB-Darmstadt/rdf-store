@@ -33,10 +33,10 @@ export class ProfileFacet extends Facet {
     }
 
     updateValues(aggs: Record<string, AggregationFacet>) {
-        const values: Record<string, any> =  {}
+        const values: Record<string, { value: string, docCount: number, ref: boolean }> = {}
         const missingLabels: string[] = []
 
-        let facet = aggs[this.indexField]
+        const facet = aggs[this.indexField]
         if (facet?.buckets?.length) {
             for (const bucket of facet.buckets) {
                 if (bucket.count > 0 && typeof(bucket.val) === 'string') {
@@ -77,6 +77,6 @@ export class ProfileFacet extends Facet {
                 `)}
                 </ul>
             </rokit-select>
-        ` 
+        `
     }
 }

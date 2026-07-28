@@ -31,7 +31,7 @@ export function facetFactory(field: string, solrMaxAggregations: number): Facet 
 export async function initFacets(index: string, solrMaxAggregations: number): Promise<Facets> {
     // derive facets from field types
     const fieldList = await fetchFields(index)
-    
+
     const facets = new Facets()
     facets.add('', new ProfileFacet(solrMaxAggregations))
     const labelIds: Set<string> = new Set()

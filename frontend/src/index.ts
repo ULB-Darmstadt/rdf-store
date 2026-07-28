@@ -86,12 +86,12 @@ export class App extends LitElement {
     }
 
     connectedCallback() {
-        super.connectedCallback();
+        super.connectedCallback()
         window.addEventListener('popstate', this.handleLocationChange)
     }
 
     disconnectedCallback() {
-        super.disconnectedCallback();
+        super.disconnectedCallback()
         window.removeEventListener('popstate', this.handleLocationChange)
     }
 
@@ -124,13 +124,13 @@ export class App extends LitElement {
             this.config = await resp.json() as Config
             await this.applyLayout(this.config.layout || 'default')
 
-              // fetch labels for profiles. this is needed for the editor dialog, which renders before the keyword facet can load the labels
+            // fetch labels for profiles. this is needed for the editor dialog, which renders before the keyword facet can load the labels
             await fetchLabels(this.config.profiles, true)
             if (this.config.shaclQueryMode) {
                 // this.selectedQueryProfile = this.config.profiles[0] || ''
                 this.query = this.selectedQueryProfile ? {
                     rootShapeId: this.selectedQueryProfile,
-                    criteria: [],
+                    criteria: []
                 } : undefined
                 this.queryFacetProvider = new SolrQueryFacetProvider(this.config.index, this.config.solrMaxAggregations)
             } else {
@@ -147,14 +147,14 @@ export class App extends LitElement {
                     const body = encodeURIComponent(`Hi,\n\nI need write access to ${window.location.href}.\n\nBest regards\n`)
                     message += ` Please contact<br><a href="mailto:${this.config.contactEmail}?subject=${subject}&body=${body}">${this.config.contactEmail}</a><br>to request access.`
                 }
-                showSnackbarMessage({ message: message, ttl: 0, cssClass: 'error'})
+                showSnackbarMessage({ message: message, ttl: 0, cssClass: 'error' })
             }
             this.shadowRoot?.querySelector('#search-filter')?.addEventListener('change', () => this.filterChanged())
             this.filterChanged()
             this.handleLocationChange()
-        } catch(e) {
+        } catch (e) {
             console.error(e)
-            showSnackbarMessage({ message: '' + e, ttl: 0, cssClass: 'error'})
+            showSnackbarMessage({ message: '' + e, ttl: 0, cssClass: 'error' })
         }
     }
 
@@ -185,20 +185,20 @@ export class App extends LitElement {
                 const searchResult = await search(this.config!.index, {
                     offset: this.offset,
                     limit: this.limit,
-                    sort: `lastModified desc`,
+                    sort: 'lastModified desc',
                     term: this.searchTerm,
                     creator: this.config!.shaclQueryMode ? undefined : this.searchCreator,
                     facets: this.facets,
-                    filters: queryFilters,
+                    filters: queryFilters
                 })
                 if (searchResult.error) {
                     throw searchResult.error.msg || searchResult.error.trace
                 }
                 this.totalHits = searchResult.response.numFound
                 this.searchHits = searchResult.response.docs
-            } catch(e) {
+            } catch (e) {
                 console.error(e)
-                showSnackbarMessage({ message: '' + e, ttl: 0, cssClass: 'error'})
+                showSnackbarMessage({ message: '' + e, ttl: 0, cssClass: 'error' })
             } finally {
                 this.shadowRoot?.querySelector('#main')?.classList.remove('loading')
             }

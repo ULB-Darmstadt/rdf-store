@@ -1,17 +1,17 @@
-import { css, html, LitElement } from "lit"
-import { customElement } from "lit/decorators.js"
-import { BACKEND_URL } from "../../constants"
-import { i18n, registerLabel } from "../../i18n"
-import { DataFactory } from "n3"
+import { css, html, LitElement } from 'lit'
+import { customElement } from 'lit/decorators.js'
+import { BACKEND_URL } from '../../constants'
+import { i18n, registerLabel } from '../../i18n'
+import { DataFactory } from 'n3'
 
 document.title = 'Knowledge Graph Explorer'
 const style = document.createElement('style')
-style.innerText = `:root { --rokit-primary-color: #003273; }`
+style.innerText = ':root { --rokit-primary-color: #003273; }'
 document.head.appendChild(style)
 
-registerLabel('sub_heading', [ DataFactory.literal('Your portal to the NFDI4ING Knowledge Graph', 'en'), DataFactory.literal('Ihr Portal zum NFDI4ING Wissensgraph', 'de') ])
-registerLabel('service_provided_by', [ DataFactory.literal('This service is provided by University and State Library Darmstadt', 'en'), DataFactory.literal('Dieser Dienst wird von der Universitäts- und Landesbibliothek Darmstadt bereitgestellt', 'de') ])
-registerLabel('dfg_hint', [ DataFactory.literal('NFDI4ING is supported by DFG under project number', 'en'), DataFactory.literal('NFDI4ING wird gefördert durch die DFG unter Projektnummer', 'de') ])
+registerLabel('sub_heading', [DataFactory.literal('Your portal to the NFDI4ING Knowledge Graph', 'en'), DataFactory.literal('Ihr Portal zum NFDI4ING Wissensgraph', 'de')])
+registerLabel('service_provided_by', [DataFactory.literal('This service is provided by University and State Library Darmstadt', 'en'), DataFactory.literal('Dieser Dienst wird von der Universitäts- und Landesbibliothek Darmstadt bereitgestellt', 'de')])
+registerLabel('dfg_hint', [DataFactory.literal('NFDI4ING is supported by DFG under project number', 'en'), DataFactory.literal('NFDI4ING wird gefördert durch die DFG unter Projektnummer', 'de')])
 
 @customElement('layout-header')
 export class Header extends LitElement {

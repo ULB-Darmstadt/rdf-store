@@ -81,10 +81,10 @@ export class ProfileChooser extends LitElement {
                         profiles: {
                             type: 'terms',
                             field: 'rootShape',
-                            limit: -1,
-                        },
-                    },
-                }),
+                            limit: -1
+                        }
+                    }
+                })
             ])
             if (!response.ok) {
                 throw new Error(`Failed loading profiles: ${response.status}`)
@@ -96,7 +96,7 @@ export class ProfileChooser extends LitElement {
             const profileCounts = new Map(
                 (facet?.buckets || [])
                     .filter(bucket => bucket.count > 0)
-                    .map(bucket => [String(bucket.val), bucket.count]),
+                    .map(bucket => [String(bucket.val), bucket.count])
             )
             const summaries = (await response.json() as ProfileSummary[])
                 .filter(profile => profileCounts.has(profile.id))
@@ -104,7 +104,7 @@ export class ProfileChooser extends LitElement {
             const profileIds = new Set(profiles)
             const parentIds = new Map(summaries.map(profile => [
                 profile.id,
-                new Set(profile.parents.filter(parent => profileIds.has(parent))),
+                new Set(profile.parents.filter(parent => profileIds.has(parent)))
             ]))
             await fetchLabels(profiles, true)
 
@@ -122,7 +122,7 @@ export class ProfileChooser extends LitElement {
                     docCount: profileCounts.get(id) || 0,
                     children: (childIds.get(id) || [])
                         .filter(child => !nextAncestors.has(child))
-                        .map(child => buildProfile(child, nextAncestors)),
+                        .map(child => buildProfile(child, nextAncestors))
                 }
             }
             this.profiles = (roots.length ? roots : profiles).map(id => buildProfile(id))

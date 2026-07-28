@@ -1,10 +1,10 @@
-import { css, html, LitElement } from "lit"
-import { customElement } from "lit/decorators.js"
-import { BACKEND_URL } from "../../constants"
-import { i18n } from "../../i18n"
+import { css, html, LitElement } from 'lit'
+import { customElement } from 'lit/decorators.js'
+import { BACKEND_URL } from '../../constants'
+import { i18n } from '../../i18n'
 
 const style = document.createElement('style')
-style.innerText = `:root { --rokit-primary-color: #008877; }`
+style.innerText = ':root { --rokit-primary-color: #008877; }'
 document.head.appendChild(style)
 
 @customElement('layout-header')

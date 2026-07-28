@@ -20,7 +20,7 @@ export type SearchOptions = {
 }
 
 export type SearchRequest = {
-    query?: any
+    query?: unknown
     sort?: string
     limit: number
     offset: number
@@ -30,7 +30,7 @@ export type SearchRequest = {
 }
 
 export type SearchResponse = {
-    responseHeader: { 
+    responseHeader: {
         status: number
         QTime: number
     }
@@ -68,7 +68,7 @@ export type QueryFacet = {
     limit?: number
     geom?: string
     gridLevel?: number
-    domain?: {}
+    domain?: object
 }
 
 export type AggregationFacet = {
@@ -90,11 +90,11 @@ export async function fetchFields(index: string): Promise<string[]> {
 
 export async function executeSolrRequest(index: string, query: SearchRequest, signal?: AbortSignal): Promise<SearchResponse> {
     const resp = await fetch(`${BACKEND_URL}/solr/${index}/query`, {
-        method: "POST",
-        cache: "no-cache",
-        headers: { "Content-Type": "application/json" },
+        method: 'POST',
+        cache: 'no-cache',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(query),
-        signal,
+        signal
     })
     return await resp.json() as SearchResponse
 }
@@ -103,7 +103,7 @@ export async function search(index: string, params?: SearchOptions): Promise<Sea
     const query: SearchRequest = {
         limit: params?.limit !== undefined ? params.limit : 10,
         offset: params?.offset || 0,
-        sort: params?.sort ?  `${params.sort}` : '',
+        sort: params?.sort ? `${params.sort}` : '',
         fields: ['id', 'label', 'shape', 'lastModified', '_root_'],
         query: '*'
     }

@@ -10,7 +10,7 @@ import { globalStyles } from './styles'
 export const resourceLinkProvider: ResourceLinkProvider = {
     lazyLoad: false,
     listConformingResources: async (shapeIds: string[]) => {
-        const result: Record<string, string[]> =  {}
+        const result: Record<string, string[]> = {}
         for (const shapeId of shapeIds) {
             const resp = await fetch(`${BACKEND_URL}/conforming-resources?shape=${shapeId}`)
             if (resp.ok) {
@@ -31,7 +31,7 @@ export const resourceLinkProvider: ResourceLinkProvider = {
                 } else {
                     console.error('failed loading resource', resourceId, 'status was', resp.status)
                 }
-            } catch(e) {
+            } catch (e) {
                 console.error(e)
             }
         }
@@ -116,7 +116,7 @@ export class Editor extends LitElement {
                 this.dispatchEvent(new CustomEvent('saved', { detail: { id: resp.headers.get('location') } }))
                 document.dispatchEvent(new RokitSnackbarEvent({ message: i18n['resource_save_succeeded'], cssClass: 'success' }))
             }
-        } catch(e) {
+        } catch (e) {
             this.showErrorMessage('' + e)
         } finally {
             this.saving = false
@@ -124,7 +124,7 @@ export class Editor extends LitElement {
     }
 
     showErrorMessage(text: string) {
-        showSnackbarMessage({ message: text, ttl: 0, cssClass: 'error'}, this.shadowRoot!.querySelector<RokitSnackbar>('rokit-snackbar') || undefined)
+        showSnackbarMessage({ message: text, ttl: 0, cssClass: 'error' }, this.shadowRoot!.querySelector<RokitSnackbar>('rokit-snackbar') || undefined)
     }
 
     close() {
