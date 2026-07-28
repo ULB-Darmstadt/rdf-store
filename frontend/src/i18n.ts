@@ -15,6 +15,7 @@ const appLabels: Record<string, Literal[]> = {
     'fulltextsearchplaceholder' : [ DataFactory.literal('Search query...', 'en'), DataFactory.literal('Suchanfrage...', 'de') ],
     'shape' : [ DataFactory.literal('Profile', 'en'), DataFactory.literal('Profil', 'de') ],
     'selectprofile' : [ DataFactory.literal('Select profile', 'en'), DataFactory.literal('Profil auswählen', 'de') ],
+    'selectedprofile' : [ DataFactory.literal('Selected profile', 'en'), DataFactory.literal('Ausgewähltes Profil', 'de') ],
     'selectprofile-hint' : [ DataFactory.literal('Select a profile to show search filters', 'en'), DataFactory.literal('Profil auswählen, um Suchfilter anzuzeigen', 'de') ],
     'add_resource' : [ DataFactory.literal('Add resource', 'en'), DataFactory.literal('Ressource hinzufügen', 'de') ],
     'cancel' : [ DataFactory.literal('Cancel', 'en'), DataFactory.literal('Abbrechen', 'de') ],

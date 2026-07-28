@@ -6,8 +6,9 @@ import styles from './styles.css?inline'
 import { globalStyles } from './styles'
 import './editor'
 import './viewer'
+import './profile-chooser'
 import { BACKEND_URL, APP_PATH } from './constants'
-import { RokitInput, showSnackbarMessage } from '@ro-kit/ui-widgets'
+import { RokitInput, RokitSplitpane, showSnackbarMessage } from '@ro-kit/ui-widgets'
 import { initFacets } from './facets'
 import { search, SearchDocument } from './solr'
 import { fetchLabels, i18n } from './i18n'
@@ -70,6 +71,8 @@ export class App extends LitElement {
     searchOwn?: HTMLInputElement
     @query('#query-form')
     queryForm?: ShaclForm
+    @query('#result-splitpane')
+    resultSplitpane?: RokitSplitpane
 
     debounceTimeout: ReturnType<typeof setTimeout> | undefined
     handleLocationChange = () => {
@@ -175,7 +178,7 @@ export class App extends LitElement {
                     this.queryForm?.refreshQueryFacets()
                 }
                 if (fromPager) {
-                    scrollTo(0, 0)
+                    this.resultSplitpane?.scrollPaneTo(1, { top: 0 })
                 } else {
                     this.offset = 0
                 }
@@ -273,16 +276,7 @@ export class App extends LitElement {
                     `}
                     ${this.config.shaclQueryMode ? html`
                         <div class="query-profile">
-                            <rokit-select label="${i18n['selectprofile']}" value="${this.selectedQueryProfile}" clearable @change="${(event: Event) => {
-                                this.selectedQueryProfile = (event.target as HTMLSelectElement).value
-                                this.query = {
-                                    rootShapeId: this.selectedQueryProfile,
-                                    criteria: [],
-                                }
-                                this.filterChanged()
-                            }}">
-                                <ul>${this.config.profiles.map(profile => html`<li data-value="${profile}">${i18n[profile] || profile}</li>`)}</ul>
-                            </rokit-select>
+                            <profile-chooser></profile-chooser>
                             ${this.selectedQueryProfile ? html`
                                 <shacl-form
                                     id="query-form"
@@ -303,9 +297,7 @@ export class App extends LitElement {
                                     }}"
                                 ></shacl-form>
                                 <div class="no-filters p-2">${i18n['no_filters']}</div>
-                            ` : html`
-                                <div class="selectprofile-hint">${i18n['selectprofile-hint']}</div>
-                            `}
+                            ` : nothing }
                         </div>
                     ` : !this.facets ? nothing : Object.keys(this.facets.facets).sort((a, b) => String(i18n[a] ?? a).localeCompare(String(i18n[b] ?? b))).map(profile => !this.facets?.hasValidFacet(profile) ? nothing : html`
                         <div class="profile-wrapper">
