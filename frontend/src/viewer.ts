@@ -14,7 +14,8 @@ import { resourceLinkProvider } from './editor'
 export class Viewer extends LitElement {
     static styles = [globalStyles, css`
         :host { --background-color: #F5F5F5; position: relative; background-color: var(--background-color); display: flex; flex-direction: column; }
-        .main { display: flex; flex-direction: column; flex-grow: 1; padding: 5px; }
+        .main { display: flex; flex-direction: column; flex-grow: 1; min-height: 0; padding: 5px; }
+        :host([graphview]) .main { overflow: hidden; }
         .header { display: flex; gap: 5px; align-items: center; border-bottom: 2px solid #CCC; padding: 2px 5px 2px 5px; background-color: #EEE; }
         shacl-form, rdf-graph { flex-grow: 1; --shacl-bg: transparent; }
         .placeholder { position: sticky; top: 50%; transform: translateY(-50%); display: flex; justify-content: center; align-items: center; color: #888; }
@@ -32,14 +33,14 @@ export class Viewer extends LitElement {
     highlightSubject = ''
     @property()
     config?: Config
+    @property({ type: Boolean, reflect: true })
+    graphView = true
     @state()
     editable = false
     @state()
     rdf = ''
     @state()
     rdfWithLinked = ''
-    @state()
-    graphView = true
     @state()
     editMode = false
     @state()

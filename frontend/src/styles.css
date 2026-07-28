@@ -1,4 +1,4 @@
-:host { font-family: "Roboto"; display: flex; flex-direction: column; flex-grow: 1; --secondary-color: #FF7A04; }
+:host { position: relative; font-family: "Roboto"; display: flex; flex-direction: column; height: 100vh; overflow: hidden; box-sizing: border-box; width: 100vw; min-width: 768px; --secondary-color: #FF7A04; }
 layout-header {
   border-bottom: 2px solid #DDD;
   #header-buttons { display: flex; gap: 4px; flex-direction: column; align-items: flex-end; }
@@ -8,43 +8,26 @@ layout-header {
 layout-footer {
   border-top: 2px solid #DDD;
 }
-#main { display: flex; align-items: flex-start; flex-grow: 1; position: relative; }
+#main { display: flex; align-items: stretch; flex-grow: 1; position: relative; min-height: 0; }
 
 #main.loading .progress { display: block; }
 .progress { display: none; width: 100%; position: absolute; top: -3px; }
-#search-filter { display: flex; flex-direction: column; color: #555; --rokit-list-max-height: 500px; }
+#search-filter { display: flex; flex-direction: column; height: 100%; box-sizing: border-box; color: #555; --rokit-list-max-height: 500px; overflow-y: auto; min-height: 0; }
 #search-filter .own { display: flex; border-bottom: 2px solid #DDD; }
 #search-filter .own label { flex-grow: 1; padding: 11px 4px; user-select: none; }
 #search-filter .own input { margin: 0 6px; }
 #search-filter header:not(:empty) { font-size: 0.9rem; font-weight: 800; padding: 4px 8px 0 8px; color: var(--rokit-primary-color); }
 #search-filter .profile-wrapper > *:not(:last-child) { --rokit-light-background-darker-color: transparent; }
-#search-filter .query-profile { display: flex; flex-direction: column; min-height: 0; overflow: auto; }
+#search-filter .query-profile { display: flex; flex-direction: column; min-height: 0; overflow-y: auto; flex-grow: 1; }
 #search-filter .query-profile shacl-form { --shacl-bg: transparent; }
-#search-filter .selectprofile-hint {
-  margin: 10px;
-  padding: 10px 12px;
-  color: #555;
-  line-height: 1.4;
-  text-align: center;
-  background: #fff4eb;
-  border: 1px solid #ffd2ad;
-  border-radius: 6px;
-}
-#search-filter .selectprofile-hint::before {
-  content: '↑';
-  display: block;
-  margin-bottom: 4px;
-  color: var(--secondary-color);
-  font-size: 1.25rem;
-  font-weight: 900;
-}
 #search-result { padding-top: 10px; }
 .secondary { color: var(--secondary-color); }
 .stats { padding-left: 10px; margin-bottom: 10px; font-family: monospace; font-size: 14px; }
 .stats .loading { display: none; opacity: 0.4; }
 .hit { padding: 10px; cursor: pointer; position: relative; padding-right: 30px; }
 .hit .header { font-weight: 600; }
-.hit:hover, .hit.active { background-color: #F5F5F5; }
+.hit:hover { background-color: #F6F6F6; }
+.hit.active { background-color: #FFF4EB }
 .hit:hover:after, .hit.active:after { content: '\21E8'; opacity: 0.3; font-size: 32px; position: absolute; right: 0; top: 0; bottom: 0; display: flex; align-items: center; }
 .pager { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; justify-content: end; padding: 10px; }
 .error { color: red; white-space: pre; }
@@ -55,8 +38,9 @@ layout-footer {
 .flex-grow-1 { flex-grow: 1; }
 .icon { margin-right: 4px; }
 .h-100 { height: 100% }
-rdf-viewer { height: 100%; }
-rokit-splitpane { height: 100%; }
+rdf-viewer { height: 100%; min-height: 0; box-sizing: border-box; overflow-y: auto; }
+rdf-viewer[graphview] { overflow-y: hidden; }
+rokit-splitpane { height: 100%; min-width: 0; min-height: 0; overflow: hidden; }
 rokit-splitpane::part(separator) { background-color: #DDD; }
 shacl-form[loading] { --shacl-font-size: 16px; padding: 8px; }
 shacl-form::part(facet-count) { color: var(--secondary-color) }

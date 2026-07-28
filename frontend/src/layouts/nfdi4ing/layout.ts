@@ -43,7 +43,7 @@ export class Footer extends LitElement {
     .logos {
         display: flex;
         justify-content: space-between;
-        padding: 10px;
+        padding: 4px 10px;
         gap: 10px;
 
         img { height: 60px; }
