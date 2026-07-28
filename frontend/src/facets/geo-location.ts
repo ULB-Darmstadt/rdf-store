@@ -2,7 +2,7 @@ import { html, css, unsafeCSS, nothing } from 'lit'
 import { customElement, query } from 'lit/decorators.js'
 import leafletCss from 'leaflet/dist/leaflet.css?inline'
 import leafletFullscreenCss from 'leaflet.fullscreen/dist/Control.FullScreen.css?inline'
-import 'leaflet.fullscreen'
+import { FullScreen } from 'leaflet.fullscreen'
 import 'leaflet.heat/dist/leaflet-heat.js'
 import * as L from 'leaflet'
 
@@ -37,7 +37,6 @@ export class GeoLocationFacet extends Facet {
         setTimeout(() => {
             this.map = L.map(this.container, {
                 attributionControl: false,
-                fullscreenControl: true,
                 maxBoundsViscosity: 1,
                 zoom: 0,
                 layers: [
@@ -46,6 +45,7 @@ export class GeoLocationFacet extends Facet {
                     this.heatLayer
                 ]
             })
+            this.map.addControl(new FullScreen())
             this.map.fitBounds(worldBounds).setMaxBounds(worldBounds)
             this.map.on('moveend', () => {
                 this.mapBounds = this.map.getBounds()

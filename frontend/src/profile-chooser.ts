@@ -1,6 +1,7 @@
-import { customElement, property, state } from 'lit/decorators.js'
+import { customElement, property, query, state } from 'lit/decorators.js'
 import { LitElement, PropertyValues, TemplateResult, css, html } from 'lit'
 import '@ulb-darmstadt/shacl-form/plugins/leaflet.js'
+import { RokitSelect } from '@ro-kit/ui-widgets'
 import { BACKEND_URL } from './constants'
 import { fetchLabels, i18n } from './i18n'
 import { AggregationFacet, executeSolrRequest } from './solr'
@@ -21,7 +22,7 @@ interface ProfileSummary {
 export class ProfileChooser extends LitElement {
     static styles = [globalStyles, css`
         :host { display: block; flex: none; height: fit-content; min-height: 0; }
-        rokit-dialog::part(dialog) { min-height: min(434px, 90vh); width: min(90vw, 600px); }
+        rokit-dialog::part(dialog) { min-height: 80vh; width: min(90vw, 600px); }
         .main { display: flex; flex-direction: column; flex-grow: 1; }
         rokit-select::part(profile-count)::after { content: attr(data-count); color: var(--secondary-color); display: inline-block; font-family: monospace; margin-left: 7px; font-size: 12px; }
         .selected-profile { width: 100%; }
@@ -47,6 +48,7 @@ export class ProfileChooser extends LitElement {
     `]
     @property()
     selectedProfile = ''
+
     @property()
     open = false
     @property()
@@ -55,6 +57,8 @@ export class ProfileChooser extends LitElement {
     loading = false
     @state()
     profiles?: Profile[]
+    @query('rokit-select')
+    profileSelect?: RokitSelect
 
     willUpdate(pv: PropertyValues) {
         if (pv.has('index')) {
@@ -62,6 +66,14 @@ export class ProfileChooser extends LitElement {
         }
         if (this.open && this.index && this.profiles === undefined && !this.loading) {
             this.loadProfiles()
+        }
+    }
+
+    async updated(pv: PropertyValues) {
+        if (pv.has('open') && this.open) {
+            await this.profileSelect?.updateComplete
+            await this.profileSelect?.input.updateComplete
+            this.profileSelect?.input.inputElement.focus()
         }
     }
 
