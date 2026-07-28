@@ -1,11 +1,11 @@
-import { customElement, property, state } from 'lit/decorators.js'
+import { customElement, property, query, state } from 'lit/decorators.js'
 import { LitElement, PropertyValues, css, html, nothing } from 'lit'
 import '@ulb-darmstadt/shacl-form/plugins/leaflet.js'
 import { BACKEND_URL } from './constants'
 import { globalStyles } from './styles'
 import './graph'
 import { i18n } from './i18n'
-import { showSnackbarMessage } from '@ro-kit/ui-widgets'
+import { RokitDialog, showSnackbarMessage } from '@ro-kit/ui-widgets'
 import { ShaclForm } from '@ulb-darmstadt/shacl-form'
 import { Config } from '.'
 import { resourceLinkProvider } from './editor'
@@ -24,6 +24,7 @@ export class Viewer extends LitElement {
         .header rokit-button[text][primary] { border-bottom: 2px solid var(--rokit-primary-color) }
         .spacer { flex-grow: 1; }
         #delete-button { --rokit-light-background-color: #FEE; color: #F00; }
+        #delete-confirmation::part(dialog) { width: min(90vw, 420px); }
     `]
     @property()
     rdfSubject = ''
@@ -45,6 +46,8 @@ export class Viewer extends LitElement {
     editMode = false
     @state()
     saving = false
+    @query('#delete-confirmation')
+    private deleteConfirmation!: RokitDialog
     private loadTimeout?: number
 
     willUpdate(changedProperties: PropertyValues) {
@@ -178,11 +181,17 @@ export class Viewer extends LitElement {
         }
     }
 
+    private async confirmDelete() {
+        if (await this.deleteConfirmation.requestConfirmation()) {
+            await this.delete()
+        }
+    }
+
     render() {
         return this.rdf ? html`
             <div class="header">
             ${this.editMode ? html`
-                <rokit-button id="delete-button" @click="${this.delete}" ?disabled="${this.saving}"><span class="material-icons">delete</span>${i18n['delete']}</rokit-button>
+                <rokit-button id="delete-button" @click="${this.confirmDelete}" ?disabled="${this.saving}"><span class="material-icons">delete</span>${i18n['delete']}</rokit-button>
                 <div class="spacer"></div>
                 <rokit-button @click="${() => { this.editMode = false }}" ?disabled="${this.saving}">${i18n['cancel']}</rokit-button>
                 <rokit-button primary @click="${this.save}" ?disabled="${this.saving}" class="${this.saving ? 'loading' : ''}"><span class="material-icons">cloud_upload</span>${i18n['save']}</rokit-button>
@@ -210,6 +219,14 @@ export class Viewer extends LitElement {
                     ?data-view=${!this.editMode}
                     data-show-root-shape-label
                 ></shacl-form>
+                ${!this.editMode ? nothing : html`
+                    <rokit-dialog
+                        id="delete-confirmation"
+                        title="${i18n['delete']}"
+                        confirm-label="${i18n['delete']}"
+                        cancel-label="${i18n['cancel']}"
+                    >${i18n['resource_delete_confirmation']}</rokit-dialog>
+                `}
             `}
             </div>
         ` : html`

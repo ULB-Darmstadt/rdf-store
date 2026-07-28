@@ -39,6 +39,7 @@ const appLabels: Record<string, Literal[]> = {
     'resource_save_succeeded' : [ DataFactory.literal('Resource saved', 'en'), DataFactory.literal('Ressource gespeichert', 'de') ],
     'resource_delete_failed' : [ DataFactory.literal('Failed deleting resource', 'en'), DataFactory.literal('Ressource konnte nicht gelöscht werden', 'de') ],
     'resource_delete_succeeded' : [ DataFactory.literal('Resource deleted', 'en'), DataFactory.literal('Ressource gelöscht', 'de') ],
+    'resource_delete_confirmation' : [ DataFactory.literal('Do you really want to delete this resource?', 'en'), DataFactory.literal('Möchten Sie diese Ressource wirklich löschen?', 'de') ],
     'search_filter_own' : [ DataFactory.literal('Only own resources', 'en'), DataFactory.literal('Nur eigene Ressourcen', 'de') ],
     'click_hit_to_view' : [ DataFactory.literal('Click on a search result to display here', 'en'), DataFactory.literal('Suchergebnis zur Anzeige auswählen', 'de') ],
     'graph_view' : [ DataFactory.literal('Graph view', 'en'), DataFactory.literal('Graphanzeige', 'de') ],
