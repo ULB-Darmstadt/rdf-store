@@ -92,7 +92,7 @@ export class ProfileChooser extends LitElement {
                     facet: {
                         profiles: {
                             type: 'terms',
-                            field: 'rootShape',
+                            field: 'shape',
                             limit: -1
                         }
                     }
@@ -107,10 +107,11 @@ export class ProfileChooser extends LitElement {
             const facet = solrResponse.facets?.profiles as AggregationFacet | undefined
             const profileCounts = new Map(
                 (facet?.buckets || [])
-                    .filter(bucket => bucket.count > 0)
-                    .map(bucket => [String(bucket.val), bucket.count])
+                    .filter(bucket => (bucket.count ?? 0) > 0)
+                    .map(bucket => [String(bucket.val), bucket.count ?? 0])
             )
             const summaries = (await response.json() as ProfileSummary[])
+                .filter(profile => !profile.id.startsWith('urn:'))
                 .filter(profile => profileCounts.has(profile.id))
             const profiles = summaries.map(profile => profile.id)
             const profileIds = new Set(profiles)

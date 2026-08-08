@@ -49,13 +49,12 @@ export type SearchResponse = {
 
 export interface SearchDocument {
     id: string
+    resourceId: string
+    subject: string
     label: string[]
     shape: string[]
-    rdf: string
     creator: string
     lastModified: string
-    _nest_parent_: string
-    _root_: string
 }
 
 export type QueryFacet = {
@@ -72,7 +71,7 @@ export type QueryFacet = {
 }
 
 export type AggregationFacet = {
-    buckets?: { val: number | string, count: number}[]
+    buckets?: { val: number | string, count: number }[]
     gridLevel?: number
     columns?: number
     rows?: number
@@ -104,7 +103,7 @@ export async function search(index: string, params?: SearchOptions): Promise<Sea
         limit: params?.limit !== undefined ? params.limit : 10,
         offset: params?.offset || 0,
         sort: params?.sort ? `${params.sort}` : '',
-        fields: ['id', 'label', 'shape', 'lastModified', '_root_'],
+        fields: ['id', 'label', 'shape', 'lastModified', 'resourceId', 'subject'],
         query: '*'
     }
     if (params?.facets) {

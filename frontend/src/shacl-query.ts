@@ -16,12 +16,13 @@ const XSD = 'http://www.w3.org/2001/XMLSchema#'
 const DATE_TYPES = new Set([`${XSD}date`, `${XSD}dateTime`])
 const LUCENE_SPECIAL_RE = /([+\-!(){}[\]^"~*?:\\/]|&&|\|\||\s)/g
 const queryFieldPrefixes = new Map<string, Promise<string>>()
+const fieldFetching = new Map<string, Promise<string[]>>()
 
 type SolrFacetBucket = { val: string | number | boolean, count: number }
 type SolrFacetResult = { count?: number, buckets?: SolrFacetBucket[] }
 
-function queryFieldPrefix(rootShapeId: string, path: string[]): Promise<string> {
-    const input = [rootShapeId, ...path].join('\0')
+function queryFieldPrefix(path: string[]): Promise<string> {
+    const input = path.join('\0')
     let prefix = queryFieldPrefixes.get(input)
     if (!prefix) {
         prefix = crypto.subtle.digest('SHA-256', new TextEncoder().encode(input)).then(digest => {
@@ -137,7 +138,10 @@ function termFromSolr(value: string | number | boolean, field: QueryField): Term
 }
 
 export class SolrQueryFacetProvider implements QueryFacetProvider {
+    private static readonly FIELD_CACHE_TTL = 30000
+
     private fieldNames?: string[]
+    private fieldNamesFetchedAt = 0
     private baseFilters: string[] = []
 
     constructor(
@@ -162,14 +166,14 @@ export class SolrQueryFacetProvider implements QueryFacetProvider {
 
     async buildFilters(query: Query): Promise<string[]> {
         const fields = await this.getFieldNames()
-        return this.buildFiltersWithFields(query, fields)
+        return this.buildFiltersWithFields(query, fields, this.conformanceFilter)
     }
 
-    private async buildFiltersWithFields(query: Query, fields: string[]): Promise<string[]> {
-        const filters = [this.rootFilter(query), ...this.baseFilters]
+    private async buildFiltersWithFields(query: Query, fields: string[], resultFilter: (query: Query) => string): Promise<string[]> {
+        const filters = [resultFilter(query), ...this.baseFilters]
         const fieldSet = new Set(fields)
         const indexFields = await Promise.all(query.criteria.map(criterion =>
-            this.resolveField(query.rootShapeId, criterion.field, fieldSet, criterion)
+            this.resolveField(criterion.field, fieldSet, criterion)
         ))
         query.criteria.forEach((criterion, index) => {
             const indexField = indexFields[index]
@@ -187,17 +191,18 @@ export class SolrQueryFacetProvider implements QueryFacetProvider {
 
     async getFacets(request: QueryFacetRequest): Promise<ShaclQueryFacet[]> {
         // Solr dynamic fields can appear after resources are created or the
-        // index is rebuilt. Refresh discovery with every facet request so a
-        // long-lived query form does not hide newly available controls.
+        // index is rebuilt. Field discovery is cached briefly so a long-lived
+        // query form picks up newly available controls without refetching the
+        // field list on every facet request.
         const fields = await this.getFieldNames(true)
-        const filters = await this.buildFiltersWithFields(request.query, fields)
+        const filters = await this.buildFiltersWithFields(request.query, fields, this.conformanceFilter)
         const fieldSet = new Set(fields)
         const facet: Record<string, object | string> = {}
         const resolved = new Map<number, string>()
         const result: ShaclQueryFacet[] = []
 
         const indexFields = await Promise.all(request.fields.map(field =>
-            this.resolveField(request.query.rootShapeId, field, fieldSet)
+            this.resolveField(field, fieldSet)
         ))
         request.fields.forEach((field, index) => {
             const indexField = indexFields[index]
@@ -282,17 +287,39 @@ export class SolrQueryFacetProvider implements QueryFacetProvider {
     }
 
     private async getFieldNames(refresh = false): Promise<string[]> {
-        if (refresh || !this.fieldNames) {
-            this.fieldNames = await fetchFields(this.index)
+        const fresh = this.fieldNames && Date.now() - this.fieldNamesFetchedAt < SolrQueryFacetProvider.FIELD_CACHE_TTL
+        if (!this.fieldNames || (refresh && !fresh)) {
+            // Concurrent callers share a single in-flight fetch so the profile
+            // selection (which triggers both buildFilters and getFacets) does
+            // not issue duplicate field-list requests.
+            let fetch = fieldFetching.get(this.index)
+            if (!fetch) {
+                fetch = fetchFields(this.index).finally(() => {
+                    fieldFetching.delete(this.index)
+                })
+                fieldFetching.set(this.index, fetch)
+            }
+            try {
+                this.fieldNames = await fetch
+                this.fieldNamesFetchedAt = Date.now()
+            } catch (error) {
+                if (!this.fieldNames) {
+                    throw error
+                }
+            }
         }
         return this.fieldNames
     }
 
-    private rootFilter(query: Query): string {
-        return query.rootShapeId ? `rootShape:${quote(query.rootShapeId)}` : ''
+    private conformanceFilter(query: Query): string {
+        // Restrict hits to entities that conform to the selected shape. The
+        // shape field records every shape an entity conforms to (including
+        // inherited parent shapes), so this matches resources with their own
+        // named graph as well as conforming sub-entities in other graphs.
+        return query.rootShapeId ? `shape:${quote(query.rootShapeId)}` : ''
     }
 
-    private async resolveField(rootShapeId: string, field: QueryField, fields: ReadonlySet<string>, criterion?: QueryCriterion): Promise<string | undefined> {
+    private async resolveField(field: QueryField, fields: ReadonlySet<string>, criterion?: QueryCriterion): Promise<string | undefined> {
         if (!field.path.length) {
             return undefined
         }
@@ -304,7 +331,7 @@ export class SolrQueryFacetProvider implements QueryFacetProvider {
                     ? ['bs', 'ss']
                     : ['srpt', 'txt', 'ss']
         for (const path of queryFieldPaths(field)) {
-            const prefix = await queryFieldPrefix(rootShapeId, path)
+            const prefix = await queryFieldPrefix(path)
             const resolved = suffixes.map(suffix => `${prefix}${suffix}`).find(name => fields.has(name))
                 ?? Array.from(fields).find(name => name.startsWith(prefix))
             if (resolved) {

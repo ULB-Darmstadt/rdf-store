@@ -102,9 +102,9 @@ export class App extends LitElement {
                 path += 'resource/' + encodeURIComponent(subject)
             } else {
                 // support unselecting a currently selected hit
-                if (this.viewHiglightSubject !== subject.id) {
-                    path += 'resource/' + encodeURIComponent(subject._root_)
-                    this.viewHiglightSubject = subject.id
+                if (this.viewHiglightSubject !== subject.subject) {
+                    path += 'resource/' + encodeURIComponent(subject.resourceId)
+                    this.viewHiglightSubject = subject.subject
                 } else {
                     this.viewRdfSubject = undefined
                     this.viewHiglightSubject = undefined
@@ -172,10 +172,12 @@ export class App extends LitElement {
                 this.searchTerm = this.searchField?.value || ''
                 this.searchCreator = this.searchOwn?.checked ? this.config?.authUser : undefined
                 let queryFilters: string[] | undefined
-                if (this.config?.shaclQueryMode && this.queryFacetProvider && this.query) {
+                if (this.config?.shaclQueryMode && this.queryFacetProvider) {
                     this.queryFacetProvider.setSearchContext(this.searchTerm, this.searchCreator)
-                    queryFilters = await this.queryFacetProvider.buildFilters(this.query)
-                    this.queryForm?.refreshQueryFacets()
+                    if (this.query) {
+                        queryFilters = await this.queryFacetProvider.buildFilters(this.query)
+                        this.queryForm?.refreshQueryFacets()
+                    }
                 }
                 if (fromPager) {
                     this.resultSplitpane?.scrollPaneTo(1, { top: 0 })
@@ -326,9 +328,9 @@ export class App extends LitElement {
                         ${this.totalHits < 1 ? nothing : html`
                             <div class="hits">
                             ${this.searchHits.map((hit) => html`
-                                <div class="hit${(hit.id === this.viewHiglightSubject || (!this.viewHiglightSubject && hit.id === this.viewRdfSubject)) ? ' active' : ''}" @click="${() => this.viewResource(hit)}">
+                                <div class="hit${(hit.subject === this.viewHiglightSubject || (!this.viewHiglightSubject && hit.subject === this.viewRdfSubject)) ? ' active' : ''}" @click="${() => this.viewResource(hit)}">
                                     <div class="header">
-                                        ${hit.label?.length ? hit.label.join(', ') : hit.id}
+                                        ${hit.label?.length ? hit.label.join(', ') : hit.subject}
                                     </div>
                                     <div>${i18n['shape']}: ${hit.shape?.length ? (i18n[hit.shape[0]] ? i18n[hit.shape[0]] : hit.shape[0]) : 'No profile'}</div>
                                     ${!hit.lastModified ? nothing : html`<div>${i18n['last_modified']}: ${new Date(hit.lastModified).toDateString()}</div>`}
