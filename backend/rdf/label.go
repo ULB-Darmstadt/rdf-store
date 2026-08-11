@@ -13,23 +13,27 @@ import (
 	"github.com/deiu/rdf2go"
 	"github.com/knakk/rdf"
 	"github.com/knakk/sparql"
-	"golang.org/x/exp/slices"
 )
 
-const fallbackLanguage = "en"
-
-var LabelPredicates = map[string]bool{
-	shacl.SHACL_NAME.RawValue():      true,
-	shacl.SKOS_PREF_LABEL.RawValue(): true,
-	shacl.RDFS_LABEL.RawValue():      true,
-	shacl.DCTERMS_TITLE.RawValue():   true,
-	shacl.FOAF_NAME.RawValue():       true,
-	shacl.FOAF_LAST_NAME.RawValue():  true,
-	shacl.FOAF_FIRST_NAME.RawValue(): true,
+// LabelPredicates ranks supported RDF naming properties from most to least
+// suitable as a display label. SKOS explicitly identifies prefLabel as the
+// preferred lexical label. SHACL says tools should prefer a property's sh:name
+// over global labels. Full names and titles rank ahead of FOAF name components.
+var LabelPredicates = map[string]int{
+	shacl.SKOS_PREF_LABEL.RawValue(): 0,
+	shacl.SHACL_NAME.RawValue():      1,
+	shacl.RDFS_LABEL.RawValue():      2,
+	shacl.DCTERMS_TITLE.RawValue():   3,
+	shacl.FOAF_NAME.RawValue():       4,
+	shacl.FOAF_LAST_NAME.RawValue():  5,
+	shacl.FOAF_FIRST_NAME.RawValue(): 6,
+	shacl.SCHEMA_TITLE.RawValue():    7,
+	shacl.SCHEMA_HEADLINE.RawValue(): 8,
 }
 var labelTargetPredicate = shacl.RDFS_LABEL.String()
+var supportedLabelLanguages = languageSet(base.LabelLanguages)
 var labelsQuery = `
-SELECT DISTINCT ?id ?label
+SELECT DISTINCT ?id ?p ?label
 WHERE {
   GRAPH ?g {
 	VALUES ?id { {{range .Ids}}{{.}} {{end}} }
@@ -42,16 +46,9 @@ var labelsQueryTemplate = template.Must(template.New("listQuery").Funcs(template
 // GetLabels retrieves preferred labels for IDs in the given language.
 // It returns a map of ID to label and any error encountered.
 func GetLabels(language string, ids []string) (map[string]string, error) {
-	var result = make(map[string]string)
+	result := make(map[string]string)
 	if len(ids) > 0 {
-		languagePrios := []string{language}
-		if len(language) > 2 {
-			languagePrios = append(languagePrios, language[:2])
-		}
-		if language != fallbackLanguage {
-			languagePrios = append(languagePrios, fallbackLanguage)
-		}
-		languagePrios = append(languagePrios, "")
+		languagePriorities := preferredLanguagePriorities(language)
 
 		labelsTmplInput := map[string]any{"Ids": ids}
 		var query bytes.Buffer
@@ -68,26 +65,105 @@ func GetLabels(language string, ids []string) (map[string]string, error) {
 			return nil, err
 		}
 
-		currentLabelPrios := make(map[string]int)
+		selected := make(map[string]labelCandidate)
 		for _, row := range res.Solutions() {
 			s, okS := row["id"].(rdf.Subject)
+			predicate, okP := row["p"].(rdf.IRI)
 			label, okO := row["label"].(rdf.Literal)
-			if !okS || !okO {
+			if !okS || !okP || !okO {
 				return nil, fmt.Errorf("invalid binding: %v", row)
 			}
-			id := "<" + s.String() + ">"
-			labelLang := label.Lang()
-			labelPrio := slices.Index(languagePrios, labelLang)
-			if labelPrio > -1 {
-				currentPrio, ok := currentLabelPrios[id]
-				if !ok || labelPrio < currentPrio {
-					result[id] = label.String()
-					currentLabelPrios[id] = labelPrio
-				}
+			predicatePriority, accepted := LabelPredicates[predicate.String()]
+			if !accepted {
+				continue
 			}
+			languagePriority, accepted := languagePriorities[strings.ToLower(label.Lang())]
+			if !accepted {
+				continue
+			}
+			id := "<" + s.String() + ">"
+			candidate := labelCandidate{value: label.String(), languagePriority: languagePriority, predicatePriority: predicatePriority}
+			if current, ok := selected[id]; !ok || candidate.precedes(current) {
+				selected[id] = candidate
+			}
+		}
+		for id, candidate := range selected {
+			result[id] = candidate.value
 		}
 	}
 	return result, nil
+}
+
+type labelCandidate struct {
+	value             string
+	languagePriority  int
+	predicatePriority int
+}
+
+func (candidate labelCandidate) precedes(other labelCandidate) bool {
+	if candidate.languagePriority != other.languagePriority {
+		return candidate.languagePriority < other.languagePriority
+	}
+	if candidate.predicatePriority != other.predicatePriority {
+		return candidate.predicatePriority < other.predicatePriority
+	}
+	// SPARQL result order is unspecified, so make malformed duplicate labels
+	// deterministic without assigning meaning to their arrival order.
+	return candidate.value < other.value
+}
+
+func preferredLanguagePriorities(language string) map[string]int {
+	priorities := make(map[string]int)
+	add := func(candidate string) {
+		candidate = normalizeLanguage(candidate)
+		if candidate != "" && !isSupportedLabelLanguage(candidate) {
+			return
+		}
+		if _, exists := priorities[candidate]; !exists {
+			priorities[candidate] = len(priorities)
+		}
+	}
+	language = strings.TrimSpace(language)
+	add(language)
+	if baseLanguage, _, found := strings.Cut(language, "-"); found {
+		add(baseLanguage)
+	}
+	for _, supportedLanguage := range base.LabelLanguages {
+		add(supportedLanguage)
+	}
+	add("")
+	return priorities
+}
+
+func languageSet(languages []string) map[string]bool {
+	result := make(map[string]bool, len(languages))
+	for _, language := range languages {
+		if normalized := normalizeLanguage(language); normalized != "" {
+			result[normalized] = true
+		}
+	}
+	return result
+}
+
+func normalizeLanguage(language string) string {
+	return strings.ToLower(strings.TrimSpace(language))
+}
+
+func isSupportedLabelLanguage(language string) bool {
+	language = normalizeLanguage(language)
+	if language == "" {
+		return true
+	}
+	return supportedLabelLanguages[language]
+}
+
+func defaultLabelLanguage() string {
+	for _, language := range base.LabelLanguages {
+		if normalized := normalizeLanguage(language); normalized != "" {
+			return normalized
+		}
+	}
+	return ""
 }
 
 // CheckLabelsExist checks whether labels for a URL were already imported.
@@ -99,15 +175,26 @@ func CheckLabelsExist(url string) (bool, error) {
 // ExtractLabels stores label triples and optional SHACL-derived labels.
 // It returns an error if label extraction or upload fails.
 func ExtractLabels(id string, graph *rdf2go.Graph, convertShaclProperties bool) error {
+	labels := serializeLabels(id, graph, convertShaclProperties)
+	if len(labels) == 0 {
+		return nil
+	}
+	return uploadGraph(labelDataset, id, labels, nil)
+}
+
+func serializeLabels(id string, graph *rdf2go.Graph, convertShaclProperties bool) []byte {
 	var result bytes.Buffer
-	var profileLables map[string]string
+	var profileLabels map[string]string
 	if convertShaclProperties {
-		profileLables = findProfileLabels(rdf2go.NewResource(id), graph)
+		profileLabels = findProfileLabels(rdf2go.NewResource(id), graph)
 	}
 	for triple := range graph.IterTriples() {
 		if _, isLabel := LabelPredicates[triple.Predicate.RawValue()]; isLabel {
 			// check if triple object is a literal
 			if label, ok := triple.Object.(*rdf2go.Literal); ok {
+				if !isSupportedLabelLanguage(label.Language) {
+					continue
+				}
 				if convertShaclProperties {
 					// check if this is a label for a shacl node shape
 					if node := graph.One(triple.Subject, shacl.RDF_TYPE, shacl.SHACL_NODE_SHAPE); node != nil {
@@ -118,25 +205,88 @@ func ExtractLabels(id string, graph *rdf2go.Graph, convertShaclProperties bool) 
 						prefixedLabel := label.Value
 						lang := label.Language
 						if len(lang) == 0 {
-							lang = "en"
+							lang = defaultLabelLanguage()
 						}
-						if prefixQualifiedPropertyLabels && graph.One(triple.Subject, shacl.SHACL_QUALIFIED_VALUE_SHAPE, nil) != nil || graph.One(triple.Subject, shacl.SHACL_NODE, nil) != nil {
-							if profileLabel, ok := profileLables[lang]; ok {
+						if prefixQualifiedPropertyLabels && (graph.One(triple.Subject, shacl.SHACL_QUALIFIED_VALUE_SHAPE, nil) != nil || graph.One(triple.Subject, shacl.SHACL_NODE, nil) != nil) {
+							if profileLabel, ok := profileLabels[lang]; ok {
 								prefixedLabel = profileLabel + " > " + prefixedLabel
 							}
 						}
 						fmt.Fprintf(&result, "<:%s> %s %s .\n", base.CleanStringForSolr(triple.Subject.RawValue()), labelTargetPredicate, rdf2go.NewLiteralWithLanguage(prefixedLabel, lang).String())
 					}
 				}
-				fmt.Fprintf(&result, "%s %s %s .\n", triple.Subject.String(), labelTargetPredicate, triple.Object.String())
+				// Keep the source predicate: GetLabels needs it to distinguish an
+				// explicitly preferred label from a generic label or name component.
+				fmt.Fprintf(&result, "%s %s %s .\n", triple.Subject.String(), triple.Predicate.String(), triple.Object.String())
 			}
 		}
 	}
+	// Add a display label for people that only provide legacy FOAF name parts.
+	writeCombinedPersonLabels(graph, &result)
 
-	if result.Len() > 0 {
-		return uploadGraph(labelDataset, id, result.Bytes(), nil)
+	return result.Bytes()
+}
+
+// writeCombinedPersonLabels emits an rdfs:label "lastName, firstName" when a
+// subject has matching FOAF name parts but no full label in that language. A
+// generated value must not be asserted as skos:prefLabel because that property
+// records the vocabulary publisher's preferred lexical label.
+func writeCombinedPersonLabels(graph *rdf2go.Graph, result *bytes.Buffer) {
+	firstNames := make(map[string]map[string]string) // subject IRI -> language -> value
+	lastNames := make(map[string]map[string]string)
+	fullLabelLanguages := make(map[string]map[string]bool)
+	for triple := range graph.IterTriples() {
+		var subjectNames map[string]map[string]string
+		switch triple.Predicate.RawValue() {
+		case shacl.FOAF_FIRST_NAME.RawValue():
+			subjectNames = firstNames
+		case shacl.FOAF_LAST_NAME.RawValue():
+			subjectNames = lastNames
+		default:
+			if priority, accepted := LabelPredicates[triple.Predicate.RawValue()]; accepted && priority < LabelPredicates[shacl.FOAF_LAST_NAME.RawValue()] {
+				if literal, ok := triple.Object.(*rdf2go.Literal); ok {
+					if !isSupportedLabelLanguage(literal.Language) {
+						continue
+					}
+					subject := triple.Subject.RawValue()
+					if fullLabelLanguages[subject] == nil {
+						fullLabelLanguages[subject] = make(map[string]bool)
+					}
+					fullLabelLanguages[subject][strings.ToLower(literal.Language)] = true
+				}
+			}
+			continue
+		}
+		literal, ok := triple.Object.(*rdf2go.Literal)
+		if !ok {
+			continue
+		}
+		if !isSupportedLabelLanguage(literal.Language) {
+			continue
+		}
+		subject := triple.Subject.RawValue()
+		if subjectNames[subject] == nil {
+			subjectNames[subject] = make(map[string]string)
+		}
+		subjectNames[subject][strings.ToLower(literal.Language)] = literal.Value
 	}
-	return nil
+	for subject, firsts := range firstNames {
+		lasts, ok := lastNames[subject]
+		if !ok {
+			continue
+		}
+		for lang, first := range firsts {
+			if fullLabelLanguages[subject][strings.ToLower(lang)] {
+				continue
+			}
+			last, ok := lasts[lang]
+			if !ok {
+				continue
+			}
+			label := rdf2go.NewLiteralWithLanguage(last+", "+first, lang)
+			fmt.Fprintf(result, "%s %s %s .\n", rdf2go.NewResource(subject).String(), shacl.RDFS_LABEL.String(), label.String())
+		}
+	}
 }
 
 // ImportLabelsFromUrl loads an RDF graph from a URL and extracts labels.
@@ -162,19 +312,27 @@ func ImportLabelsFromUrl(url string) (*rdf2go.Graph, error) {
 // findProfileLabels gathers label literals for a profile resource.
 // It returns a map of language to label string.
 func findProfileLabels(id rdf2go.Term, graph *rdf2go.Graph) map[string]string {
-	labels := make(map[string]string)
-	for labelPredicate := range LabelPredicates {
+	candidates := make(map[string]labelCandidate)
+	for labelPredicate, predicatePriority := range LabelPredicates {
 		for _, labelTriple := range graph.All(id, rdf2go.NewResource(labelPredicate), nil) {
 			if spec, ok := labelTriple.Object.(*rdf2go.Literal); ok {
-				lang := spec.Language
-				if len(lang) == 0 {
-					lang = "en"
+				if !isSupportedLabelLanguage(spec.Language) {
+					continue
 				}
-				if _, ok := labels[lang]; !ok {
-					labels[lang] = spec.Value
+				lang := strings.ToLower(spec.Language)
+				if len(lang) == 0 {
+					lang = defaultLabelLanguage()
+				}
+				candidate := labelCandidate{value: spec.Value, predicatePriority: predicatePriority}
+				if current, exists := candidates[lang]; !exists || candidate.precedes(current) {
+					candidates[lang] = candidate
 				}
 			}
 		}
+	}
+	labels := make(map[string]string, len(candidates))
+	for language, candidate := range candidates {
+		labels[language] = candidate.value
 	}
 	return labels
 }

@@ -4,12 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
-	"net/url"
 	"rdf-store-backend/base"
 	"reflect"
 	"regexp"
@@ -81,124 +79,52 @@ func recreateCollection() (err error) {
 	if err := client.DeleteCollection(context.Background(), solr.NewCollectionParams().Name(base.SolrIndex)); err != nil {
 		slog.Warn("collection couldn't be deleted", "error", err)
 	}
-	if err = createCollectionWithConfigset(); err != nil {
+	if err = client.CreateCollection(context.Background(), solr.NewCollectionParams().Name(base.SolrIndex).NumShards(numShards)); err != nil {
 		return
 	}
-	if err = ensureNoBlockJoinFields(); err != nil {
+	if err = client.AddFields(context.Background(), base.SolrIndex, createCollectionSchema()...); err != nil {
 		return
 	}
-	if err = ensureSchemaFields(); err != nil {
+	if err = client.AddCopyFields(context.Background(), base.SolrIndex, solr.CopyField{Source: "*", Dest: "_text_"}); err != nil {
 		return
 	}
-	if err = ensureCopyField(); err != nil {
-		return
-	}
-	if err = ensureLocationRptFieldType(); err != nil {
+	if err = patchLocationField(); err != nil {
 		return
 	}
 	return
 }
 
-// createCollectionWithConfigset creates the index collection from the
-// project-specific configset (shipped in the Solr image under
-// server/solr/configsets/<index>). It raises the schemaless field limit
-// (maxFields) beyond the default 1000, which the dataset's hashed query fields
-// (_query_.*) require. solr-go cannot pass a configName, so this posts the
-// create directly.
-func createCollectionWithConfigset() error {
-	query := url.Values{}
-	query.Add("action", "CREATE")
-	query.Add("name", base.SolrIndex)
-	query.Add("collection.configName", base.SolrIndex)
-	query.Add("numShards", fmt.Sprintf("%d", numShards))
-	query.Add("wt", "json")
-	resp, err := http.Post(fmt.Sprintf("%s/solr/admin/collections?%s", Endpoint, query.Encode()), "application/json", nil)
-	if err != nil {
-		return err
+// This enables WKT polygon indexing. Note that we have installed "jts-core" in our docker image.
+// See https://solr.apache.org/guide/solr/latest/query-guide/spatial-search.html#jts-and-polygons-flat
+// patchLocationField enables spatial WKT indexing for the location field.
+// It returns an error if the Solr schema patch fails.
+func patchLocationField() error {
+	body := map[string]any{
+		"replace-field-type": map[string]any{
+			"name":                  "location_rpt",
+			"class":                 "solr.SpatialRecursivePrefixTreeFieldType",
+			"spatialContextFactory": "JTS",
+			"autoIndex":             "true",
+			"validationRule":        "repairBuffer0",
+			"distErrPct":            "0.025",
+			"maxDistErr":            "0.001",
+			"distanceUnits":         "kilometers",
+		},
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("failed creating solr collection. status was %s: %s", resp.Status, body)
-	}
-	return nil
-}
-
-// postSchema sends a single schema-change request to Solr and treats any
-// response whose body contains one of the tolerated fragments as success. The
-// collection config doubles as the configset in ZooKeeper, so schema changes
-// made by earlier index generations persist and must be applied idempotently.
-func postSchema(operation string, payload any, tolerated ...string) error {
-	body := map[string]any{operation: payload}
 	data, err := json.Marshal(body)
 	if err != nil {
 		return err
 	}
+	// since solr-go doesn't support this we'll simply post directly to solr
 	resp, err := http.Post(fmt.Sprintf("%s/solr/%s/schema", Endpoint, base.SolrIndex), "application/json", bytes.NewReader(data))
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
-	raw, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return err
-	}
-	if resp.StatusCode != http.StatusOK {
-		for _, fragment := range tolerated {
-			if bytes.Contains(raw, []byte(fragment)) {
-				slog.Debug("schema entry already in desired state", "operation", operation)
-				return nil
-			}
-		}
-		return fmt.Errorf("failed updating solr schema. status was %d: %s", resp.StatusCode, raw)
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("failed patching solr schema. status was %d", resp.StatusCode)
 	}
 	return nil
-}
-
-// ensureSchemaFields adds the static document fields, skipping any that
-// already exist in the (possibly previously populated) collection schema.
-func ensureSchemaFields() error {
-	for _, field := range createCollectionSchema() {
-		if err := postSchema("add-field", field, "already exists"); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// ensureNoBlockJoinFields drops the nested-document fields of the default
-// configset. Without them, Solr treats every flat entity document as a block
-// child and auto-creates a phantom parent document per add (doubling the index
-// with bare-UUID docs that lack a resourceId). Fresh collections always carry
-// the fields because the managed schema persists in the shared configset.
-func ensureNoBlockJoinFields() error {
-	for _, field := range []string{"_root_", "_nest_path_"} {
-		if err := postSchema("delete-field", map[string]any{"name": field}, "does not exist", "not present"); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// ensureCopyField adds the catch-all copyField that feeds the _text_ field.
-func ensureCopyField() error {
-	return postSchema("add-copy-field", solr.CopyField{Source: "*", Dest: "_text_"}, "already exists")
-}
-
-// ensureLocationRptFieldType enables spatial WKT indexing for the location
-// field. This requires the "jts-core" package installed in the docker image.
-// See https://solr.apache.org/guide/solr/latest/query-guide/spatial-search.html#jts-and-polygons-flat
-func ensureLocationRptFieldType() error {
-	return postSchema("replace-field-type", map[string]any{
-		"name":                  "location_rpt",
-		"class":                 "solr.SpatialRecursivePrefixTreeFieldType",
-		"spatialContextFactory": "JTS",
-		"autoIndex":             "true",
-		"validationRule":        "repairBuffer0",
-		"distErrPct":            "0.025",
-		"maxDistErr":            "0.001",
-		"distanceUnits":         "kilometers",
-	})
 }
 
 // updateDocs submits document updates and commits them in Solr.
@@ -212,21 +138,7 @@ func updateDocs(docs []*document) error {
 		// still defines the block-join _root_/_nest_path_ fields).
 		commands = append(commands, doc)
 	}
-	data, err := json.Marshal(map[string]any{"add": commands})
-	if err != nil {
-		return err
-	}
-	resp, err := client.Update(context.Background(), base.SolrIndex, solr.JSON, bytes.NewReader(data))
-	if err != nil {
-		return err
-	}
-	if resp.Error != nil {
-		return errors.New(resp.Error.Msg)
-	}
-	if err := client.Commit(context.Background(), base.SolrIndex); err != nil {
-		return err
-	}
-	return nil
+	return solrUpdateBody(map[string]any{"add": commands}, true)
 }
 
 var luceneSpecialCharacters = regexp.MustCompile(`[+\-&|!(){}\[\]^"~*?:\\/]`)
@@ -244,19 +156,48 @@ func escapeQueryValue(value string) string {
 // It returns an error if the delete or commit fails.
 func deleteByResourceId(resourceId string) error {
 	escaped := escapeQueryValue(resourceId)
-	data, err := json.Marshal(map[string]any{"delete": map[string]any{"query": fmt.Sprintf("id:%s OR resourceId:%s", escaped, escaped)}})
+	return solrUpdateBody(map[string]any{"delete": map[string]any{"query": fmt.Sprintf("id:%s OR resourceId:%s", escaped, escaped)}}, true)
+}
+
+// solrUpdateBody posts an update payload to the collection's /update handler
+// and commits if requested. Solr error responses carry an "error.metadata"
+// member that may be an array or an object; the solr-go client decodes it as
+// []string and aborts response parsing, hiding the real message, so update
+// responses are handled directly.
+func solrUpdateBody(payload any, commit bool) error {
+	data, err := json.Marshal(payload)
 	if err != nil {
 		return err
 	}
-	resp, err := client.Update(context.Background(), base.SolrIndex, solr.JSON, bytes.NewReader(data))
+	urlStr := fmt.Sprintf("%s/solr/%s/update", Endpoint, base.SolrIndex)
+	if commit {
+		urlStr += "?commit=true"
+	}
+	resp, err := http.Post(urlStr, "application/json", bytes.NewReader(data))
 	if err != nil {
 		return err
 	}
-	if resp.Error != nil {
-		return errors.New(resp.Error.Msg)
-	}
-	if err := client.Commit(context.Background(), base.SolrIndex); err != nil {
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
 		return err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("solr update failed: %s", extractSolrError(body))
 	}
 	return nil
+}
+
+// extractSolrError returns the message of a Solr error response body, falling
+// back to the raw body when it cannot be parsed.
+func extractSolrError(body []byte) string {
+	var payload struct {
+		Error struct {
+			Msg string `json:"msg"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(body, &payload); err == nil && payload.Error.Msg != "" {
+		return payload.Error.Msg
+	}
+	return string(body)
 }

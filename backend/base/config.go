@@ -47,6 +47,7 @@ var MPSUrl = fmt.Sprintf("%s/?includeDefinition=true&%s", MPSEndpoint, MPSQuery)
 var SolrIndex = EnvVar("SOLR_INDEX", "rdf")
 var ValidatorEndpoint = EnvVar("VALIDATOR_ENDPOINT", "http://localhost:8000")
 var RdfStandardTaxonomies = EnvVarAsStringSlice("RDF_STANDARD_TAXONOMIES")
+var LabelLanguages = EnvVarAsStringSlice("LABEL_LANGUAGES", "en", "de")
 
 // var SyncSchedule = EnvVar("CRON", "*/5 * * * *") // every 5 minutes
 var SyncSchedule = EnvVar("CRON", "")

@@ -348,7 +348,7 @@ func buildDocRecursive(subject rdf2go.Term, profile *shacl.NodeShape, profileId 
 					}
 				} else {
 					if ft == "t" {
-						current.appendValue(fieldName(profileId, property.Id.RawValue(), "txt"), value.Object.RawValue())
+						current.appendValue("_text_", value.Object.RawValue())
 					} else {
 						var val string
 						if literial, ok := value.Object.(*rdf2go.Literal); ok {
@@ -454,11 +454,30 @@ func buildQueryDoc(subject rdf2go.Term, profile *shacl.NodeShape, rootShape stri
 					if childDoc != nil && conforms(value.Object.RawValue(), rootShape, metadata) {
 						nextConforming = childDoc
 					}
-					for shape := range childShapes {
-						child, ok := rdf.Profiles[shape]
-						if ok && conforms(value.Object.RawValue(), shape, metadata) {
-							buildQueryDoc(value.Object, child, rootShape, nextPropertyPath, nextShapePath, resource, metadata, childDoc, nextConforming, traversal)
-							recursed = true
+					if structuredPropertyIsFacet(property, childShapes) {
+						// dash:facet explicitly marks a structured property as a facet
+						// over its referenced resources. Index the resource ID at the
+						// relationship path instead of recursing into the nested shape.
+						for shape := range childShapes {
+							if !conforms(value.Object.RawValue(), shape, metadata) {
+								continue
+							}
+							if owner != nil {
+								appendQueryValue(owner, nextShapePath, value.Object)
+							}
+							if conforming != nil && conforming != owner {
+								appendQueryValue(conforming, nextShapePath, value.Object)
+							}
+							break
+						}
+						recursed = true
+					} else {
+						for shape := range childShapes {
+							child, ok := rdf.Profiles[shape]
+							if ok && conforms(value.Object.RawValue(), shape, metadata) {
+								buildQueryDoc(value.Object, child, rootShape, nextPropertyPath, nextShapePath, resource, metadata, childDoc, nextConforming, traversal)
+								recursed = true
+							}
 						}
 					}
 				}
@@ -473,6 +492,18 @@ func buildQueryDoc(subject rdf2go.Term, profile *shacl.NodeShape, rootShape stri
 			}
 		}
 	}
+}
+
+func structuredPropertyIsFacet(property *shacl.Property, childShapes map[string]bool) bool {
+	if property.Facet != nil {
+		return *property.Facet
+	}
+	for shape := range childShapes {
+		if profile, ok := rdf.Profiles[shape]; ok && profile.Facet != nil && *profile.Facet {
+			return true
+		}
+	}
+	return false
 }
 
 func appendPath(path []string, value string) []string {
@@ -502,7 +533,7 @@ func appendQueryValue(current *document, shapePath []string, value rdf2go.Term) 
 		}
 		suffix := datatypeMappings[datatype]
 		switch suffix {
-		case "ds", "bs", "srpt":
+		case "ds", "bs", "srpt", "ss":
 			current.appendValue(queryFieldName(shapePath, suffix), literal.RawValue())
 		case "dts":
 			date := literal.RawValue()
@@ -514,7 +545,6 @@ func appendQueryValue(current *document, shapePath []string, value rdf2go.Term) 
 			current.appendValue(queryFieldName(shapePath, suffix), date)
 		default:
 			current.appendValue(queryFieldName(shapePath, "txt"), literal.RawValue())
-			current.appendValue(queryFieldName(shapePath, "ss"), literal.RawValue())
 		}
 		return
 	}

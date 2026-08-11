@@ -14,6 +14,7 @@ var prefixOWL = "http://www.w3.org/2002/07/owl#%s"
 var prefixDASH = "http://datashapes.org/dash#%s"
 var prefixFOAF = "http://xmlns.com/foaf/0.1/%s"
 var prefixDCTerms = "http://purl.org/dc/terms/%s"
+var prefixSchema = "http://schema.org/%s"
 
 var RDF_TYPE = rdf2go.NewResource(fmt.Sprintf(prefixRDF, "type"))
 var RDFS_LABEL = rdf2go.NewResource(fmt.Sprintf(prefixRDFS, "label"))
@@ -27,6 +28,8 @@ var DCTERMS_MODIFIED = rdf2go.NewResource(fmt.Sprintf(prefixDCTerms, "modified")
 var DCTERMS_CREATOR = rdf2go.NewResource(fmt.Sprintf(prefixDCTerms, "creator"))
 var OWL_IMPORTS = rdf2go.NewResource(fmt.Sprintf(prefixOWL, "imports"))
 var SKOS_PREF_LABEL = rdf2go.NewResource(fmt.Sprintf(prefixSKOS, "prefLabel"))
+var SCHEMA_TITLE = rdf2go.NewResource(fmt.Sprintf(prefixSchema, "title"))
+var SCHEMA_HEADLINE = rdf2go.NewResource(fmt.Sprintf(prefixSchema, "headline"))
 
 var SHACL_NODE_SHAPE = rdf2go.NewResource(fmt.Sprintf(prefixSHACL, "NodeShape"))
 var SHACL_NODE = rdf2go.NewResource(fmt.Sprintf(prefixSHACL, "node"))

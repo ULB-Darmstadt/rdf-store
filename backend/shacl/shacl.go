@@ -16,6 +16,7 @@ type NodeShape struct {
 	RDF          *[]byte
 	Graph        *rdf2go.Graph
 	Class        bool
+	Facet        *bool
 }
 
 // Parse loads a NodeShape from RDF data into the NodeShape struct.
@@ -54,6 +55,12 @@ func (node *NodeShape) Parse(id rdf2go.Term, rdf *[]byte) (*NodeShape, error) {
 			node.AddProperty(property)
 		} else if triple.Predicate.Equal(SHACL_CLASS) {
 			node.Class = true
+		} else if triple.Predicate.Equal(DASH_FACET) {
+			boolValue, err := strconv.ParseBool(triple.Object.RawValue())
+			if err != nil {
+				return nil, fmt.Errorf("node shape's dash:facet is not a boolean: %v", triple.Object.RawValue())
+			}
+			node.Facet = &boolValue
 		}
 	}
 	return node, nil

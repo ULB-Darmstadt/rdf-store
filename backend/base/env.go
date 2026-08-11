@@ -122,8 +122,8 @@ func EnvVarAsBool(key string, defaultValue bool) bool {
 }
 
 // EnvVarAsStringSlice splits a comma-separated environment variable into trimmed values.
-// It returns the non-empty entries in order, or an empty slice when unset.
-func EnvVarAsStringSlice(key string) []string {
+// It returns the non-empty entries in order, or a copy of defaultValues when unset.
+func EnvVarAsStringSlice(key string, defaultValues ...string) []string {
 	loadDotEnv()
 	var result []string
 	if val, present := os.LookupEnv(key); present {
@@ -133,6 +133,8 @@ func EnvVarAsStringSlice(key string) []string {
 				result = append(result, value)
 			}
 		}
+	} else {
+		result = append(result, defaultValues...)
 	}
 	return result
 }

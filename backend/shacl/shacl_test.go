@@ -42,3 +42,23 @@ ex:B a sh:NodeShape .
 		t.Fatalf("missing parsed alternatives: %#v", property.AlternativeNodeShapes)
 	}
 }
+
+func TestParseNodeShapeFacet(t *testing.T) {
+	graph := rdf2go.NewGraph("")
+	data := `
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix dash: <http://datashapes.org/dash#> .
+@prefix ex: <http://example.org/> .
+ex:Person a sh:NodeShape ; dash:facet true .
+`
+	if err := graph.Parse(strings.NewReader(data), "text/turtle"); err != nil {
+		t.Fatal(err)
+	}
+	shape, err := (&NodeShape{Graph: graph}).Parse(rdf2go.NewResource("http://example.org/Person"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if shape.Facet == nil || !*shape.Facet {
+		t.Fatalf("expected dash:facet true, got %#v", shape.Facet)
+	}
+}

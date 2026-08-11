@@ -507,12 +507,10 @@ func TestAppendQueryValueDeduplicatesValues(t *testing.T) {
 	appendQueryValue(&doc, path, value)
 	appendQueryValue(&doc, path, value)
 
-	for _, suffix := range []string{"ss", "txt"} {
-		field := queryFieldName(path, suffix)
-		values, ok := doc[field].([]any)
-		if !ok || len(values) != 1 || values[0] != "duplicate" {
-			t.Fatalf("expected one unique value in %q, got %#v", field, doc[field])
-		}
+	field := queryFieldName(path, "txt")
+	values, ok := doc[field].([]any)
+	if !ok || len(values) != 1 || values[0] != "duplicate" {
+		t.Fatalf("expected one unique value in %q, got %#v", field, doc[field])
 	}
 }
 
@@ -522,5 +520,177 @@ func TestConformsAcceptsMultipleShapes(t *testing.T) {
 	}}
 	if !conforms("resource", "shape-b", metadata) {
 		t.Fatal("expected second recorded shape to conform")
+	}
+}
+
+func TestBuildQueryDocIndexesStructuredDashFacetAsLeaf(t *testing.T) {
+	const (
+		rootID    = "http://example.org/Hardware"
+		personID  = "http://example.org/Person"
+		ownerPath = "http://dbpedia.org/ontology/owner"
+		firstName = "http://xmlns.com/foaf/0.1/firstName"
+	)
+	facet := true
+
+	root := &shacl.NodeShape{
+		Id: rdf2go.NewResource(rootID), Parents: map[string]bool{}, Alternatives: map[string]bool{},
+		Properties: map[string][]*shacl.Property{ownerPath: {{
+			Id:         rdf2go.NewResource("urn:property:owner"),
+			NodeShapes: map[string]bool{personID: true},
+			Facet:      &facet,
+		}}},
+	}
+	person := &shacl.NodeShape{
+		Id: rdf2go.NewResource(personID), Parents: map[string]bool{}, Alternatives: map[string]bool{},
+		Properties: map[string][]*shacl.Property{firstName: {{
+			Id:       rdf2go.NewResource("urn:property:firstName"),
+			Datatype: "http://www.w3.org/2001/XMLSchema#string",
+		}}},
+	}
+
+	previousProfiles := rdf.Profiles
+	rdf.Profiles = map[string]*shacl.NodeShape{rootID: root, personID: person}
+	t.Cleanup(func() { rdf.Profiles = previousProfiles })
+
+	hardware := rdf2go.NewResource("http://example.org/resource/1")
+	owner := rdf2go.NewResource("http://example.org/person/1")
+	graph := rdf2go.NewGraph("")
+	graph.AddTriple(hardware, rdf2go.NewResource(ownerPath), owner)
+	graph.AddTriple(owner, rdf2go.NewResource(firstName), rdf2go.NewLiteral("Leonard"))
+	metadata := &rdf.ResourceMetadata{Conformance: map[string][]string{
+		hardware.RawValue(): {rootID},
+		owner.RawValue():    {personID},
+	}}
+
+	hardwareDoc := document{}
+	ownerDoc := document{}
+	traversal := newQueryTraversalState()
+	traversal.entities = map[string]*document{
+		hardware.RawValue(): &hardwareDoc,
+		owner.RawValue():    &ownerDoc,
+	}
+
+	buildQueryDoc(hardware, root, rootID, nil, nil, graph, metadata, &hardwareDoc, &hardwareDoc, traversal)
+
+	// dash:facet marks the structured owner relationship as a leaf facet, so the
+	// owner resource ID is indexed at the [owner] path.
+	ownerField := queryFieldName([]string{ownerPath}, "ss")
+	if values, ok := hardwareDoc[ownerField].([]any); !ok || len(values) != 1 || values[0] != owner.String() {
+		t.Fatalf("expected owner reference in %q, got %#v", ownerField, hardwareDoc[ownerField])
+	}
+	// The nested person properties are no longer recursed into.
+	firstNameField := queryFieldName([]string{ownerPath, firstName}, "ss")
+	if _, ok := hardwareDoc[firstNameField]; ok {
+		t.Fatalf("expected no nested person field %q, got %#v", firstNameField, hardwareDoc[firstNameField])
+	}
+}
+
+func TestBuildQueryDocUsesNodeShapeDashFacetAsDefault(t *testing.T) {
+	const (
+		rootID    = "http://example.org/Hardware"
+		personID  = "http://example.org/Person"
+		ownerPath = "http://example.org/owner"
+	)
+	facet := true
+	root := &shacl.NodeShape{
+		Id: rdf2go.NewResource(rootID), Parents: map[string]bool{}, Alternatives: map[string]bool{},
+		Properties: map[string][]*shacl.Property{ownerPath: {{
+			Id: rdf2go.NewResource("urn:property:owner"), NodeShapes: map[string]bool{personID: true},
+		}}},
+	}
+	person := &shacl.NodeShape{Id: rdf2go.NewResource(personID), Parents: map[string]bool{}, Alternatives: map[string]bool{}, Properties: map[string][]*shacl.Property{}, Facet: &facet}
+	previousProfiles := rdf.Profiles
+	rdf.Profiles = map[string]*shacl.NodeShape{rootID: root, personID: person}
+	t.Cleanup(func() { rdf.Profiles = previousProfiles })
+
+	hardware := rdf2go.NewResource("http://example.org/hardware")
+	owner := rdf2go.NewResource("http://example.org/person")
+	graph := rdf2go.NewGraph("")
+	graph.AddTriple(hardware, rdf2go.NewResource(ownerPath), owner)
+	metadata := &rdf.ResourceMetadata{Conformance: map[string][]string{hardware.RawValue(): {rootID}, owner.RawValue(): {personID}}}
+	doc := document{}
+	ownerDoc := document{}
+	traversal := newQueryTraversalState()
+	traversal.entities = map[string]*document{hardware.RawValue(): &doc, owner.RawValue(): &ownerDoc}
+
+	buildQueryDoc(hardware, root, rootID, nil, nil, graph, metadata, &doc, &doc, traversal)
+	field := queryFieldName([]string{ownerPath}, "ss")
+	if values, ok := doc[field].([]any); !ok || len(values) != 1 || values[0] != owner.String() {
+		t.Fatalf("expected node-shape facet value in %q, got %#v", field, doc[field])
+	}
+}
+
+func TestStructuredPropertyFacetOverridesNodeShapeDefault(t *testing.T) {
+	shapeFacet := true
+	propertyFacet := false
+	const personID = "http://example.org/Person"
+	previousProfiles := rdf.Profiles
+	rdf.Profiles = map[string]*shacl.NodeShape{personID: {Facet: &shapeFacet}}
+	t.Cleanup(func() { rdf.Profiles = previousProfiles })
+	property := &shacl.Property{Facet: &propertyFacet}
+	if structuredPropertyIsFacet(property, map[string]bool{personID: true}) {
+		t.Fatal("dash:facet false on the property must override the node-shape default")
+	}
+}
+
+func TestBuildQueryDocRecursesUnannotatedStructuredProperty(t *testing.T) {
+	const (
+		rootID     = "http://example.org/Hardware"
+		partID     = "http://example.org/Part"
+		partPath   = "http://example.org/hasPart"
+		modelPath  = "http://example.org/model"
+		modelValue = "M-42"
+		stringType = "http://www.w3.org/2001/XMLSchema#string"
+	)
+
+	root := &shacl.NodeShape{
+		Id: rdf2go.NewResource(rootID), Parents: map[string]bool{}, Alternatives: map[string]bool{},
+		Properties: map[string][]*shacl.Property{partPath: {{
+			Id:         rdf2go.NewResource("urn:property:part"),
+			NodeShapes: map[string]bool{partID: true},
+		}}},
+	}
+	// Without dash:facet, the structured property keeps recursing into its shape.
+	part := &shacl.NodeShape{
+		Id: rdf2go.NewResource(partID), Parents: map[string]bool{}, Alternatives: map[string]bool{},
+		Properties: map[string][]*shacl.Property{modelPath: {{
+			Id:         rdf2go.NewResource("urn:property:model"),
+			Datatype:   stringType,
+			NodeShapes: map[string]bool{},
+		}}},
+	}
+
+	previousProfiles := rdf.Profiles
+	rdf.Profiles = map[string]*shacl.NodeShape{rootID: root, partID: part}
+	t.Cleanup(func() { rdf.Profiles = previousProfiles })
+
+	hardware := rdf2go.NewResource("http://example.org/resource/2")
+	partSubject := rdf2go.NewResource("http://example.org/part/2")
+	graph := rdf2go.NewGraph("")
+	graph.AddTriple(hardware, rdf2go.NewResource(partPath), partSubject)
+	graph.AddTriple(partSubject, rdf2go.NewResource(modelPath), rdf2go.NewLiteral(modelValue))
+	metadata := &rdf.ResourceMetadata{Conformance: map[string][]string{
+		hardware.RawValue():    {rootID},
+		partSubject.RawValue(): {partID},
+	}}
+
+	hardwareDoc := document{}
+	partDoc := document{}
+	traversal := newQueryTraversalState()
+	traversal.entities = map[string]*document{
+		hardware.RawValue():    &hardwareDoc,
+		partSubject.RawValue(): &partDoc,
+	}
+
+	buildQueryDoc(hardware, root, rootID, nil, nil, graph, metadata, &hardwareDoc, &hardwareDoc, traversal)
+
+	partField := queryFieldName([]string{partPath, modelPath}, "txt")
+	if values, ok := partDoc[partField].([]any); !ok || len(values) != 1 || values[0] != modelValue {
+		t.Fatalf("expected nested part value in %q, got %#v", partField, partDoc[partField])
+	}
+	// The part is not collapsed into a leaf reference.
+	ownerField := queryFieldName([]string{partPath}, "ss")
+	if _, ok := hardwareDoc[ownerField]; ok {
+		t.Fatalf("expected no leaf part field %q, got %#v", ownerField, hardwareDoc[ownerField])
 	}
 }

@@ -11,9 +11,9 @@ export const shapesGraphName = DataFactory.namedNode('shapes')
 export const dataGraphName = DataFactory.namedNode('data')
 let cache: Record<string, Promise<Quad[]>> = {}
 let prefixes: Record<string, string> = {}
-type RdfListIndex = ReturnType<Store['extractLists']>
 
 const prefixSHACL = 'http://www.w3.org/ns/shacl#'
+const prefixRDF = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#'
 const shaclNode = prefixSHACL + 'node'
 const shaclProperty = prefixSHACL + 'property'
 const shaclPath = prefixSHACL + 'path'
@@ -21,6 +21,9 @@ const shaclAnd = prefixSHACL + 'and'
 const shaclOr = prefixSHACL + 'or'
 const shaclXone = prefixSHACL + 'xone'
 const shaclQualifiedValueShape = prefixSHACL + 'qualifiedValueShape'
+const rdfFirst = prefixRDF + 'first'
+const rdfRest = prefixRDF + 'rest'
+const rdfNil = DataFactory.namedNode(prefixRDF + 'nil')
 
 export async function validate(shapesGraph: string, rootShaclShapeID: string, dataGraph: string, resourceID: string, clearCache?: string) {
     if (clearCache) {
@@ -34,13 +37,12 @@ export async function validate(shapesGraph: string, rootShaclShapeID: string, da
     await importRDF(parseRDF(dataGraph), dataGraphName, dataset, importedUrls)
 
     const validator = new Validator(dataset, { factory: DataFactory, details: false, debug: false })
-    const lists = dataset.extractLists()
     const subjectToShapeConformance: Record<string, string[]> = {} // RDF subjects conforming to SHACL shape IDs
-    await validateShape(DataFactory.namedNode(resourceID), DataFactory.namedNode(rootShaclShapeID), subjectToShapeConformance, dataset, validator, lists)
+    await validateShape(DataFactory.namedNode(resourceID), DataFactory.namedNode(rootShaclShapeID), subjectToShapeConformance, dataset, validator)
     return subjectToShapeConformance
 }
 
-async function validateShape(resourceID: Term, shapeID: Term, subjectToShapeConformance: Record<string, string[]>, dataset: Store, validator: Validator, lists: RdfListIndex, visited: Set<string> = new Set()) {
+async function validateShape(resourceID: Term, shapeID: Term, subjectToShapeConformance: Record<string, string[]>, dataset: Store, validator: Validator, visited: Set<string> = new Set()) {
     const visitKey = `${resourceID.termType}:${resourceID.value}|${shapeID.termType}:${shapeID.value}`
     if (visited.has(visitKey)) {
         return
@@ -48,13 +50,13 @@ async function validateShape(resourceID: Term, shapeID: Term, subjectToShapeConf
     visited.add(visitKey)
     const accepted = await registerConformance(resourceID, shapeID, subjectToShapeConformance, dataset, validator)
     if (accepted) {
-        for (const extendedShape of getValueNodeShapes(shapeID, dataset, lists)) {
-            await validateShape(resourceID, extendedShape, subjectToShapeConformance, dataset, validator, lists, visited)
+        for (const extendedShape of getValueNodeShapes(shapeID, dataset)) {
+            await validateShape(resourceID, extendedShape, subjectToShapeConformance, dataset, validator, visited)
         }
 
         for (const property of dataset.getObjects(shapeID, shaclProperty, shapesGraphName)) {
             const paths = dataset.getObjects(property, shaclPath, shapesGraphName)
-            const propertyShapes = getValueNodeShapes(property, dataset, lists)
+            const propertyShapes = getValueNodeShapes(property, dataset)
             if (paths.length === 0 || propertyShapes.length === 0) {
                 continue
             }
@@ -65,7 +67,7 @@ async function validateShape(resourceID: Term, shapeID: Term, subjectToShapeConf
                 const values = dataset.getObjects(resourceID, path, dataGraphName)
                 for (const value of values) {
                     for (const propertyShape of propertyShapes) {
-                        await validateShape(value, propertyShape, subjectToShapeConformance, dataset, validator, lists, visited)
+                        await validateShape(value, propertyShape, subjectToShapeConformance, dataset, validator, visited)
                     }
                 }
             }
@@ -289,15 +291,36 @@ function guessContentType(input: string) {
     return 'ttl'
 }
 
-function getValueNodeShapes(subject: Term, dataset: Store, lists: RdfListIndex) {
+function getValueNodeShapes(subject: Term, dataset: Store) {
     const shapes: Term[] = [
         ...dataset.getObjects(subject, shaclQualifiedValueShape, shapesGraphName),
         ...dataset.getObjects(subject, shaclNode, shapesGraphName),
     ]
     for (const predicate of [shaclAnd, shaclOr, shaclXone]) {
         for (const list of dataset.getQuads(subject, predicate, null, shapesGraphName)) {
-            shapes.push(...(lists[list.object.value] ?? []))
+            shapes.push(...readShapeList(list.object, dataset))
         }
     }
     return shapes
+}
+
+function readShapeList(head: Term, dataset: Store): Term[] {
+    const items: Term[] = []
+    const visited = new Set<string>()
+    let current = head
+    while (!current.equals(rdfNil)) {
+        const key = `${current.termType}:${current.value}`
+        if (visited.has(key)) {
+            throw new Error(`cyclic SHACL RDF list at ${current.value}`)
+        }
+        visited.add(key)
+        const first = dataset.getObjects(current, rdfFirst, shapesGraphName)
+        const rest = dataset.getObjects(current, rdfRest, shapesGraphName)
+        if (first.length !== 1 || rest.length !== 1) {
+            throw new Error(`malformed SHACL RDF list at ${current.value}`)
+        }
+        items.push(first[0])
+        current = rest[0]
+    }
+    return items
 }

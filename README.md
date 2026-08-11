@@ -20,6 +20,7 @@ Afterwards, open browser at http://localhost:8089
    - `DISABLE_OAUTH`: set to a non-empty value to bypass OAuth2 proxy authentication. For this to work, activate the port mapping `3000:3000` for the `app` service in `docker-compose.yml`. The base URL of the application then is `http://localhost:3000`
    - `RDF_NAMESPACE`, `LOG_LEVEL`: optional service tuning.
    - `SHACL_QUERY_MODE`: set to `true` to opt into the SHACL-driven Solr query UI. It defaults to `false`, which preserves simple search facets.
+   - `LABEL_LANGUAGES`: comma-separated language tags accepted for extracted labels, in fallback order. It defaults to `en,de`; labels tagged with other languages are ignored.
 
 
 ## Updating
