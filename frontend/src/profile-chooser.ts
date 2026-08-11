@@ -24,6 +24,8 @@ export class ProfileChooser extends LitElement {
         :host { display: block; flex: none; height: fit-content; min-height: 0; }
         rokit-dialog::part(dialog) { min-height: 80vh; width: min(90vw, 600px); }
         .main { display: flex; flex-direction: column; flex-grow: 1; }
+        rokit-select { flex-grow: 1; border-bottom-color: #F5F5F5; background-color: white; }
+        rokit-select::part(collapsible-header) { background-color: #F5F5F5 !important; }
         rokit-select::part(profile-count)::after { content: attr(data-count); color: var(--secondary-color); display: inline-block; font-family: monospace; margin-left: 7px; font-size: 12px; }
         .selected-profile { width: 100%; }
         .selected-profile::part(input) { color: var(--secondary-color); }
@@ -33,7 +35,6 @@ export class ProfileChooser extends LitElement {
             padding: 2px 10px 8px 10px;
             color: #555;
             line-height: 1.2;
-            text-align2: center;
             background: #FFF4EB;
             border: 1px solid #FFD2AD;
             border-radius: 6px;
