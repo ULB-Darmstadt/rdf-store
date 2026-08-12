@@ -4,6 +4,7 @@ import '@ulb-darmstadt/shacl-form/plugins/leaflet.js'
 import { BACKEND_URL } from './constants'
 import { globalStyles } from './styles'
 import './graph'
+import type { RdfGraph } from './graph'
 import { i18n } from './i18n'
 import { RokitDialog, showSnackbarMessage } from '@ro-kit/ui-widgets'
 import { ShaclForm } from '@ulb-darmstadt/shacl-form'
@@ -41,20 +42,22 @@ export class Viewer extends LitElement {
     @state()
     rdf = ''
     @state()
-    rdfWithLinked = ''
-    @state()
     editMode = false
     @state()
     saving = false
+    @state()
+    graphExportReady = false
     @query('#delete-confirmation')
     private deleteConfirmation!: RokitDialog
+    @query('rdf-graph')
+    private graph?: RdfGraph
     private loadTimeout?: number
 
     willUpdate(changedProperties: PropertyValues) {
         if (changedProperties.has('rdfSubject') && !this.rdfSubject) {
             window.clearTimeout(this.loadTimeout)
             this.rdf = ''
-            this.rdfWithLinked = ''
+            this.graphExportReady = false
         }
         if ((changedProperties.has('rdfSubject') || changedProperties.has('highlightSubject')) && this.rdfSubject) {
             this.highlightSubject = this.highlightSubject || this.rdfSubject
@@ -70,6 +73,9 @@ export class Viewer extends LitElement {
         if (changedProperties.has('graphView') && !this.graphView) {
             (this.shadowRoot!.querySelector('shacl-form') as ShaclForm)?.setResourceLinkProvider(resourceLinkProvider)
         }
+        if (changedProperties.has('graphView') && this.graphView) {
+            this.graphExportReady = false
+        }
     }
 
     private async load() {
@@ -83,18 +89,12 @@ export class Viewer extends LitElement {
                 return
             }
             try {
-                let resp = await fetch(`${BACKEND_URL}/resource/${encodeURIComponent(subject)}`)
+                const resp = await fetch(`${BACKEND_URL}/resource/${encodeURIComponent(subject)}`)
                 if (resp.ok) {
                     this.rdf = await resp.text()
                     // check if editable
                     const creator = resp.headers.get('X-Creator')
                     this.editable = (!this.config?.authEnabled || (this.config?.authUser && this.config?.authUser === creator)) ? true : false
-                } else {
-                    throw new Error(`${i18n['noresults']}, ${resp.statusText}`)
-                }
-                resp = await fetch(`${BACKEND_URL}/resource/${encodeURIComponent(subject)}?includeLinked`)
-                if (resp.ok) {
-                    this.rdfWithLinked = await resp.text()
                 } else {
                     throw new Error(`${i18n['noresults']}, ${resp.statusText}`)
                 }
@@ -104,12 +104,15 @@ export class Viewer extends LitElement {
         })
     }
 
-    private export() {
-        if (this.rdf) {
+    private exportGraph() {
+        const graph = this.graph
+        if (graph?.hasExportData()) {
             const link = document.createElement('a')
-            link.href = window.URL.createObjectURL(new Blob([this.rdf], { type: 'text/turtle' }))
-            link.download = 'metadata.ttl'
+            const objectUrl = window.URL.createObjectURL(new Blob([graph.exportNQuads()], { type: 'application/n-quads' }))
+            link.href = objectUrl
+            link.download = 'rdf-graph.nq'
             link.click()
+            window.setTimeout(() => window.URL.revokeObjectURL(objectUrl))
         }
     }
 
@@ -202,12 +205,20 @@ export class Viewer extends LitElement {
                 ${!this.editable ? nothing : html`
                     <rokit-button @click="${() => { this.editMode = true; this.graphView = false }}"><span class="material-icons">edit</span>${i18n['edit']}</rokit-button>
                 `}
-                <rokit-button @click="${() => { this.export() }}"><span class="material-icons">download</span>${i18n['export']}</rokit-button>
+                ${!this.graphView ? nothing : html`
+                    <rokit-button @click="${this.exportGraph}" ?disabled="${!this.graphExportReady}"><span class="material-icons">download</span>${i18n['export_graph']}</rokit-button>
+                `}
             `}
             </div>
             <div class="main">
             ${this.graphView ? html`
-                <rdf-graph rdfSubject="${this.rdfSubject}" highlightSubject="${this.highlightSubject}" rdf="${this.rdfWithLinked}"></rdf-graph>
+                <rdf-graph
+                    rdfSubject="${this.rdfSubject}"
+                    highlightSubject="${this.highlightSubject}"
+                    @graph-state-change="${(event: CustomEvent<{ loading: boolean, hasData: boolean }>) => {
+                        this.graphExportReady = event.detail.hasData && !event.detail.loading
+                    }}"
+                ></rdf-graph>
             ` : html`
                 <shacl-form
                     id="form"

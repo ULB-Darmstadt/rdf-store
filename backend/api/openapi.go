@@ -250,6 +250,24 @@ func addPaths(spec *openapi3.T) {
 		Tags: []string{TAG_RDF},
 	}})
 
+	spec.Paths.Set("/graph/neighborhood", &openapi3.PathItem{Get: &openapi3.Operation{
+		Summary:     "Fetch an entity graph neighborhood",
+		Description: "Returns direct outgoing statements for one entity, or a page of direct incoming relationship statements. Pagination metadata is returned in X-Total-Count, X-Offset, and X-Limit headers.",
+		OperationID: "getGraphNeighborhood",
+		Parameters: openapi3.Parameters{
+			&openapi3.ParameterRef{Value: openapi3.NewQueryParameter("subject").WithRequired(true).WithDescription("Entity IRI")},
+			&openapi3.ParameterRef{Value: openapi3.NewQueryParameter("direction").WithRequired(true).WithSchema(openapi3.NewStringSchema().WithEnum("outgoing", "incoming"))},
+			&openapi3.ParameterRef{Value: openapi3.NewQueryParameter("offset").WithDescription("Incoming entity offset; defaults to 0").WithSchema(openapi3.NewIntegerSchema().WithMin(0))},
+			&openapi3.ParameterRef{Value: openapi3.NewQueryParameter("limit").WithDescription("Incoming entity batch size; defaults to 25 and is capped at 100").WithSchema(openapi3.NewIntegerSchema().WithMin(1).WithMax(100))},
+		},
+		Responses: responses(map[string]*openapi3.Response{
+			"200": nquadsResponse(),
+			"400": errorResponse(),
+			"500": errorResponse(),
+		}),
+		Tags: []string{TAG_RDF},
+	}})
+
 	spec.Paths.Set("/sparql/query", &openapi3.PathItem{
 		Get: &openapi3.Operation{
 			Summary:     "SPARQL GET queries on RDF resources dataset",
@@ -357,6 +375,12 @@ func turtleResponse() *openapi3.Response {
 	return openapi3.NewResponse().
 		WithDescription("Turtle response").
 		WithContent(openapi3.NewContentWithSchema(openapi3.NewStringSchema(), []string{"text/turtle"}))
+}
+
+func nquadsResponse() *openapi3.Response {
+	return openapi3.NewResponse().
+		WithDescription("N-Quads graph neighborhood response").
+		WithContent(openapi3.NewContentWithSchema(openapi3.NewStringSchema(), []string{"application/n-quads"}))
 }
 
 // errorResponse constructs a standard error response schema.
