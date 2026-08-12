@@ -1,25 +1,39 @@
 package search
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/deiu/rdf2go"
 
-	"rdf-store-backend/base"
 	"rdf-store-backend/rdf"
 	"rdf-store-backend/shacl"
 )
 
-func TestQueryFieldNameIsStable(t *testing.T) {
-	name := queryFieldName([]string{
+func TestQueryPathIDIsStable(t *testing.T) {
+	name := queryPathID([]string{
 		"http://example.org/child",
 		"http://example.org/score",
-	}, "ds")
-	const expected = "_query_.5f508e2ada4ba4124cc00d65f039588f_ds"
+	})
+	const expected = "5f508e2ada4ba4124cc00d65f039588f"
 	if name != expected {
 		t.Fatalf("expected query field %q, got %q", expected, name)
 	}
+}
+
+func valueChildren(doc document, path []string, field string) []any {
+	pathID := queryPathID(path)
+	children, _ := doc["_childDocuments_"].([]any)
+	values := []any{}
+	for _, raw := range children {
+		child, ok := raw.(document)
+		if !ok || child["path"] != pathID {
+			continue
+		}
+		if value, ok := child[field]; ok {
+			values = append(values, value)
+		}
+	}
+	return values
 }
 
 func TestDocumentAppendValueDeduplicatesValues(t *testing.T) {
@@ -66,18 +80,6 @@ func TestOrderShapesBySpecificityKeepsSingleNamedProfileFirst(t *testing.T) {
 	if ordered[0] != baseID || ordered[1] != urnID {
 		t.Fatalf("expected named profile first, got %v", ordered)
 	}
-}
-
-func TestRootShapeSchemaIsMultiValued(t *testing.T) {
-	for _, field := range createCollectionSchema() {
-		if field.Name == "rootShape" {
-			if !field.MultiValued {
-				t.Fatal("expected rootShape to accept inherited shape IDs")
-			}
-			return
-		}
-	}
-	t.Fatal("rootShape field is missing from the collection schema")
 }
 
 func TestBuildQueryDocIndexesNestedInheritedNumericValue(t *testing.T) {
@@ -147,24 +149,16 @@ func TestBuildQueryDocIndexesNestedInheritedNumericValue(t *testing.T) {
 
 	buildQueryDoc(rootSubject, root, rootID, nil, nil, graph, metadata, &rootDoc, &rootDoc, traversal)
 
-	field := queryFieldName([]string{childPath, scorePath}, "ds")
-	if values, ok := childDoc[field].([]any); !ok || len(values) != 1 || values[0] != "12.5" {
-		t.Fatalf("expected nested numeric query field %q, got %#v", field, childDoc[field])
+	path := []string{childPath, scorePath}
+	if values := valueChildren(childDoc, path, "valueNumber"); len(values) != 1 || values[0] != "12.5" {
+		t.Fatalf("expected nested numeric value document, got %#v", values)
 	}
 	// The child does not conform to the root shape, so the value is mirrored
 	// onto the root document (the nearest conforming ancestor) to make nested
 	// criteria match a conforming hit.
-	if values, ok := rootDoc[field].([]any); !ok || len(values) != 1 || values[0] != "12.5" {
-		t.Fatalf("expected root document to carry deep query field %q, got %#v", field, rootDoc[field])
+	if values := valueChildren(rootDoc, path, "valueNumber"); len(values) != 1 || values[0] != "12.5" {
+		t.Fatalf("expected root document to carry deep value document, got %#v", values)
 	}
-}
-
-// setShaclQueryMode pins the feature flag for the duration of a test.
-func setShaclQueryMode(t *testing.T, enabled bool) {
-	t.Helper()
-	previous := base.Configuration.ShaclQueryMode
-	base.Configuration.ShaclQueryMode = enabled
-	t.Cleanup(func() { base.Configuration.ShaclQueryMode = previous })
 }
 
 type measurementFixture struct {
@@ -242,7 +236,6 @@ func newMeasurementFixture(t *testing.T) *measurementFixture {
 }
 
 func TestBuildResourceDocumentsIndexesInheritedShapeContexts(t *testing.T) {
-	setShaclQueryMode(t, true)
 	const (
 		derivedID = "http://example.org/Derived"
 		middleID  = "http://example.org/Middle"
@@ -297,32 +290,29 @@ func TestBuildResourceDocumentsIndexesInheritedShapeContexts(t *testing.T) {
 		t.Fatalf("expected one document, got %d", len(docs))
 	}
 	doc := *docs[0]
-
-	rootShapes, ok := doc["rootShape"].([]any)
-	if !ok || len(rootShapes) != 3 {
-		t.Fatalf("expected concrete and inherited root shapes, got %#v", doc["rootShape"])
+	shapes, ok := doc["shape"].([]any)
+	if !ok || len(shapes) != 3 {
+		t.Fatalf("expected concrete and inherited conforming shapes, got %#v", doc["shape"])
 	}
 	for _, shapeID := range []string{derivedID, middleID, baseID} {
 		found := false
-		for _, indexedShapeID := range rootShapes {
+		for _, indexedShapeID := range shapes {
 			if indexedShapeID == shapeID {
 				found = true
 				break
 			}
 		}
 		if !found {
-			t.Errorf("expected root shape %q in %#v", shapeID, rootShapes)
+			t.Errorf("expected conforming shape %q in %#v", shapeID, shapes)
 		}
 	}
 
-	baseField := queryFieldName([]string{namePath}, "txt")
-	if values, ok := doc[baseField].([]any); !ok || len(values) != 1 || values[0] != "Inherited result" {
-		t.Fatalf("expected inherited root query field %q, got %#v", baseField, doc[baseField])
+	if values := valueChildren(doc, []string{namePath}, "valueText"); len(values) != 1 || values[0] != "Inherited result" {
+		t.Fatalf("expected inherited root value document, got %#v", values)
 	}
 }
 
 func TestBuildResourceDocumentsCreatesEntityDocuments(t *testing.T) {
-	setShaclQueryMode(t, true)
 	fx := newMeasurementFixture(t)
 
 	docs, err := buildResourceDocuments(fx.graph, fx.metadata)
@@ -350,12 +340,15 @@ func TestBuildResourceDocumentsCreatesEntityDocuments(t *testing.T) {
 	if rootDoc == nil {
 		t.Fatal("expected a document for the resource")
 	}
-	deepField := queryFieldName([]string{fx.childPath, fx.valuePath}, "ds")
+	if shapes, ok := (*rootDoc)["shape"].([]any); !ok || len(shapes) != 1 || shapes[0] != fx.rootID {
+		t.Fatalf("expected root document to contain only its own shape %q, got %#v", fx.rootID, (*rootDoc)["shape"])
+	}
+	deepPath := []string{fx.childPath, fx.valuePath}
 	// The measurement does not conform to the root shape, so its value is also
 	// stored on the resource document (the conforming ancestor) to keep nested
 	// criteria matchable against a conforming hit.
-	if values, ok := (*rootDoc)[deepField].([]any); !ok || len(values) != 1 || values[0] != "12.5" {
-		t.Fatalf("expected deep query field %q on resource document, got %#v", deepField, (*rootDoc)[deepField])
+	if values := valueChildren(*rootDoc, deepPath, "valueNumber"); len(values) != 1 || values[0] != "12.5" {
+		t.Fatalf("expected deep value document on resource document, got %#v", values)
 	}
 	if (*childDoc)["id"] != fx.resourceID+"|"+fx.childID {
 		t.Fatalf("unexpected entity document id %#v", (*childDoc)["id"])
@@ -366,16 +359,12 @@ func TestBuildResourceDocumentsCreatesEntityDocuments(t *testing.T) {
 	if shapes, ok := (*childDoc)["shape"].([]any); !ok || len(shapes) != 1 || shapes[0] != "http://example.org/Measurement" {
 		t.Fatalf("expected shape %q on entity document, got %#v", "http://example.org/Measurement", (*childDoc)["shape"])
 	}
-	if roots, ok := (*childDoc)["rootShape"].([]any); !ok || len(roots) != 1 || roots[0] != fx.rootID {
-		t.Fatalf("expected rootShape %q on entity document, got %#v", fx.rootID, (*childDoc)["rootShape"])
-	}
-	if values, ok := (*childDoc)[deepField].([]any); !ok || len(values) != 1 || values[0] != "12.5" {
-		t.Fatalf("expected deep query field %q on entity document, got %#v", deepField, (*childDoc)[deepField])
+	if values := valueChildren(*childDoc, deepPath, "valueNumber"); len(values) != 1 || values[0] != "12.5" {
+		t.Fatalf("expected deep value document on entity document, got %#v", values)
 	}
 }
 
 func TestBuildResourceDocumentsIndexesEmbeddedEntityQueryFields(t *testing.T) {
-	setShaclQueryMode(t, true)
 	fx := newMeasurementFixture(t)
 
 	docs, err := buildResourceDocuments(fx.graph, fx.metadata)
@@ -397,29 +386,8 @@ func TestBuildResourceDocumentsIndexesEmbeddedEntityQueryFields(t *testing.T) {
 	// The embedded measurement is traversed from its own shape, so its value is
 	// indexed under the measurement-relative path. Without this, facets scoped
 	// to the measurement shape would miss values of embedded measurements.
-	ownField := queryFieldName([]string{fx.valuePath}, "ds")
-	if values, ok := (*childDoc)[ownField].([]any); !ok || len(values) != 1 || values[0] != "12.5" {
-		t.Fatalf("expected embedded entity query field %q, got %#v", ownField, (*childDoc)[ownField])
-	}
-}
-
-func TestBuildResourceDocumentsSkipsQueryFieldsWithoutQueryMode(t *testing.T) {
-	setShaclQueryMode(t, false)
-	fx := newMeasurementFixture(t)
-
-	docs, err := buildResourceDocuments(fx.graph, fx.metadata)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(docs) != 2 {
-		t.Fatalf("expected two entity documents, got %d", len(docs))
-	}
-	for _, doc := range docs {
-		for field := range *doc {
-			if strings.HasPrefix(field, "_query_.") {
-				t.Errorf("expected no query fields without SHACL_QUERY_MODE, got %q", field)
-			}
-		}
+	if values := valueChildren(*childDoc, []string{fx.valuePath}, "valueNumber"); len(values) != 1 || values[0] != "12.5" {
+		t.Fatalf("expected embedded entity value document, got %#v", values)
 	}
 }
 
@@ -483,19 +451,19 @@ func TestBuildQueryDocSeparatesQualifiedBranchesWithSameRdfPath(t *testing.T) {
 
 	buildQueryDoc(rootSubject, root, rootID, nil, nil, graph, metadata, &rootDoc, &rootDoc, traversal)
 
-	temperatureField := queryFieldName([]string{temperatureProp, quantityKindPath}, "ss")
-	timeField := queryFieldName([]string{timeProp, quantityKindPath}, "ss")
-	if values := temperatureDoc[temperatureField]; len(values.([]any)) != 1 || values.([]any)[0] != temperatureKind.String() {
-		t.Fatalf("expected only temperature in %q, got %#v", temperatureField, temperatureDoc[temperatureField])
+	temperaturePath := []string{temperatureProp, quantityKindPath}
+	timePath := []string{timeProp, quantityKindPath}
+	if values := valueChildren(temperatureDoc, temperaturePath, "valueString"); len(values) != 1 || values[0] != temperatureKind.String() {
+		t.Fatalf("expected only temperature, got %#v", values)
 	}
-	if values := timeDoc[timeField]; len(values.([]any)) != 1 || values.([]any)[0] != timeKind.String() {
-		t.Fatalf("expected only time in %q, got %#v", timeField, timeDoc[timeField])
+	if values := valueChildren(timeDoc, timePath, "valueString"); len(values) != 1 || values[0] != timeKind.String() {
+		t.Fatalf("expected only time, got %#v", values)
 	}
-	if _, ok := temperatureDoc[timeField]; ok {
-		t.Fatalf("expected temperature document not to carry %q, got %#v", timeField, temperatureDoc[timeField])
+	if values := valueChildren(temperatureDoc, timePath, "valueString"); len(values) != 0 {
+		t.Fatalf("expected temperature document not to carry time, got %#v", values)
 	}
-	if _, ok := timeDoc[temperatureField]; ok {
-		t.Fatalf("expected time document not to carry %q, got %#v", temperatureField, timeDoc[temperatureField])
+	if values := valueChildren(timeDoc, temperaturePath, "valueString"); len(values) != 0 {
+		t.Fatalf("expected time document not to carry temperature, got %#v", values)
 	}
 }
 
@@ -503,14 +471,14 @@ func TestAppendQueryValueDeduplicatesValues(t *testing.T) {
 	doc := document{}
 	path := []string{"http://example.org/name"}
 	value := rdf2go.NewLiteral("duplicate")
+	keys := map[string]map[string]bool{}
 
-	appendQueryValue(&doc, path, value)
-	appendQueryValue(&doc, path, value)
+	appendQueryValue(&doc, path, value, keys)
+	appendQueryValue(&doc, path, value, keys)
 
-	field := queryFieldName(path, "txt")
-	values, ok := doc[field].([]any)
-	if !ok || len(values) != 1 || values[0] != "duplicate" {
-		t.Fatalf("expected one unique value in %q, got %#v", field, doc[field])
+	values := valueChildren(doc, path, "valueText")
+	if len(values) != 1 || values[0] != "duplicate" {
+		t.Fatalf("expected one unique value document, got %#v", values)
 	}
 }
 
@@ -574,14 +542,12 @@ func TestBuildQueryDocIndexesStructuredDashFacetAsLeaf(t *testing.T) {
 
 	// dash:facet marks the structured owner relationship as a leaf facet, so the
 	// owner resource ID is indexed at the [owner] path.
-	ownerField := queryFieldName([]string{ownerPath}, "ss")
-	if values, ok := hardwareDoc[ownerField].([]any); !ok || len(values) != 1 || values[0] != owner.String() {
-		t.Fatalf("expected owner reference in %q, got %#v", ownerField, hardwareDoc[ownerField])
+	if values := valueChildren(hardwareDoc, []string{ownerPath}, "valueString"); len(values) != 1 || values[0] != owner.String() {
+		t.Fatalf("expected owner reference, got %#v", values)
 	}
 	// The nested person properties are no longer recursed into.
-	firstNameField := queryFieldName([]string{ownerPath, firstName}, "ss")
-	if _, ok := hardwareDoc[firstNameField]; ok {
-		t.Fatalf("expected no nested person field %q, got %#v", firstNameField, hardwareDoc[firstNameField])
+	if values := valueChildren(hardwareDoc, []string{ownerPath, firstName}, "valueText"); len(values) != 0 {
+		t.Fatalf("expected no nested person value, got %#v", values)
 	}
 }
 
@@ -614,9 +580,8 @@ func TestBuildQueryDocUsesNodeShapeDashFacetAsDefault(t *testing.T) {
 	traversal.entities = map[string]*document{hardware.RawValue(): &doc, owner.RawValue(): &ownerDoc}
 
 	buildQueryDoc(hardware, root, rootID, nil, nil, graph, metadata, &doc, &doc, traversal)
-	field := queryFieldName([]string{ownerPath}, "ss")
-	if values, ok := doc[field].([]any); !ok || len(values) != 1 || values[0] != owner.String() {
-		t.Fatalf("expected node-shape facet value in %q, got %#v", field, doc[field])
+	if values := valueChildren(doc, []string{ownerPath}, "valueString"); len(values) != 1 || values[0] != owner.String() {
+		t.Fatalf("expected node-shape facet value, got %#v", values)
 	}
 }
 
@@ -684,13 +649,11 @@ func TestBuildQueryDocRecursesUnannotatedStructuredProperty(t *testing.T) {
 
 	buildQueryDoc(hardware, root, rootID, nil, nil, graph, metadata, &hardwareDoc, &hardwareDoc, traversal)
 
-	partField := queryFieldName([]string{partPath, modelPath}, "txt")
-	if values, ok := partDoc[partField].([]any); !ok || len(values) != 1 || values[0] != modelValue {
-		t.Fatalf("expected nested part value in %q, got %#v", partField, partDoc[partField])
+	if values := valueChildren(partDoc, []string{partPath, modelPath}, "valueText"); len(values) != 1 || values[0] != modelValue {
+		t.Fatalf("expected nested part value, got %#v", values)
 	}
 	// The part is not collapsed into a leaf reference.
-	ownerField := queryFieldName([]string{partPath}, "ss")
-	if _, ok := hardwareDoc[ownerField]; ok {
-		t.Fatalf("expected no leaf part field %q, got %#v", ownerField, hardwareDoc[ownerField])
+	if values := valueChildren(hardwareDoc, []string{partPath}, "valueString"); len(values) != 0 {
+		t.Fatalf("expected no leaf part value, got %#v", values)
 	}
 }

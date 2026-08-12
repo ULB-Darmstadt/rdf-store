@@ -9,29 +9,34 @@ import type {
 import { isRangeQueryField } from '@ulb-darmstadt/shacl-form'
 import type { Term } from '@rdfjs/types'
 import { DataFactory } from 'n3'
-import { executeSolrRequest, fetchFields, SearchRequest, AggregationFacet } from './solr'
+import { executeSolrRequest, SearchRequest, AggregationFacet } from './solr'
 import { fetchLabels, i18n } from './i18n'
 
 const XSD = 'http://www.w3.org/2001/XMLSchema#'
 const DATE_TYPES = new Set([`${XSD}date`, `${XSD}dateTime`])
 const LUCENE_SPECIAL_RE = /([+\-!(){}[\]^"~*?:\\/]|&&|\|\||\s)/g
-const queryFieldPrefixes = new Map<string, Promise<string>>()
-const fieldFetching = new Map<string, Promise<string[]>>()
+const pathIds = new Map<string, Promise<string>>()
+const WORLD_BOUNDS = '[-90,-180 TO 90,180]'
 
-type SolrFacetBucket = { val: string | number | boolean, count: number }
-type SolrFacetResult = { count?: number, buckets?: SolrFacetBucket[] }
+type SolrFacetBucket = { val: string | number | boolean, count: number, entities?: number }
+type SolrFacetResult = {
+    count?: number
+    entities?: number
+    min?: string | number
+    max?: string | number
+    buckets?: SolrFacetBucket[]
+}
 
-function queryFieldPrefix(path: string[]): Promise<string> {
+function queryPathId(path: string[]): Promise<string> {
     const input = path.join('\0')
-    let prefix = queryFieldPrefixes.get(input)
-    if (!prefix) {
-        prefix = crypto.subtle.digest('SHA-256', new TextEncoder().encode(input)).then(digest => {
-            const hash = Array.from(new Uint8Array(digest, 0, 16), byte => byte.toString(16).padStart(2, '0')).join('')
-            return `_query_.${hash}_`
-        })
-        queryFieldPrefixes.set(input, prefix)
+    let id = pathIds.get(input)
+    if (!id) {
+        id = crypto.subtle.digest('SHA-256', new TextEncoder().encode(input)).then(digest =>
+            Array.from(new Uint8Array(digest, 0, 16), byte => byte.toString(16).padStart(2, '0')).join('')
+        )
+        pathIds.set(input, id)
     }
-    return prefix
+    return id
 }
 
 function expandQueryPath(path: QueryField['path']): string[][] {
@@ -45,16 +50,11 @@ function queryFieldPaths(field: QueryField): string[][] {
     if (!field.shapePath || field.shapePath.length !== field.path.length) {
         return expandQueryPath(field.path)
     }
-
     const paths: string[][] = []
     const seen = new Set<string>()
     const differingSegments = field.shapePath.flatMap((segment, index) =>
         !Array.isArray(field.path[index]) && segment === field.path[index] ? [] : [index]
     )
-
-    // Prefer the qualified SHACL path. The indexer can also reach the same value
-    // through an inherited, unqualified property and then stores that segment as
-    // its RDF predicate. Try increasingly less-specific paths as fallbacks.
     for (let replacements = 0; replacements <= differingSegments.length; replacements++) {
         const visit = (start: number, selected: number[]) => {
             if (selected.length === replacements) {
@@ -98,12 +98,6 @@ function storedValue(term: Term, field: QueryField): string {
     return field.datatype && DATE_TYPES.has(field.datatype) ? normalizeDate(term.value) : term.value
 }
 
-function isSpatialField(fieldName: string): boolean {
-    return fieldName.endsWith('_srpt')
-}
-
-const WORLD_BOUNDS = '[-90,-180 TO 90,180]'
-
 function wktPolygonToBbox(wkt: string): string | undefined {
     const match = wkt.match(/^POLYGON[(]{2}(.*)[)]{2}$/)
     if (!match) {
@@ -118,11 +112,7 @@ function wktPolygonToBbox(wkt: string): string | undefined {
     }
     const lngs = coords.map(c => c[0])
     const lats = coords.map(c => c[1])
-    const west = Math.min(...lngs)
-    const east = Math.max(...lngs)
-    const south = Math.min(...lats)
-    const north = Math.max(...lats)
-    return `[${south},${west} TO ${north},${east}]`
+    return `[${Math.min(...lats)},${Math.min(...lngs)} TO ${Math.max(...lats)},${Math.max(...lngs)}]`
 }
 
 function termFromSolr(value: string | number | boolean, field: QueryField): Term {
@@ -138,15 +128,12 @@ function termFromSolr(value: string | number | boolean, field: QueryField): Term
 }
 
 export class SolrQueryFacetProvider implements QueryFacetProvider {
-    private static readonly FIELD_CACHE_TTL = 30000
-
-    private fieldNames?: string[]
-    private fieldNamesFetchedAt = 0
     private baseFilters: string[] = []
 
     constructor(
         private readonly index: string,
-        private readonly bucketLimit = 100
+        private readonly bucketLimit = 100,
+        private readonly geoDataType = ''
     ) {}
 
     setBaseFilters(filters: string[]) {
@@ -165,78 +152,53 @@ export class SolrQueryFacetProvider implements QueryFacetProvider {
     }
 
     async buildFilters(query: Query): Promise<string[]> {
-        const fields = await this.getFieldNames()
-        return this.buildFiltersWithFields(query, fields, this.conformanceFilter)
-    }
-
-    private async buildFiltersWithFields(query: Query, fields: string[], resultFilter: (query: Query) => string): Promise<string[]> {
-        const filters = [resultFilter(query), ...this.baseFilters]
-        const fieldSet = new Set(fields)
-        const indexFields = await Promise.all(query.criteria.map(criterion =>
-            this.resolveField(criterion.field, fieldSet, criterion)
-        ))
-        query.criteria.forEach((criterion, index) => {
-            const indexField = indexFields[index]
-            if (!indexField) {
-                filters.push('id:__missing_shacl_query_field__')
-                return
-            }
-            const filter = this.criterionFilter(criterion, indexField)
-            if (filter) {
-                filters.push(filter)
-            }
-        })
+        const filters = [this.conformanceFilter(query), ...this.baseFilters].filter(Boolean)
+        const criteria = await Promise.all(query.criteria.map(criterion => this.criterionFilter(criterion)))
+        filters.push(...criteria.filter((filter): filter is string => !!filter))
         return filters
     }
 
     async getFacets(request: QueryFacetRequest): Promise<ShaclQueryFacet[]> {
-        // Solr dynamic fields can appear after resources are created or the
-        // index is rebuilt. Field discovery is cached briefly so a long-lived
-        // query form picks up newly available controls without refetching the
-        // field list on every facet request.
-        const fields = await this.getFieldNames(true)
-        const filters = await this.buildFiltersWithFields(request.query, fields, this.conformanceFilter)
-        const fieldSet = new Set(fields)
-        const facet: Record<string, object | string> = {}
-        const resolved = new Map<number, string>()
-        const result: ShaclQueryFacet[] = []
+        const filters = ['docType:entity', ...await this.buildFilters(request.query)]
+        const facet: Record<string, unknown> = {}
+        const paths = await Promise.all(request.fields.map(field => this.pathFilter(field)))
 
-        const indexFields = await Promise.all(request.fields.map(field =>
-            this.resolveField(field, fieldSet)
-        ))
         request.fields.forEach((field, index) => {
-            const indexField = indexFields[index]
-            if (!indexField) {
-                result.push({ fieldId: field.id, count: 0 })
-                return
+            const domain = { blockChildren: 'docType:entity', filter: ['docType:value', paths[index]] }
+            const valueField = this.facetValueField(field)
+            facet[`f${index}_count`] = {
+                type: 'query', q: `${valueField}:[* TO *]`, domain,
+                facet: { entities: 'uniqueBlock(_root_)' }
             }
-            resolved.set(index, indexField)
-            facet[`f${index}_count`] = { type: 'query', q: `${indexField}:[* TO *]` }
             if (isRangeQueryField(field)) {
-                facet[`f${index}_min`] = `min(${indexField})`
-                facet[`f${index}_max`] = `max(${indexField})`
-            } else if (isSpatialField(indexField)) {
-                facet[`f${index}_heatmap`] = { type: 'heatmap', field: indexField, geom: WORLD_BOUNDS }
+                facet[`f${index}_stats`] = {
+                    type: 'query', q: `${valueField}:[* TO *]`, domain,
+                    facet: { entities: 'uniqueBlock(_root_)', min: `min(${valueField})`, max: `max(${valueField})` }
+                }
+            } else if (this.isSpatialField(field)) {
+                facet[`f${index}_heatmap`] = { type: 'heatmap', field: valueField, geom: WORLD_BOUNDS, domain }
             } else {
-                facet[`f${index}_buckets`] = { type: 'terms', field: indexField, limit: this.bucketLimit }
+                facet[`f${index}_buckets`] = {
+                    type: 'terms', field: valueField, limit: this.bucketLimit, domain,
+                    facet: { entities: 'uniqueBlock(_root_)' }
+                }
             }
         })
 
-        if (resolved.size === 0) {
-            return result
+        if (!request.fields.length) {
+            return []
         }
-        const query: SearchRequest = { query: '*', filter: filters, facet: facet as SearchRequest['facet'], limit: 0, offset: 0 }
+        const query: SearchRequest = { query: '*', filter: filters, facet, limit: 0, offset: 0 }
         const response = await executeSolrRequest(this.index, query, request.signal)
         if (response.error) {
             throw new Error(response.error.msg || response.error.trace || 'Solr facet request failed')
         }
-        const aggregations = response.facets || {}
+        const aggregations = (response.facets || {}) as Record<string, unknown>
 
         const labelIds = new Set<string>()
-        for (const index of resolved.keys()) {
-            const field = request.fields[index]
-            if (isRangeQueryField(field) || isSpatialField(resolved.get(index)!)) {
-                continue
+        request.fields.forEach((field, index) => {
+            if (isRangeQueryField(field) || this.isSpatialField(field)) {
+                return
             }
             const bucketResult = aggregations[`f${index}_buckets`] as SolrFacetResult | undefined
             for (const bucket of bucketResult?.buckets || []) {
@@ -245,123 +207,111 @@ export class SolrQueryFacetProvider implements QueryFacetProvider {
                     labelIds.add(value.value)
                 }
             }
-        }
+        })
         await fetchLabels(Array.from(labelIds), true)
 
-        for (const index of resolved.keys()) {
-            const field = request.fields[index]
+        return request.fields.map((field, index) => {
             const countResult = aggregations[`f${index}_count`] as SolrFacetResult | undefined
-            const queryFacet: ShaclQueryFacet = { fieldId: field.id, count: countResult?.count || 0 }
+            const queryFacet: ShaclQueryFacet = { fieldId: field.id, count: countResult?.entities || 0 }
             if (isRangeQueryField(field)) {
-                const min = aggregations[`f${index}_min`]
-                const max = aggregations[`f${index}_max`]
-                if (min !== undefined && typeof min !== 'object') {
-                    queryFacet.min = termFromSolr(min, field)
+                const stats = aggregations[`f${index}_stats`] as SolrFacetResult | undefined
+                if (stats?.min !== undefined) {
+                    queryFacet.min = termFromSolr(stats.min, field)
                 }
-                if (max !== undefined && typeof max !== 'object') {
-                    queryFacet.max = termFromSolr(max, field)
+                if (stats?.max !== undefined) {
+                    queryFacet.max = termFromSolr(stats.max, field)
                 }
-            } else if (isSpatialField(resolved.get(index)!)) {
+            } else if (this.isSpatialField(field)) {
                 const heatmap = aggregations[`f${index}_heatmap`] as AggregationFacet | undefined
                 if (heatmap?.counts_ints2D?.length) {
                     queryFacet.heatmap = {
-                        columns: heatmap.columns!,
-                        rows: heatmap.rows!,
-                        minX: heatmap.minX!,
-                        maxX: heatmap.maxX!,
-                        minY: heatmap.minY!,
-                        maxY: heatmap.maxY!,
+                        columns: heatmap.columns!, rows: heatmap.rows!,
+                        minX: heatmap.minX!, maxX: heatmap.maxX!, minY: heatmap.minY!, maxY: heatmap.maxY!,
                         counts: heatmap.counts_ints2D
                     }
                 }
             } else {
-                const bucketResult = aggregations[`f${index}_buckets`] as SolrFacetResult | undefined
-                queryFacet.buckets = (bucketResult?.buckets || []).map(bucket => {
+                const buckets = (aggregations[`f${index}_buckets`] as SolrFacetResult | undefined)?.buckets || []
+                queryFacet.buckets = buckets.map(bucket => {
                     const value = termFromSolr(bucket.val, field)
-                    return { value, label: i18n[value.value] || value.value, count: bucket.count }
+                    return { value, label: i18n[value.value] || value.value, count: bucket.entities || 0 }
                 })
             }
-            result.push(queryFacet)
-        }
-        return result
-    }
-
-    private async getFieldNames(refresh = false): Promise<string[]> {
-        const fresh = this.fieldNames && Date.now() - this.fieldNamesFetchedAt < SolrQueryFacetProvider.FIELD_CACHE_TTL
-        if (!this.fieldNames || (refresh && !fresh)) {
-            // Concurrent callers share a single in-flight fetch so the profile
-            // selection (which triggers both buildFilters and getFacets) does
-            // not issue duplicate field-list requests.
-            let fetch = fieldFetching.get(this.index)
-            if (!fetch) {
-                fetch = fetchFields(this.index).finally(() => {
-                    fieldFetching.delete(this.index)
-                })
-                fieldFetching.set(this.index, fetch)
-            }
-            try {
-                this.fieldNames = await fetch
-                this.fieldNamesFetchedAt = Date.now()
-            } catch (error) {
-                if (!this.fieldNames) {
-                    throw error
-                }
-            }
-        }
-        return this.fieldNames
+            return queryFacet
+        })
     }
 
     private conformanceFilter(query: Query): string {
-        // Restrict hits to entities that conform to the selected shape. The
-        // shape field records every shape an entity conforms to (including
-        // inherited parent shapes), so this matches resources with their own
-        // named graph as well as conforming sub-entities in other graphs.
-        return query.rootShapeId ? `shape:${quote(query.rootShapeId)}` : ''
+        return query.rootShapeId
+            ? `shape:${quote(query.rootShapeId)}`
+            : ''
     }
 
-    private async resolveField(field: QueryField, fields: ReadonlySet<string>, criterion?: QueryCriterion): Promise<string | undefined> {
+    private async pathFilter(field: QueryField): Promise<string> {
         if (!field.path.length) {
-            return undefined
+            return 'path:__missing_shacl_path__'
         }
-        const suffixes = criterion?.operator === 'contains'
-            ? ['txt']
-            : isRangeQueryField(field)
-                ? [field.datatype && DATE_TYPES.has(field.datatype) ? 'dts' : 'ds']
-                : field.datatype === `${XSD}boolean`
-                    ? ['bs', 'ss']
-                    : ['srpt', 'txt', 'ss']
-        for (const path of queryFieldPaths(field)) {
-            const prefix = await queryFieldPrefix(path)
-            const resolved = suffixes.map(suffix => `${prefix}${suffix}`).find(name => fields.has(name))
-                ?? Array.from(fields).find(name => name.startsWith(prefix))
-            if (resolved) {
-                return resolved
-            }
-        }
-        return undefined
+        const ids = await Promise.all(queryFieldPaths(field).map(queryPathId))
+        return ids.length === 1
+            ? `path:${quote(ids[0])}`
+            : `(${ids.map(id => `path:${quote(id)}`).join(' OR ')})`
     }
 
-    private criterionFilter(criterion: QueryCriterion, indexField: string): string | undefined {
+    private valueField(field: QueryField, term?: Term, contains = false): string {
+        if (contains) {
+            return 'valueText'
+        }
+        if (this.isSpatialField(field)) {
+            return 'valueGeo'
+        }
+        if (field.datatype && DATE_TYPES.has(field.datatype)) {
+            return 'valueDate'
+        }
+        if (isRangeQueryField(field)) {
+            return 'valueNumber'
+        }
+        if (field.datatype === `${XSD}boolean`) {
+            return 'valueBoolean'
+        }
+        if (term?.termType === 'NamedNode') {
+            return 'valueString'
+        }
+        return 'valueString'
+    }
+
+    private facetValueField(field: QueryField): string {
+        return this.valueField(field)
+    }
+
+    private isSpatialField(field: QueryField): boolean {
+        return !!this.geoDataType && field.datatype === this.geoDataType
+    }
+
+    private async criterionFilter(criterion: QueryCriterion): Promise<string | undefined> {
+        const path = await this.pathFilter(criterion.field)
+        let valueFilter: string | undefined
         if (criterion.operator === 'contains' && criterion.value) {
             const escaped = criterion.value.value.replace(LUCENE_SPECIAL_RE, '\\$1')
-            return `${indexField}:*${escaped}*`
-        }
-        if (criterion.operator === 'equals' && criterion.value) {
-            if (indexField.endsWith('_srpt')) {
+            valueFilter = `valueText:*${escaped}*`
+        } else if (criterion.operator === 'equals' && criterion.value) {
+            const valueField = this.valueField(criterion.field, criterion.value)
+            if (valueField === 'valueGeo') {
                 const bbox = wktPolygonToBbox(criterion.value.value)
                 if (bbox) {
-                    return `${indexField}:${bbox}`
+                    valueFilter = `${valueField}:${bbox}`
                 }
             }
-            return `${indexField}:${quote(storedValue(criterion.value, criterion.field))}`
-        }
-        if (criterion.operator === 'range') {
+            valueFilter ||= `${valueField}:${quote(storedValue(criterion.value, criterion.field))}`
+        } else if (criterion.operator === 'range') {
             const min = criterion.min ? quote(storedValue(criterion.min, criterion.field)) : '*'
             const max = criterion.max ? quote(storedValue(criterion.max, criterion.field)) : '*'
             if (min !== '*' || max !== '*') {
-                return `${indexField}:[${min} TO ${max}]`
+                valueFilter = `${this.valueField(criterion.field)}:[${min} TO ${max}]`
             }
         }
-        return undefined
+        if (!valueFilter) {
+            return undefined
+        }
+        return `{!parent which=docType:entity}(docType:value AND ${path} AND ${valueFilter})`
     }
 }

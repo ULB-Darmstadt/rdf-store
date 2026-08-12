@@ -114,75 +114,103 @@ func buildResourceDocuments(resource *rdf2go.Graph, metadata *rdf.ResourceMetada
 		subject := rdf2go.NewResource(subjectID)
 		doc := &document{
 			"id":           metadata.Id.RawValue() + "|" + subjectID,
+			"docType":      "entity",
 			"resourceId":   metadata.Id.RawValue(),
 			"subject":      subjectID,
 			"creator":      metadata.Creator,
 			"lastModified": metadata.LastModified,
 			"label":        findLabels(subject, resource),
 		}
+		conformingShapes := make(map[string]bool)
 		for _, shapeID := range shapeIDs {
-			doc.appendValue("shape", shapeID)
 			shapeProfile, ok := rdf.Profiles[shapeID]
 			if !ok {
 				slog.Warn("profile not found", "id", shapeID)
 				continue
 			}
-			buildDocRecursive(subject, shapeProfile, shapeID, resource, metadata, doc, make(map[string]bool))
+			appendConformingShapes(subject, shapeProfile, metadata, doc, conformingShapes)
+			buildDocRecursive(subject, shapeProfile, resource, metadata, doc, make(map[string]bool))
 		}
 		docsBySubject[subjectID] = doc
 		docs = append(docs, doc)
 	}
 
-	rootShapes := collectRootShapes(profile)
+	rootProfileChain := collectRootProfileChain(profile)
 	rootDoc := docsBySubject[metadata.Id.RawValue()]
-	for _, rootShape := range rootShapes {
-		for _, doc := range docs {
-			doc.appendValue("rootShape", rootShape)
+	valueKeys := make(map[string]map[string]bool, len(docsBySubject))
+	for _, targetShape := range rootProfileChain {
+		traversal := &queryTraversalState{
+			active:    make(map[string]bool),
+			visited:   make(map[string]bool),
+			entities:  docsBySubject,
+			valueKeys: valueKeys,
 		}
+		buildQueryDoc(metadata.Id, profile, targetShape, nil, nil, resource, metadata, rootDoc, rootDoc, traversal)
 	}
-	// Query fields are only consumed by the SHACL query UI, so skip them
-	// unless that mode is enabled to keep the indexed field count small.
-	if base.Configuration.ShaclQueryMode {
-		for _, rootShape := range rootShapes {
-			traversal := &queryTraversalState{
-				active:   make(map[string]bool),
-				visited:  make(map[string]bool),
-				entities: docsBySubject,
-			}
-			buildQueryDoc(metadata.Id, profile, rootShape, nil, nil, resource, metadata, rootDoc, rootDoc, traversal)
+	// Every entity is additionally traversed from its own most specific
+	// shape so its leaf values are also indexed under paths relative to the
+	// shapes it conforms to. Without this, values of embedded entities (like
+	// the water bath inside a cooling process) are only indexed under paths
+	// relative to the containing resource root, so facets for the embedded
+	// entity's own shape miss them.
+	for subjectID, entityDoc := range docsBySubject {
+		shapeIDs := orderShapesBySpecificity(metadata.Conformance[subjectID])
+		if len(shapeIDs) == 0 {
+			continue
 		}
-		// Every entity is additionally traversed from its own most specific
-		// shape so its leaf values are also indexed under paths relative to the
-		// shapes it conforms to. Without this, values of embedded entities (like
-		// the water bath inside a cooling process) are only indexed under paths
-		// relative to the containing resource root, so facets for the embedded
-		// entity's own shape miss them.
-		for subjectID, entityDoc := range docsBySubject {
-			shapeIDs := orderShapesBySpecificity(metadata.Conformance[subjectID])
-			if len(shapeIDs) == 0 {
-				continue
-			}
-			topShapeID := shapeIDs[0]
-			topShape, ok := rdf.Profiles[topShapeID]
-			if !ok {
-				slog.Warn("profile not found", "id", topShapeID)
-				continue
-			}
-			traversal := &queryTraversalState{
-				active:   make(map[string]bool),
-				visited:  make(map[string]bool),
-				entities: docsBySubject,
-			}
-			buildQueryDoc(rdf2go.NewResource(subjectID), topShape, topShapeID, nil, nil, resource, metadata, entityDoc, entityDoc, traversal)
+		topShapeID := shapeIDs[0]
+		topShape, ok := rdf.Profiles[topShapeID]
+		if !ok {
+			slog.Warn("profile not found", "id", topShapeID)
+			continue
 		}
+		traversal := &queryTraversalState{
+			active:    make(map[string]bool),
+			visited:   make(map[string]bool),
+			entities:  docsBySubject,
+			valueKeys: valueKeys,
+		}
+		buildQueryDoc(rdf2go.NewResource(subjectID), topShape, topShapeID, nil, nil, resource, metadata, entityDoc, entityDoc, traversal)
 	}
 	return docs, nil
 }
 
-// collectRootShapes returns the concrete root shape ID and every shape ID that
-// it inherits. The frontend can therefore select a base shape and use the query
-// fields derived from that base shape to find specialized entities as well.
-func collectRootShapes(profile *shacl.NodeShape) []string {
+// appendConformingShapes records only shapes that the document subject itself
+// conforms to. Property traversal must not add the shapes of referenced
+// entities to the current document.
+func appendConformingShapes(subject rdf2go.Term, profile *shacl.NodeShape, metadata *rdf.ResourceMetadata, current *document, visited map[string]bool) {
+	profileID := profile.Id.RawValue()
+	if visited[profileID] {
+		return
+	}
+	visited[profileID] = true
+	current.appendValue("shape", profileID)
+
+	for parentID := range profile.Parents {
+		parent, ok := rdf.Profiles[parentID]
+		if !ok {
+			slog.Warn("profile not found", "id", parentID)
+			continue
+		}
+		appendConformingShapes(subject, parent, metadata, current, visited)
+	}
+	for alternativeID := range profile.Alternatives {
+		if !conforms(subject.RawValue(), alternativeID, metadata) {
+			continue
+		}
+		alternative, ok := rdf.Profiles[alternativeID]
+		if !ok {
+			slog.Warn("profile not found", "id", alternativeID)
+			continue
+		}
+		appendConformingShapes(subject, alternative, metadata, current, visited)
+	}
+}
+
+// collectRootProfileChain returns the concrete root shape ID and every shape ID
+// that it inherits. Query fields are built for each shape in this chain so the
+// frontend can query specialized entities through a selected base shape.
+func collectRootProfileChain(profile *shacl.NodeShape) []string {
 	visited := make(map[string]bool)
 	var shapes []string
 	var visit func(*shacl.NodeShape)
@@ -285,7 +313,7 @@ func ancestorCountWithin(ancestors map[string]bool, shapes []string) int {
 }
 
 // buildDocRecursive recursively constructs Solr documents from RDF graph data.
-func buildDocRecursive(subject rdf2go.Term, profile *shacl.NodeShape, profileId string, resource *rdf2go.Graph, metadata *rdf.ResourceMetadata, current *document, active map[string]bool) {
+func buildDocRecursive(subject rdf2go.Term, profile *shacl.NodeShape, resource *rdf2go.Graph, metadata *rdf.ResourceMetadata, current *document, active map[string]bool) {
 	visitKey := subject.RawValue() + "\x00" + profile.Id.RawValue()
 	if active[visitKey] {
 		slog.Warn("skipping recursive index shape", "subject", subject.RawValue(), "shape", profile.Id.RawValue())
@@ -295,8 +323,6 @@ func buildDocRecursive(subject rdf2go.Term, profile *shacl.NodeShape, profileId 
 	defer delete(active, visitKey)
 
 	slog.Debug("build doc", "subject", subject.RawValue(), "profile", profile.Id.RawValue(), "current", (*current)["id"])
-	// append shape conformance
-	current.appendValue("shape", profile.Id.RawValue())
 
 	for parentId := range profile.Parents {
 		parent, ok := rdf.Profiles[parentId]
@@ -304,7 +330,7 @@ func buildDocRecursive(subject rdf2go.Term, profile *shacl.NodeShape, profileId 
 			slog.Warn("profile not found", "id", parentId)
 			continue
 		}
-		buildDocRecursive(subject, parent, parent.Id.RawValue(), resource, metadata, current, active)
+		buildDocRecursive(subject, parent, resource, metadata, current, active)
 	}
 	for alternativeId := range profile.Alternatives {
 		if !conforms(subject.RawValue(), alternativeId, metadata) {
@@ -315,18 +341,17 @@ func buildDocRecursive(subject rdf2go.Term, profile *shacl.NodeShape, profileId 
 			slog.Warn("profile not found", "id", alternativeId)
 			continue
 		}
-		buildDocRecursive(subject, alternative, alternative.Id.RawValue(), resource, metadata, current, active)
+		buildDocRecursive(subject, alternative, resource, metadata, current, active)
 	}
 
 	// append property values to document
 	for path, properties := range profile.Properties {
 		pathTerm := rdf2go.NewResource(path)
 		for _, property := range properties {
-			ft := fieldType(property)
 			for _, value := range resource.All(subject, pathTerm, nil) {
 				if property.QualifiedValueShapeDenormalized != nil && conforms(value.Object.RawValue(), property.QualifiedValueShape, metadata) {
 					current.appendValue("_text_", findLabels(value.Object, resource))
-					buildDocRecursive(value.Object, property.QualifiedValueShapeDenormalized, property.QualifiedValueShapeDenormalized.Id.RawValue(), resource, metadata, current, active)
+					buildDocRecursive(value.Object, property.QualifiedValueShapeDenormalized, resource, metadata, current, active)
 				} else if len(property.NodeShapes) > 0 || len(property.AlternativeNodeShapes) > 0 {
 					childShapes := make(map[string]bool, len(property.NodeShapes)+len(property.AlternativeNodeShapes))
 					for shape := range property.NodeShapes {
@@ -342,59 +367,43 @@ func buildDocRecursive(subject rdf2go.Term, profile *shacl.NodeShape, profileId 
 								slog.Error("profile not found", "id", shape)
 							} else {
 								current.appendValue("_text_", findLabels(value.Object, resource))
-								buildDocRecursive(value.Object, profile, shape, resource, metadata, current, active)
+								buildDocRecursive(value.Object, profile, resource, metadata, current, active)
 							}
 						}
 					}
 				} else {
-					if ft == "t" {
-						current.appendValue("_text_", value.Object.RawValue())
-					} else {
-						var val string
-						if literial, ok := value.Object.(*rdf2go.Literal); ok {
-							val = literial.RawValue()
-						} else {
-							val = value.Object.String()
-						}
-						if ft == "dts" {
-							// convert date to solr format
-							if len(val) == 10 {
-								val = val + "T00:00:00Z"
-							} else if !strings.HasSuffix(val, "Z") && !hasTimezoneOffset(val) {
-								val = val + "Z"
-							}
-						}
-						current.appendValue(fieldName(profileId, property.Id.RawValue(), ft), val)
-					}
+					current.appendValue("_text_", value.Object.RawValue())
 				}
 			}
 		}
 	}
 }
 
-// buildQueryDoc adds query fields matching shacl-form's RDF predicate paths.
+// buildQueryDoc adds nested value documents matching shacl-form's RDF paths.
 // Leaf values are written to the document of the entity that owns them, so that
-// contained entities are search hits on their own. Field names are derived from
-// the shape-relative path alone, so the same field is shared by every root
-// shape that reaches a path and by every entity traversed from its own shape.
+// contained entities are search hits on their own. Path IDs are derived from the
+// shape-relative path alone, so the same ID is shared by every root shape that
+// reaches a path and by every entity traversed from its own shape.
 // Values of nested entities are additionally written to the nearest entity
-// document that conforms to the root shape, so a criterion on a nested property
+// parent that conforms to the root shape, so a criterion on a nested property
 // (e.g. owner.firstName) matches the conforming ancestor rather than only the
 // nested entity itself.
 type queryTraversalState struct {
-	active   map[string]bool
-	visited  map[string]bool
-	entities map[string]*document
+	active    map[string]bool
+	visited   map[string]bool
+	entities  map[string]*document
+	valueKeys map[string]map[string]bool
 }
 
 func newQueryTraversalState() *queryTraversalState {
 	return &queryTraversalState{
-		active:  make(map[string]bool),
-		visited: make(map[string]bool),
+		active:    make(map[string]bool),
+		visited:   make(map[string]bool),
+		valueKeys: make(map[string]map[string]bool),
 	}
 }
 
-func buildQueryDoc(subject rdf2go.Term, profile *shacl.NodeShape, rootShape string, propertyPath, shapePath []string, resource *rdf2go.Graph, metadata *rdf.ResourceMetadata, owner *document, conforming *document, traversal *queryTraversalState) {
+func buildQueryDoc(subject rdf2go.Term, profile *shacl.NodeShape, targetShape string, propertyPath, shapePath []string, resource *rdf2go.Graph, metadata *rdf.ResourceMetadata, owner *document, conforming *document, traversal *queryTraversalState) {
 	activeKey := subject.RawValue() + "\x00" + profile.Id.RawValue()
 	if traversal.active[activeKey] {
 		slog.Warn("skipping recursive query-index shape", "subject", subject.RawValue(), "shape", profile.Id.RawValue())
@@ -410,12 +419,12 @@ func buildQueryDoc(subject rdf2go.Term, profile *shacl.NodeShape, rootShape stri
 
 	for parentId := range profile.Parents {
 		if parent, ok := rdf.Profiles[parentId]; ok {
-			buildQueryDoc(subject, parent, rootShape, propertyPath, shapePath, resource, metadata, owner, conforming, traversal)
+			buildQueryDoc(subject, parent, targetShape, propertyPath, shapePath, resource, metadata, owner, conforming, traversal)
 		}
 	}
 	for alternativeId := range profile.Alternatives {
 		if alternative, ok := rdf.Profiles[alternativeId]; ok && conforms(subject.RawValue(), alternativeId, metadata) {
-			buildQueryDoc(subject, alternative, rootShape, propertyPath, shapePath, resource, metadata, owner, conforming, traversal)
+			buildQueryDoc(subject, alternative, targetShape, propertyPath, shapePath, resource, metadata, owner, conforming, traversal)
 		}
 	}
 
@@ -444,14 +453,14 @@ func buildQueryDoc(subject rdf2go.Term, profile *shacl.NodeShape, rootShape stri
 				childDoc := traversal.entities[value.Object.RawValue()]
 				if _, literal := value.Object.(*rdf2go.Literal); !literal {
 					// A query field is only reachable by the SHACL query UI when the
-					// document that carries it belongs to a resource whose root shape
-					// chain includes rootShape. Keep a reference to the nearest entity
-					// document that conforms to rootShape so leaf values of nested
+					// document that carries it belongs to a resource whose root profile
+					// chain includes targetShape. Keep a reference to the nearest entity
+					// document that conforms to targetShape so leaf values of nested
 					// entities are also stored there. Otherwise a criterion on a nested
 					// property (e.g. owner.firstName) would only match the nested entity
 					// document, which does not conform to the selected shape itself.
 					nextConforming := conforming
-					if childDoc != nil && conforms(value.Object.RawValue(), rootShape, metadata) {
+					if childDoc != nil && conforms(value.Object.RawValue(), targetShape, metadata) {
 						nextConforming = childDoc
 					}
 					if structuredPropertyIsFacet(property, childShapes) {
@@ -463,10 +472,10 @@ func buildQueryDoc(subject rdf2go.Term, profile *shacl.NodeShape, rootShape stri
 								continue
 							}
 							if owner != nil {
-								appendQueryValue(owner, nextShapePath, value.Object)
+								appendQueryValue(owner, nextShapePath, value.Object, traversal.valueKeys)
 							}
 							if conforming != nil && conforming != owner {
-								appendQueryValue(conforming, nextShapePath, value.Object)
+								appendQueryValue(conforming, nextShapePath, value.Object, traversal.valueKeys)
 							}
 							break
 						}
@@ -475,7 +484,7 @@ func buildQueryDoc(subject rdf2go.Term, profile *shacl.NodeShape, rootShape stri
 						for shape := range childShapes {
 							child, ok := rdf.Profiles[shape]
 							if ok && conforms(value.Object.RawValue(), shape, metadata) {
-								buildQueryDoc(value.Object, child, rootShape, nextPropertyPath, nextShapePath, resource, metadata, childDoc, nextConforming, traversal)
+								buildQueryDoc(value.Object, child, targetShape, nextPropertyPath, nextShapePath, resource, metadata, childDoc, nextConforming, traversal)
 								recursed = true
 							}
 						}
@@ -483,10 +492,10 @@ func buildQueryDoc(subject rdf2go.Term, profile *shacl.NodeShape, rootShape stri
 				}
 				if !recursed && len(childShapes) == 0 {
 					if owner != nil {
-						appendQueryValue(owner, nextShapePath, value.Object)
+						appendQueryValue(owner, nextShapePath, value.Object, traversal.valueKeys)
 					}
 					if conforming != nil && conforming != owner {
-						appendQueryValue(conforming, nextShapePath, value.Object)
+						appendQueryValue(conforming, nextShapePath, value.Object, traversal.valueKeys)
 					}
 				}
 			}
@@ -512,7 +521,7 @@ func appendPath(path []string, value string) []string {
 	return append(result, value)
 }
 
-func queryFieldName(shapePath []string, fieldType string) string {
+func queryPathID(shapePath []string) string {
 	hash := sha256.New()
 	for i, shape := range shapePath {
 		if i > 0 {
@@ -521,34 +530,82 @@ func queryFieldName(shapePath []string, fieldType string) string {
 		_, _ = hash.Write([]byte(shape))
 	}
 	digest := hash.Sum(nil)
-	return "_query_." + hex.EncodeToString(digest[:16]) + "_" + fieldType
+	return hex.EncodeToString(digest[:16])
 }
 
-func appendQueryValue(current *document, shapePath []string, value rdf2go.Term) {
+func appendQueryValue(current *document, shapePath []string, value rdf2go.Term, valueKeys map[string]map[string]bool) {
 	slog.Debug("append query value", "path", shapePath, "value", value.String(), "doc", (*current)["id"])
+	path := queryPathID(shapePath)
+	field := "valueString"
+	storedValue := value.String()
+	child := document{
+		"docType":    "value",
+		"resourceId": (*current)["resourceId"],
+		"path":       path,
+	}
 	if literal, ok := value.(*rdf2go.Literal); ok {
 		datatype := ""
 		if literal.Datatype != nil {
 			datatype = literal.Datatype.RawValue()
+			child["datatype"] = datatype
+		}
+		if literal.Language != "" {
+			child["language"] = literal.Language
 		}
 		suffix := datatypeMappings[datatype]
 		switch suffix {
-		case "ds", "bs", "srpt", "ss":
-			current.appendValue(queryFieldName(shapePath, suffix), literal.RawValue())
+		case "ds":
+			field = "valueNumber"
+			storedValue = literal.RawValue()
+		case "bs":
+			field = "valueBoolean"
+			storedValue = literal.RawValue()
+		case "srpt":
+			field = "valueGeo"
+			storedValue = literal.RawValue()
+		case "ss":
+			storedValue = literal.RawValue()
 		case "dts":
+			field = "valueDate"
 			date := literal.RawValue()
 			if len(date) == 10 {
 				date += "T00:00:00Z"
 			} else if !strings.HasSuffix(date, "Z") && !hasTimezoneOffset(date) {
 				date += "Z"
 			}
-			current.appendValue(queryFieldName(shapePath, suffix), date)
+			storedValue = date
 		default:
-			current.appendValue(queryFieldName(shapePath, "txt"), literal.RawValue())
+			field = "valueText"
+			storedValue = literal.RawValue()
 		}
+	}
+	child[field] = storedValue
+	// Text literals need analyzed search and exact-value faceting. Keeping both
+	// representations in the same value document avoids another schema field or
+	// a second child document for the same RDF value.
+	if field == "valueText" {
+		child["valueString"] = storedValue
+	}
+
+	parentID := fmt.Sprint((*current)["id"])
+	key := path + "\x00" + field + "\x00" + storedValue
+	ownerKey := parentID
+	if ownerKey == "<nil>" || ownerKey == "" {
+		ownerKey = fmt.Sprintf("%p", current)
+	}
+	parentKeys := valueKeys[ownerKey]
+	if parentKeys == nil {
+		parentKeys = make(map[string]bool)
+		valueKeys[ownerKey] = parentKeys
+	}
+	if parentKeys[key] {
 		return
 	}
-	current.appendValue(queryFieldName(shapePath, "ss"), value.String())
+	parentKeys[key] = true
+	digest := sha256.Sum256([]byte(parentID + "\x00" + key))
+	child["id"] = parentID + "|value|" + hex.EncodeToString(digest[:16])
+	children, _ := (*current)["_childDocuments_"].([]any)
+	(*current)["_childDocuments_"] = append(children, child)
 }
 
 func hasTimezoneOffset(value string) bool {
@@ -573,10 +630,6 @@ func conforms(id string, shape string, metadata *rdf.ResourceMetadata) bool {
 		}
 	}
 	return false
-}
-
-func fieldName(shape string, property string, fieldType string) string {
-	return base.CleanStringForSolr(shape) + "." + base.CleanStringForSolr(property) + "_" + fieldType
 }
 
 // findLabels collects literal labels for a subject in the graph.

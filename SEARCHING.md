@@ -1,146 +1,102 @@
-# Searching and filtering in SHACL_QUERY_MODE
+# Searching and filtering in SHACL query mode
 
-When `SHACL_QUERY_MODE=true` (see [README.md](./README.md)), the search sidebar
-replaces the generated keyword facets with a SHACL-driven query form. Instead of
-free-form facets, the user picks an application profile, and the form renders one
-filter control per property of that profile's SHACL shape.
+The search sidebar uses the selected application profile to render a SHACL query
+form. Solr uses a fixed schema: SHACL paths are
+values in nested documents, never Solr field names.
 
-This document summarizes the behavior contract of that mode: what the index must
-contain, how search results are filtered, and how the query form's facet values
-are computed.
+## Index layout
 
-## Indexing invariants
+Each conforming RDF entity is one parent document:
 
-The search behavior relies on the following properties of the Solr index. They are
-produced by the reindexer (`go run ./cli reindex`) and must be preserved by any
-indexing change:
-
-- Every entity that conforms to a SHACL shape becomes its own search document. The
-  resource itself is a document too. Documents carry:
-  - `subject` – the RDF subject of the entity.
-  - `resourceId` – the owning resource, for deindexing and navigation.
-  - `shape` – every shape the entity conforms to (its own shape plus inherited
-    parents and alternatives). This is the entity's own conformance chain.
-  - `rootShape` – the resource's root-shape chain (its root profile plus every
-    profile it inherits), stamped on all documents of that resource.
-- Query fields are only indexed while `SHACL_QUERY_MODE=true`. They are named
-  `_query_.<hash>_<suffix>` where `<hash>` is derived from the SHACL path alone
-  (see [Query field names](#query-field-names)), so the same field name is shared
-  by every profile and resource that reaches the same path.
-- Leaf values of nested properties are stored on the document of the entity that
-  owns them and additionally mirrored onto the nearest document that conforms to
-  the selected root shape. This keeps a criterion on a nested property (for
-  example `owner.firstName`) matchable against a result that conforms to the
-  selected profile, not only against the nested entity itself.
-- Query fields are built by two traversals. The resource-root traversal above
-  indexes every reachable path relative to the resource root. In addition, every
-  entity is traversed from its own most specific conforming shape, so its leaf
-  values are also indexed under shape-relative paths on its own document. An
-  embedded entity (for example the water bath inside a cooling-process resource)
-  therefore contributes to the criteria and facets of the shapes it conforms to
-  itself, even though its document's `rootShape` chain is that of the containing
-  resource.
-
-## Search results: only conforming entities
-
-The search-result list is restricted to documents that conform to the selected
-profile:
-
-```
-shape:"<profileId>"
+```json
+{
+  "id": "<resource>|<subject>",
+  "docType": "entity",
+  "resourceId": "<resource>",
+  "subject": "<subject>",
+  "shape": ["<own shape>", "<inherited shape>"],
+  "_childDocuments_": []
+}
 ```
 
-together with any full-text, creator, and criterion filters. Because `shape` holds
-the entity's own conformance chain, this returns:
+`shape` contains only shapes to which that subject conforms. Shapes of referenced
+entities are not copied to the parent.
 
-- resource documents whose root-profile chain includes the selected profile (the
-  resource's root profile equals it, inherits from it, or is an alternative of it),
-  and
-- sub-entity documents that themselves conform to the selected profile.
+Every indexed SHACL value is a nested child with `docType:value`, a stable `path`
+identifier, and fixed typed fields:
 
-It deliberately excludes documents that merely belong to a resource rooted under
-the profile but do not conform to it themselves (for example the Person document
-nested inside an `m4i Hardware` resource). Without a selected profile, query mode
-falls back to full-text search with no conformance filter.
+| Value | Solr field |
+|---|---|
+| exact literal or IRI | `valueString` |
+| analyzed text | `valueText` |
+| number | `valueNumber` |
+| date or date-time | `valueDate` |
+| boolean | `valueBoolean` |
+| WKT geometry | `valueGeo` |
 
-## Criteria (query form filters)
+Text literals populate both `valueString` and `valueText`, supporting exact
+facets and `contains` queries without creating additional physical fields.
+`datatype` and `language` are stored when present. Child IDs are deterministic,
+and repeated path/value pairs are deduplicated per parent.
 
-Each control in the query form maps to a property path of the selected shape. A
-selected value produces a filter on the corresponding query field:
+Nested leaf values are stored on their owning entity and mirrored to the nearest
+ancestor entity that conforms to the traversal's selected shape. This lets a
+dataset criterion such as `location.label` return the dataset while a query for
+the location profile can still return the location entity itself.
 
-```
-_query_.<hash(path)>_<suffix>:"<value>"
-```
+## Path identity
 
-For nested paths the leaf value lives on the nested entity's document and on the
-nearest conforming ancestor, so the criterion matches the conforming ancestor and
-it appears in the result list (see [Indexing invariants](#indexing-invariants)).
+The path identifier is the first 16 bytes of SHA-256 over the expanded SHACL path
+segments separated by NUL bytes, encoded as 32 lowercase hex characters:
 
-## Facets: the conforming population
-
-The value lists and counts shown in the query form are computed with the same
-conformance filter as the search results:
-
-```
-shape:"<profileId>"
-```
-
-This is possible because query fields are indexed on every conforming entity's own
-document (see [Indexing invariants](#indexing-invariants)): an embedded entity
-carries its shape-relative values on its own document, so it contributes to the
-facets of the shapes it conforms to. Non-conforming sub-entities (for example the
-Person document nested inside an `m4i Hardware` resource) are excluded by both
-filters, so a document only ever contributes a facet value to a profile it conforms
-to, and each conforming entity is counted once.
-
-| Purpose            | Filter                       |
-|--------------------|------------------------------|
-| Search results     | `shape:"<profileId>"`        |
-| Facet values       | `shape:"<profileId>"`        |
-
-## Profile chooser
-
-The profile chooser lists the profiles that are present in the index, discovered
-by faceting the `shape` field. Profiles are arranged in a parent/child tree
-using the inheritance relationships from the `/profiles` backend endpoint. The
-document count shown next to each profile is the number of search results you
-get for it — i.e. the number of indexed documents whose `shape` chain includes
-the profile (embedded entities of other resources included).
-
-## Query field names
-
-Query field names are derived from the SHACL path alone. The SHA-256 digest of the
-path segments joined with NUL bytes is truncated to its first 16 bytes and
-hex-encoded:
-
-```
-_query_.<hex(sha256(segment + "\0" + segment + ...)[0:16])>_<suffix>
+```text
+hex(sha256(segment + "\0" + segment + ...)[0:16])
 ```
 
-The root shape is not part of the digest, so the same path always maps to the same
-field no matter which profile or resource it is reached from; this keeps the number
-of indexed fields bounded by the distinct paths rather than by the product of
-shapes and resources.
+Qualified SHACL property identifiers are used as path segments where necessary.
+The frontend computes the same identifier; it does not inspect Solr's field list.
 
-The suffix follows the datatype of the leaf value:
+## Search filters
 
-| Suffix | Datatype / purpose                                  |
-|--------|-----------------------------------------------------|
-| `ds`   | numeric (`xsd:integer`, `xsd:long`, `xsd:decimal`, `xsd:double`, ...) |
-| `dts`  | date / date-time (`xsd:date`, `xsd:dateTime`)       |
-| `bs`   | boolean                                             |
-| `ss`   | IRI values, and literals with an unmapped datatype (which are stored as both `ss` and `txt`) |
-| `txt`  | `contains` operator / full-text within a value      |
-| `srpt` | spatial values (configured geo datatype, WKT)       |
+Normal result searches always include `docType:entity`, so value children never
+appear as hits. Selecting a profile adds:
 
-The frontend computes the same names when resolving form controls against the
-indexed field list: it digests `path.join('\0')`, so both sides must keep the
-NUL-separated (not NUL-prefixed) form in sync.
+```text
+shape:"<profile-id>"
+```
 
-## Operational notes
+Each criterion is a separate block-join parent filter. For example, a numeric
+range is translated conceptually to:
 
-- After changing the indexer or shape configuration, rebuild the index:
-  `go run ./cli reindex` (from `backend/`, with the environment loaded). Query
-  fields for newly available profiles only appear after a reindex.
-- Query fields are skipped entirely when `SHACL_QUERY_MODE=false` to keep the
-  indexed field count small.
+```text
+{!parent which=docType:entity}(
+  docType:value AND path:"<path-id>" AND valueNumber:[10 TO 20]
+)
+```
+
+Separate joins are essential: two criteria may be satisfied by two different
+value children. Full-text, creator, sorting, and pagination remain parent
+operations.
+
+## Facets
+
+Facet requests first restrict the entity-parent population with the same profile
+and active-criterion filters used by search. A `blockChildren` domain then selects
+value children by `path` and aggregates the appropriate typed field. Bucket and
+availability counts use `uniqueBlock(_root_)`, so they count distinct entity
+parents rather than raw child documents.
+
+The profile chooser facets `shape` only on `docType:entity`; therefore its counts
+match the number of searchable conforming entities.
+
+## Rebuilding
+
+The architecture intentionally has no migration compatibility with the former
+dynamic `_query_.*` fields. Rebuild the collection after deploying it:
+
+```bash
+cd backend
+go run ./cli reindex
+```
+
+Reindexing deletes and recreates the Solr collection before loading RDF resources.

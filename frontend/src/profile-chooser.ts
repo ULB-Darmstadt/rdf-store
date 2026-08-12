@@ -88,6 +88,7 @@ export class ProfileChooser extends LitElement {
                 fetch(`${BACKEND_URL}/profiles`),
                 executeSolrRequest(this.index, {
                     query: '*',
+                    filter: ['docType:entity'],
                     limit: 0,
                     offset: 0,
                     facet: {

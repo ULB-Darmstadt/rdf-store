@@ -1,5 +1,4 @@
 import { BACKEND_URL } from './constants'
-import { Facets } from './facets/base'
 
 export type Field = {
     name: string
@@ -13,7 +12,6 @@ export type SearchOptions = {
     term?: string
     creator?: string
     sort?: string
-    facets?: Facets
     offset?: number
     limit?: number
     filters?: string[]
@@ -24,7 +22,7 @@ export type SearchRequest = {
     sort?: string
     limit: number
     offset: number
-    facet?: Record<string, QueryFacet | string>
+    facet?: Record<string, unknown>
     filter?: string[]
     fields?: string[]
 }
@@ -44,7 +42,7 @@ export type SearchResponse = {
         trace?: string
         code: number
     }
-    facets?: Record<string, AggregationFacet | number>
+    facets?: Record<string, unknown>
 }
 
 export interface SearchDocument {
@@ -57,19 +55,6 @@ export interface SearchDocument {
     lastModified: string
 }
 
-export type QueryFacet = {
-    field: string
-    type: 'terms' | 'query' | 'heatmap'
-    start?: number
-    end?: number
-    gap?: number
-    q?: string
-    limit?: number
-    geom?: string
-    gridLevel?: number
-    domain?: object
-}
-
 export type AggregationFacet = {
     buckets?: { val: number | string, count: number }[]
     gridLevel?: number
@@ -80,11 +65,6 @@ export type AggregationFacet = {
     minY?: number
     maxY?: number
     counts_ints2D?: number[][]
-}
-
-export async function fetchFields(index: string): Promise<string[]> {
-    const fieldList = await fetch(`${BACKEND_URL}/solr/${index}/select?fl=*&q=*&rows=0&wt=csv`).then(r => r.text())
-    return fieldList.split(',').map(field => field.trim())
 }
 
 export async function executeSolrRequest(index: string, query: SearchRequest, signal?: AbortSignal): Promise<SearchResponse> {
@@ -106,18 +86,9 @@ export async function search(index: string, params?: SearchOptions): Promise<Sea
         fields: ['id', 'label', 'shape', 'lastModified', 'resourceId', 'subject'],
         query: '*'
     }
-    if (params?.facets) {
-        query.facet = {}
-        query.filter = []
-        for (const profile of Object.keys(params.facets.facets)) {
-            for (const facet of params.facets.facets[profile]) {
-                facet.applyAggregationQuery(query.facet)
-                if (facet.active) {
-                    facet.applyFilterQuery(query.filter)
-                }
-            }
-        }
-    }
+    // Value documents are nested below searchable entity documents. Always
+    // constrain ordinary searches to parents so children can never be hits.
+    query.filter = ['docType:entity']
     if (params?.creator) {
         query.filter = query.filter || []
         query.filter.push(`creator:"${params.creator}"`)
@@ -132,13 +103,5 @@ export async function search(index: string, params?: SearchOptions): Promise<Sea
     }
 
     const response = await executeSolrRequest(index, query)
-    // update facet values
-    if (params?.facets && response.facets) {
-        for (const profile of Object.keys(params.facets.facets)) {
-            for (const facet of params.facets.facets[profile]) {
-                facet.updateValues(response.facets)
-            }
-        }
-    }
     return response
 }

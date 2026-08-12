@@ -13,7 +13,6 @@ type Config struct {
 	Index               string   `json:"index"`
 	GeoDataType         string   `json:"geoDataType"`
 	SolrMaxAggregations int      `json:"solrMaxAggregations"`
-	ShaclQueryMode      bool     `json:"shaclQueryMode"`
 	AuthEnabled         bool     `json:"authEnabled"`
 	ContactEmail        string   `json:"contactEmail,omitempty"`
 	RdfNamespace        string   `json:"rdfNamespace"`
@@ -32,7 +31,6 @@ var Configuration = Config{
 	Index:               SolrIndex,
 	GeoDataType:         "http://www.opengis.net/ont/geosparql#wktLiteral",
 	SolrMaxAggregations: 1000,
-	ShaclQueryMode:      EnvVarAsBool("SHACL_QUERY_MODE", false),
 	AuthEnabled:         len(EnvVar("DISABLE_OAUTH", "dummy")) == 0,
 	ContactEmail:        EnvVar("CONTACT_EMAIL", ""),
 	RdfNamespace:        EnvVar("RDF_NAMESPACE", "http://example.org/"),

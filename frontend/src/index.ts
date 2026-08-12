@@ -9,14 +9,12 @@ import './viewer'
 import './profile-chooser'
 import { BACKEND_URL, APP_PATH } from './constants'
 import { RokitInput, RokitSplitpane, showSnackbarMessage } from '@ro-kit/ui-widgets'
-import { initFacets } from './facets'
 import { search, SearchDocument } from './solr'
 import { fetchLabels, i18n } from './i18n'
 import { Editor } from './editor'
 import { map } from 'lit/directives/map.js'
 import { registerPlugin, ShaclForm, Query } from '@ulb-darmstadt/shacl-form'
 import { LeafletPlugin } from '@ulb-darmstadt/shacl-form/plugins/leaflet.js'
-import { Facets } from './facets/base'
 import { SolrQueryFacetProvider } from './shacl-query'
 
 export type Config = {
@@ -25,7 +23,6 @@ export type Config = {
     index: string
     geoDataType: string
     solrMaxAggregations: number
-    shaclQueryMode: boolean
     authEnabled: boolean
     authWriteAccess: boolean
     authUser: string
@@ -48,8 +45,6 @@ export class App extends LitElement {
 
     @state()
     searchHits: SearchDocument[] = []
-    @state()
-    facets?: Facets
     @state()
     totalHits = 0
     @state()
@@ -131,16 +126,15 @@ export class App extends LitElement {
 
             // fetch labels for profiles. this is needed for the editor dialog, which renders before the keyword facet can load the labels
             await fetchLabels(this.config.profiles, true)
-            if (this.config.shaclQueryMode) {
-                // this.selectedQueryProfile = this.config.profiles[0] || ''
-                this.query = this.selectedQueryProfile ? {
-                    rootShapeId: this.selectedQueryProfile,
-                    criteria: []
-                } : undefined
-                this.queryFacetProvider = new SolrQueryFacetProvider(this.config.index, this.config.solrMaxAggregations)
-            } else {
-                this.facets = await initFacets(this.config.index, this.config.solrMaxAggregations)
-            }
+            this.query = this.selectedQueryProfile ? {
+                rootShapeId: this.selectedQueryProfile,
+                criteria: []
+            } : undefined
+            this.queryFacetProvider = new SolrQueryFacetProvider(
+                this.config.index,
+                this.config.solrMaxAggregations,
+                this.config.geoDataType
+            )
             if (this.config.geoDataType) {
                 registerPlugin(new LeafletPlugin({ datatype: this.config.geoDataType }))
             }
@@ -164,7 +158,7 @@ export class App extends LitElement {
     }
 
     updated(changedProperties: PropertyValues) {
-        if (this.config?.shaclQueryMode && (changedProperties.has('selectedQueryProfile') || changedProperties.has('config'))) {
+        if (changedProperties.has('selectedQueryProfile') || changedProperties.has('config')) {
             this.queryForm?.setQueryFacetProvider(this.queryFacetProvider!)
             if (this.queryForm !== this.observedQueryForm) {
                 this.queryFormLoadingObserver?.disconnect()
@@ -198,7 +192,7 @@ export class App extends LitElement {
                 this.searchTerm = this.searchField?.value || ''
                 this.searchCreator = this.searchOwn?.checked ? this.config?.authUser : undefined
                 let queryFilters: string[] | undefined
-                if (this.config?.shaclQueryMode && this.queryFacetProvider) {
+                if (this.queryFacetProvider) {
                     this.queryFacetProvider.setSearchContext(this.searchTerm, this.searchCreator)
                     if (this.query) {
                         queryFilters = await this.queryFacetProvider.buildFilters(this.query)
@@ -215,8 +209,7 @@ export class App extends LitElement {
                     limit: this.limit,
                     sort: 'lastModified desc',
                     term: this.searchTerm,
-                    creator: this.config!.shaclQueryMode ? undefined : this.searchCreator,
-                    facets: this.facets,
+                    creator: this.searchCreator,
                     filters: queryFilters
                 })
                 if (searchResult.error) {
@@ -303,7 +296,7 @@ export class App extends LitElement {
                     ${!this.config.authUser ? nothing : html`
                         <div class="own"><label><input id="search-own" type="checkbox">${i18n['search_filter_own']}</label></div>
                     `}
-                    ${this.config.shaclQueryMode ? html`
+                    ${html`
                         <div class="query-profile">
                             <profile-chooser
                                 .index="${this.config.index}"
@@ -338,12 +331,7 @@ export class App extends LitElement {
                                 <div class="no-filters p-2">${i18n['no_filters']}</div>
                             ` : nothing }
                         </div>
-                    ` : !this.facets ? nothing : Object.keys(this.facets.facets).sort((a, b) => String(i18n[a] ?? a).localeCompare(String(i18n[b] ?? b))).map(profile => !this.facets?.hasValidFacet(profile) ? nothing : html`
-                        <div class="profile-wrapper">
-                            <header>${i18n[profile]}</header>
-                            ${this.facets.facets[profile].sort((a, b) => a.label.localeCompare(b.label)).map((facet) => facet.valid ? html`${facet}` : nothing)}
-                        </div>
-                    `)}
+                    `}
                 </div>
                 <rokit-splitpane id="result-splitpane" minPos="25" maxPos="65" pos="30%" slot="pane2">
                     <div id="search-result" slot="pane1">

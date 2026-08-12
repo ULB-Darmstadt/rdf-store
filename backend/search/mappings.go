@@ -3,7 +3,6 @@ package search
 import (
 	"fmt"
 	"rdf-store-backend/base"
-	"rdf-store-backend/shacl"
 
 	"github.com/stevenferrer/solr-go"
 )
@@ -30,57 +29,24 @@ var datatypeMappings = map[string]string{
 	base.Configuration.GeoDataType:          "srpt",
 }
 
-// fieldType maps SHACL property settings to a Solr field suffix.
-// It returns the Solr field type suffix to use for the property.
-func fieldType(property *shacl.Property) string {
-	if property.HasValue && property.MaxCount == 1 {
-		// ignore fixed value properties
-		return "t"
-	}
-	if property.Class ||
-		property.In ||
-		(property.Facet != nil && *property.Facet) ||
-		(shacl.SHACL_IRI.RawValue() == property.NodeKind) ||
-		property.QualifiedValueShapeDenormalized != nil && property.QualifiedValueShapeDenormalized.Class {
-		// these are supposed to be facets
-		return "ss"
-	}
-	if len(property.Datatype) > 0 {
-		if value, ok := datatypeMappings[property.Datatype]; ok {
-			// depending on datatype, these are supposed to be facets too
-			return value
-		}
-	}
-	if len(property.Or) > 0 {
-		// check if sh:or/sh:xone options resolve to a distinct facet
-		var uniqueType string
-		for option := range property.Or {
-			ft := fieldType(option)
-			if uniqueType == "" {
-				uniqueType = ft
-			} else {
-				if ft != uniqueType {
-					uniqueType = ""
-					break
-				}
-			}
-		}
-		if uniqueType != "" {
-			return uniqueType
-		}
-	}
-	return "t"
-}
-
 // createCollectionSchema defines the Solr schema fields for the collection.
 // It returns the ordered slice of Solr field definitions.
 func createCollectionSchema() (fields []solr.Field) {
 	fields = append(fields, solr.Field{Name: "resourceId", Type: "string", Indexed: true, Stored: true, MultiValued: false})
 	fields = append(fields, solr.Field{Name: "subject", Type: "string", Indexed: true, Stored: true, MultiValued: false})
+	fields = append(fields, solr.Field{Name: "docType", Type: "string", Indexed: true, Stored: true, DocValues: true, MultiValued: false})
 	fields = append(fields, solr.Field{Name: "label", Type: "string", Indexed: true, Stored: true, MultiValued: true})
 	fields = append(fields, solr.Field{Name: "shape", Type: "string", Indexed: true, Stored: true, MultiValued: true})
-	fields = append(fields, solr.Field{Name: "rootShape", Type: "string", Indexed: true, Stored: true, MultiValued: true})
 	fields = append(fields, solr.Field{Name: "creator", Type: "string", Indexed: true, Stored: true, MultiValued: false})
 	fields = append(fields, solr.Field{Name: "lastModified", Type: "pdate", Indexed: true, Stored: true, MultiValued: false})
+	fields = append(fields, solr.Field{Name: "path", Type: "string", Indexed: true, Stored: false, DocValues: true, MultiValued: false})
+	fields = append(fields, solr.Field{Name: "valueString", Type: "string", Indexed: true, Stored: false, DocValues: true, MultiValued: false})
+	fields = append(fields, solr.Field{Name: "valueText", Type: "text_general", Indexed: true, Stored: false, MultiValued: false})
+	fields = append(fields, solr.Field{Name: "valueNumber", Type: "pdouble", Indexed: true, Stored: false, DocValues: true, MultiValued: false})
+	fields = append(fields, solr.Field{Name: "valueDate", Type: "pdate", Indexed: true, Stored: false, DocValues: true, MultiValued: false})
+	fields = append(fields, solr.Field{Name: "valueBoolean", Type: "boolean", Indexed: true, Stored: false, DocValues: true, MultiValued: false})
+	fields = append(fields, solr.Field{Name: "valueGeo", Type: "location_rpt", Indexed: true, Stored: false, MultiValued: false})
+	fields = append(fields, solr.Field{Name: "datatype", Type: "string", Indexed: true, Stored: false, DocValues: true, MultiValued: false})
+	fields = append(fields, solr.Field{Name: "language", Type: "string", Indexed: true, Stored: false, DocValues: true, MultiValued: false})
 	return fields
 }
