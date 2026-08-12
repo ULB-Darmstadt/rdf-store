@@ -243,7 +243,11 @@ export class RdfGraph extends LitElement {
 
     private isSameDataset(id: string) {
         try {
-            return new URL(id).host === new URL(this.activeSubject).host
+            const namespace = (iri: string) => {
+                const index = Math.max(iri.lastIndexOf('/'), iri.lastIndexOf('#'))
+                return index >= 0 ? iri.slice(0, index + 1) : iri
+            }
+            return namespace(id) === namespace(this.activeSubject)
         } catch {
             return false
         }
