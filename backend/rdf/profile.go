@@ -78,6 +78,17 @@ func GetProfile(id string) (profile []byte, err error) {
 	return loadGraph(profileDataset, id)
 }
 
+// GetProfileClosure serializes a cached profile together with all locally
+// available profiles it imports. Unresolved imports remain in the result so
+// clients can load them normally.
+func GetProfileClosure(id string) ([]byte, error) {
+	profile := Profiles[id]
+	if profile == nil {
+		return nil, fmt.Errorf("profile not found: %s", id)
+	}
+	return shacl.SerializeProfileClosure(profile, Profiles)
+}
+
 // UpdateProfile stores a profile after replacing blank nodes and calculating a hash.
 // It returns the parsed graph representation alongside any error.
 func UpdateProfile(id string, profile []byte) (*rdf2go.Graph, error) {

@@ -32,16 +32,26 @@ func handleRdfProxy(c *gin.Context) {
 
 	}
 
-	if err := isSafeURL(url); err != nil {
-		slog.Error("deny proxying", "url", url, "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
 	var data []byte
 	// check if URL references a profile
 	if profile, ok := rdf.Profiles[url]; ok {
-		data = *profile.RDF
+		if c.Request.URL.Query().Has("includeImports") {
+			var err error
+			data, err = rdf.GetProfileClosure(url)
+			if err != nil {
+				slog.Error("failed serializing profile imports", "url", url, "error", err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+		} else {
+			data = *profile.RDF
+		}
 	} else {
+		if err := isSafeURL(url); err != nil {
+			slog.Error("deny proxying", "url", url, "error", err)
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 		var err error
 		// check if URL references a resource
 		data, _, err = rdf.GetResource(url, true)

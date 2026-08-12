@@ -64,6 +64,10 @@ export class App extends LitElement {
     query?: Query
 
     queryFacetProvider?: SolrQueryFacetProvider
+    queryFormLoadingObserver?: MutationObserver
+    observedQueryForm?: ShaclForm
+    searchLoading = false
+    queryFormLoading = false
 
     @query('#search-field')
     searchField?: RokitInput
@@ -93,6 +97,7 @@ export class App extends LitElement {
     disconnectedCallback() {
         super.disconnectedCallback()
         window.removeEventListener('popstate', this.handleLocationChange)
+        this.queryFormLoadingObserver?.disconnect()
     }
 
     viewResource(subject: string | SearchDocument | null) {
@@ -161,11 +166,32 @@ export class App extends LitElement {
     updated(changedProperties: PropertyValues) {
         if (this.config?.shaclQueryMode && (changedProperties.has('selectedQueryProfile') || changedProperties.has('config'))) {
             this.queryForm?.setQueryFacetProvider(this.queryFacetProvider!)
+            if (this.queryForm !== this.observedQueryForm) {
+                this.queryFormLoadingObserver?.disconnect()
+                this.observedQueryForm = this.queryForm
+                if (this.queryForm) {
+                    const updateLoading = () => {
+                        this.queryFormLoading = this.queryForm?.hasAttribute('loading') ?? false
+                        this.updateMainLoading()
+                    }
+                    this.queryFormLoadingObserver = new MutationObserver(updateLoading)
+                    this.queryFormLoadingObserver.observe(this.queryForm, { attributes: true, attributeFilter: ['loading'] })
+                    updateLoading()
+                } else {
+                    this.queryFormLoading = false
+                    this.updateMainLoading()
+                }
+            }
         }
     }
 
+    updateMainLoading() {
+        this.shadowRoot?.querySelector('#main')?.classList.toggle('loading', this.searchLoading || this.queryFormLoading)
+    }
+
     filterChanged(fromPager = false) {
-        this.shadowRoot?.querySelector('#main')?.classList.add('loading')
+        this.searchLoading = true
+        this.updateMainLoading()
         clearTimeout(this.debounceTimeout)
         this.debounceTimeout = setTimeout(async() => {
             try {
@@ -202,7 +228,8 @@ export class App extends LitElement {
                 console.error(e)
                 showSnackbarMessage({ message: '' + e, ttl: 0, cssClass: 'error' })
             } finally {
-                this.shadowRoot?.querySelector('#main')?.classList.remove('loading')
+                this.searchLoading = false
+                this.updateMainLoading()
             }
         }, 20)
     }
@@ -297,7 +324,7 @@ export class App extends LitElement {
                                     data-loading="${i18n['loading_filters']}"
                                     data-shape-subject="${this.selectedQueryProfile}"
                                     data-shapes-url="${this.selectedQueryProfile}"
-                                    data-proxy="${BACKEND_URL}/rdfproxy?url="
+                                    data-proxy="${BACKEND_URL}/rdfproxy?includeImports&url="
                                     data-hierarchy-colors
                                     @query="${(event: CustomEvent<Query>) => {
                                         this.query = event.detail
