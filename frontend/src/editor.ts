@@ -1,10 +1,11 @@
-import { customElement, property, query, state } from 'lit/decorators.js'
+import { customElement, property, query } from 'lit/decorators.js'
 import { LitElement, PropertyValues, css, html } from 'lit'
 import { ShaclForm, ResourceLinkProvider } from '@ulb-darmstadt/shacl-form'
 import '@ulb-darmstadt/shacl-form/plugins/leaflet.js'
+import './profile-hierarchy'
 import { BACKEND_URL } from './constants'
-import { fetchLabels, i18n } from './i18n'
-import { RokitSelect, RokitSnackbar, RokitSnackbarEvent, showSnackbarMessage } from '@ro-kit/ui-widgets'
+import { i18n } from './i18n'
+import { RokitSnackbar, RokitSnackbarEvent, showSnackbarMessage } from '@ro-kit/ui-widgets'
 import { globalStyles } from './styles'
 
 export const resourceLinkProvider: ResourceLinkProvider = {
@@ -58,40 +59,11 @@ export class Editor extends LitElement {
     open = false
     @property()
     saving = false
-    @state()
-    loading = false
     @query('shacl-form')
     form?: ShaclForm
-    @query('rokit-select')
-    profileSelect?: RokitSelect
-
-    willUpdate(changedProperties: PropertyValues) {
-        if (changedProperties.has('profiles')) {
-            this.loading = true
-            void this.loadProfileLabels(this.profiles)
-        }
-    }
-
     async updated(changedProperties: PropertyValues) {
-        if (changedProperties.has('open') && this.open) {
-            await this.profileSelect?.updateComplete
-            await this.profileSelect?.input.updateComplete
-            if (this.profileSelect) {
-                this.profileSelect.collapsible.content.scrollTop = 0
-            }
-            this.profileSelect?.input.inputElement.focus()
-        }
         if (changedProperties.has('selectedShape') && this.selectedShape) {
             this.form!.setResourceLinkProvider(resourceLinkProvider)
-        }
-    }
-
-    private async loadProfileLabels(profiles: string[] | undefined) {
-        if (profiles) {
-            await fetchLabels(profiles, true)
-        }
-        if (this.profiles === profiles) {
-            this.loading = false
         }
     }
 
@@ -161,11 +133,14 @@ export class Editor extends LitElement {
                 </div>
                 <rokit-snackbar></rokit-snackbar>
             ` : html`
-                <rokit-select label="${i18n['selectprofile']}" class="${this.loading ? 'loading' : ''}" sort tabindex="-1" fixedOpen @change="${(ev: Event) => this.selectedShape = (ev.target as HTMLSelectElement).value }">
-                    <ul>
-                        ${this.loading ? '' : this.profiles?.map((id) => html`<li data-value="${id}" title="${id}">${i18n[id] || id}</li>`)}
-                    </ul>
-                </rokit-select>
+                <profile-hierarchy
+                    class="w-100"
+                    .profileIds="${this.profiles}"
+                    .active="${this.open}"
+                    @change="${(event: Event) => {
+                        this.selectedShape = (event.currentTarget as HTMLElement & { selectedProfile: string }).selectedProfile
+                    }}"
+                ></profile-hierarchy>
             `}
             </div>
         </rokit-dialog>`
