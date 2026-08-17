@@ -4,8 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"rdf-store-backend/base"
-	"strings"
+	"sort"
 
 	"github.com/deiu/rdf2go"
 	"github.com/knakk/rdf"
@@ -16,10 +15,11 @@ func resolveLinks(graph *rdf2go.Graph, resource []byte) ([]byte, []string, error
 	visited := make(map[string]struct{})
 
 	var walkLink func(string) error
+	var walkLocalCandidates func(map[string]struct{}) error
+	walkLocalCandidates = func(candidates map[string]struct{}) error {
+		return walkLocalLinks(candidates, visited, GetLocalSubjects, walkLink)
+	}
 	walkLink = func(link string) error {
-		if !strings.HasPrefix(link, base.Configuration.RdfNamespace) {
-			return nil
-		}
 		if _, seen := visited[link]; seen {
 			return nil
 		}
@@ -54,48 +54,59 @@ func resolveLinks(graph *rdf2go.Graph, resource []byte) ([]byte, []string, error
 				subjects[s.String()] = struct{}{}
 			}
 			if o, ok := quad.Obj.(rdf.IRI); ok {
-				obj := o.String()
-				if strings.HasPrefix(obj, base.Configuration.RdfNamespace) {
-					candidates[obj] = struct{}{}
-				}
+				candidates[o.String()] = struct{}{}
 			}
 		}
-		for candidate := range candidates {
-			if _, hasSubject := subjects[candidate]; hasSubject {
-				continue
-			}
-			if err := walkLink(candidate); err != nil {
-				return err
-			}
+		for candidate := range subjects {
+			delete(candidates, candidate)
 		}
-		return nil
+		return walkLocalCandidates(candidates)
 	}
 
 	walkGraph := func(g *rdf2go.Graph) error {
+		candidates := make(map[string]struct{})
 		for t := range g.IterTriples() {
 			linkCandidate, ok := t.Object.(*rdf2go.Resource)
 			if !ok {
 				continue
 			}
 			link := linkCandidate.RawValue()
-			if !strings.HasPrefix(link, base.Configuration.RdfNamespace) {
-				continue
-			}
 			if _, seen := visited[link]; seen {
 				continue
 			}
 			if g.One(linkCandidate, nil, nil) != nil {
 				continue
 			}
-			if err := walkLink(link); err != nil {
-				return err
-			}
+			candidates[link] = struct{}{}
 		}
-		return nil
+		return walkLocalCandidates(candidates)
 	}
 
 	if err := walkGraph(graph); err != nil {
 		return nil, nil, err
 	}
 	return resource, linkedResources, nil
+}
+
+func walkLocalLinks(candidates, visited map[string]struct{}, lookup func([]string) ([]string, error), walk func(string) error) error {
+	links := make([]string, 0, len(candidates))
+	for link := range candidates {
+		if _, seen := visited[link]; !seen {
+			links = append(links, link)
+		}
+	}
+	sort.Strings(links)
+	for start := 0; start < len(links); start += MaxLocalSubjectCandidates {
+		end := min(start+MaxLocalSubjectCandidates, len(links))
+		localLinks, err := lookup(links[start:end])
+		if err != nil {
+			return err
+		}
+		for _, link := range localLinks {
+			if err := walk(link); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }

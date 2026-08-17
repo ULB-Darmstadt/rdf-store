@@ -211,6 +211,9 @@ func buildResourceConformance(id rdf2go.Term, resource []byte) (metadata *Resour
 	// resolve linked resources since they are needed for validation
 	var linkedResources []string
 	resource, linkedResources, err = resolveLinks(graph, resource)
+	if err != nil {
+		return nil, nil, fmt.Errorf("resolving linked resources: %w", err)
+	}
 	strictConformance, err := shacl.Validate(string(*shapesGraph.RDF), profile.Id.RawValue(), string(resource), validID.RawValue())
 	if err != nil {
 		return
