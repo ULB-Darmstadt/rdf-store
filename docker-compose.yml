@@ -138,7 +138,9 @@ services:
       - CRON=${CRON:-}
       - EXPOSE_FUSEKI_FRONTEND=${EXPOSE_FUSEKI_FRONTEND:-false}
       - LOG_LEVEL=${LOG_LEVEL}
-      - SHACL_QUERY_MODE=${SHACL_QUERY_MODE:-false}
+      - HAS_UNIT_PREDICATE=${HAS_UNIT_PREDICATE:-}
+      - HAS_KIND_OF_QUANTITY_PREDICATE=${HAS_KIND_OF_QUANTITY_PREDICATE:-}
+      - HAS_NUMERICAL_VALUE_PREDICATE=${HAS_NUMERICAL_VALUE_PREDICATE:-}
     healthcheck:
         test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/v1/healthz >/dev/null || exit 1"]
         start_period: 10s

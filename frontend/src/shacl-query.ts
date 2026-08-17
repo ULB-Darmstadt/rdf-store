@@ -46,38 +46,11 @@ function expandQueryPath(path: QueryField['path']): string[][] {
     }, [[]])
 }
 
-function queryFieldPaths(field: QueryField): string[][] {
-    if (!field.shapePath || field.shapePath.length !== field.path.length) {
-        return expandQueryPath(field.path)
-    }
-    const paths: string[][] = []
-    const seen = new Set<string>()
-    const differingSegments = field.shapePath.flatMap((segment, index) =>
-        !Array.isArray(field.path[index]) && segment === field.path[index] ? [] : [index]
-    )
-    for (let replacements = 0; replacements <= differingSegments.length; replacements++) {
-        const visit = (start: number, selected: number[]) => {
-            if (selected.length === replacements) {
-                const path: QueryField['path'] = [...field.shapePath!]
-                for (const index of selected) {
-                    path[index] = field.path[index]
-                }
-                for (const expandedPath of expandQueryPath(path)) {
-                    const key = expandedPath.join('\0')
-                    if (!seen.has(key)) {
-                        seen.add(key)
-                        paths.push(expandedPath)
-                    }
-                }
-                return
-            }
-            for (let index = start; index < differingSegments.length; index++) {
-                visit(index + 1, [...selected, differingSegments[index]])
-            }
-        }
-        visit(0, [])
-    }
-    return paths
+export function queryFieldPaths(field: QueryField): string[][] {
+    const path = field.shapePath?.length === field.path.length
+        ? field.shapePath
+        : field.path
+    return expandQueryPath(path)
 }
 
 function quote(value: string): string {

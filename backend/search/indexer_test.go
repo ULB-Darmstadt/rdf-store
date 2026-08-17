@@ -6,6 +6,7 @@ import (
 	"github.com/deiu/rdf2go"
 
 	"rdf-store-backend/rdf"
+	"rdf-store-backend/search/qudt"
 	"rdf-store-backend/shacl"
 )
 
@@ -147,7 +148,7 @@ func TestBuildQueryDocIndexesNestedInheritedNumericValue(t *testing.T) {
 		childSubject.RawValue(): &childDoc,
 	}
 
-	buildQueryDoc(rootSubject, root, rootID, nil, nil, graph, metadata, &rootDoc, &rootDoc, traversal)
+	newQueryIndexer(graph, metadata, rootID, traversal, qudt.PredicateConfig{}).index(rootSubject, root, &rootDoc)
 
 	path := []string{childPath, scorePath}
 	if values := valueChildren(childDoc, path, "valueNumber"); len(values) != 1 || values[0] != "12.5" {
@@ -282,7 +283,7 @@ func TestBuildResourceDocumentsIndexesInheritedShapeContexts(t *testing.T) {
 		},
 	}
 
-	docs, err := buildResourceDocuments(graph, metadata)
+	docs, err := buildResourceDocuments(graph, metadata, qudt.PredicateConfig{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -315,7 +316,7 @@ func TestBuildResourceDocumentsIndexesInheritedShapeContexts(t *testing.T) {
 func TestBuildResourceDocumentsCreatesEntityDocuments(t *testing.T) {
 	fx := newMeasurementFixture(t)
 
-	docs, err := buildResourceDocuments(fx.graph, fx.metadata)
+	docs, err := buildResourceDocuments(fx.graph, fx.metadata, qudt.PredicateConfig{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -367,7 +368,7 @@ func TestBuildResourceDocumentsCreatesEntityDocuments(t *testing.T) {
 func TestBuildResourceDocumentsIndexesEmbeddedEntityQueryFields(t *testing.T) {
 	fx := newMeasurementFixture(t)
 
-	docs, err := buildResourceDocuments(fx.graph, fx.metadata)
+	docs, err := buildResourceDocuments(fx.graph, fx.metadata, qudt.PredicateConfig{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -449,7 +450,7 @@ func TestBuildQueryDocSeparatesQualifiedBranchesWithSameRdfPath(t *testing.T) {
 		timeSubject.RawValue():        &timeDoc,
 	}
 
-	buildQueryDoc(rootSubject, root, rootID, nil, nil, graph, metadata, &rootDoc, &rootDoc, traversal)
+	newQueryIndexer(graph, metadata, rootID, traversal, qudt.PredicateConfig{}).index(rootSubject, root, &rootDoc)
 
 	temperaturePath := []string{temperatureProp, quantityKindPath}
 	timePath := []string{timeProp, quantityKindPath}
@@ -471,10 +472,11 @@ func TestAppendQueryValueDeduplicatesValues(t *testing.T) {
 	doc := document{}
 	path := []string{"http://example.org/name"}
 	value := rdf2go.NewLiteral("duplicate")
-	keys := map[string]map[string]bool{}
+	indexer := &queryIndexer{traversal: newQueryTraversalState()}
+	indexedValue := queryIndexValue{document: &doc, shapePath: path, predicateURI: "http://example.org/value", term: value}
 
-	appendQueryValue(&doc, path, value, keys)
-	appendQueryValue(&doc, path, value, keys)
+	indexer.appendValue(indexedValue)
+	indexer.appendValue(indexedValue)
 
 	values := valueChildren(doc, path, "valueText")
 	if len(values) != 1 || values[0] != "duplicate" {
@@ -538,7 +540,7 @@ func TestBuildQueryDocIndexesStructuredDashFacetAsLeaf(t *testing.T) {
 		owner.RawValue():    &ownerDoc,
 	}
 
-	buildQueryDoc(hardware, root, rootID, nil, nil, graph, metadata, &hardwareDoc, &hardwareDoc, traversal)
+	newQueryIndexer(graph, metadata, rootID, traversal, qudt.PredicateConfig{}).index(hardware, root, &hardwareDoc)
 
 	// dash:facet marks the structured owner relationship as a leaf facet, so the
 	// owner resource ID is indexed at the [owner] path.
@@ -579,7 +581,7 @@ func TestBuildQueryDocUsesNodeShapeDashFacetAsDefault(t *testing.T) {
 	traversal := newQueryTraversalState()
 	traversal.entities = map[string]*document{hardware.RawValue(): &doc, owner.RawValue(): &ownerDoc}
 
-	buildQueryDoc(hardware, root, rootID, nil, nil, graph, metadata, &doc, &doc, traversal)
+	newQueryIndexer(graph, metadata, rootID, traversal, qudt.PredicateConfig{}).index(hardware, root, &doc)
 	if values := valueChildren(doc, []string{ownerPath}, "valueString"); len(values) != 1 || values[0] != owner.String() {
 		t.Fatalf("expected node-shape facet value, got %#v", values)
 	}
@@ -647,7 +649,7 @@ func TestBuildQueryDocRecursesUnannotatedStructuredProperty(t *testing.T) {
 		partSubject.RawValue(): &partDoc,
 	}
 
-	buildQueryDoc(hardware, root, rootID, nil, nil, graph, metadata, &hardwareDoc, &hardwareDoc, traversal)
+	newQueryIndexer(graph, metadata, rootID, traversal, qudt.PredicateConfig{}).index(hardware, root, &hardwareDoc)
 
 	if values := valueChildren(partDoc, []string{partPath, modelPath}, "valueText"); len(values) != 1 || values[0] != modelValue {
 		t.Fatalf("expected nested part value, got %#v", values)
@@ -655,5 +657,238 @@ func TestBuildQueryDocRecursesUnannotatedStructuredProperty(t *testing.T) {
 	// The part is not collapsed into a leaf reference.
 	if values := valueChildren(hardwareDoc, []string{partPath}, "valueString"); len(values) != 0 {
 		t.Fatalf("expected no leaf part value, got %#v", values)
+	}
+}
+
+func TestBuildQueryDocConvertsQuantityValueToCanonical(t *testing.T) {
+	const (
+		rootID                = "http://example.org/Sample"
+		measurementShapeID    = "http://example.org/TemperatureMeasurement"
+		rootSubjectURI        = "http://example.org/sample1"
+		measurementURI        = "http://example.org/measurement1"
+		hasMeasurementPath    = "http://w3id.org/nfdi4ing/metadata4ing#hasMeasurement"
+		hasNumericalValuePath = "http://w3id.org/nfdi4ing/metadata4ing#hasNumericalValue"
+		sampleCountPath       = "http://example.org/sampleCount"
+		hasUnitPath           = "http://w3id.org/nfdi4ing/metadata4ing#hasUnit"
+		hasKindOfQuantityPath = "http://w3id.org/nfdi4ing/metadata4ing#hasKindOfQuantity"
+		celsiusUnit           = "http://qudt.org/vocab/unit/DEG_C"
+		temperatureKind       = "http://qudt.org/vocab/quantitykind/Temperature"
+	)
+	quantityPredicates := qudt.NewPredicateConfig(hasUnitPath, hasKindOfQuantityPath, hasNumericalValuePath)
+
+	previousProfiles := rdf.Profiles
+	rdf.Profiles = map[string]*shacl.NodeShape{
+		rootID: {
+			Id:           rdf2go.NewResource(rootID),
+			Parents:      map[string]bool{},
+			Alternatives: map[string]bool{},
+			Properties: map[string][]*shacl.Property{
+				hasMeasurementPath: {{
+					Id:                  rdf2go.NewResource(hasMeasurementPath),
+					QualifiedValueShape: measurementShapeID,
+				}},
+			},
+		},
+		measurementShapeID: {
+			Id:           rdf2go.NewResource(measurementShapeID),
+			Parents:      map[string]bool{},
+			Alternatives: map[string]bool{},
+			Properties: map[string][]*shacl.Property{
+				hasNumericalValuePath: {{
+					Id:       rdf2go.NewResource(hasNumericalValuePath),
+					Datatype: "http://www.w3.org/2001/XMLSchema#double",
+				}},
+				sampleCountPath: {{
+					Id:       rdf2go.NewResource(sampleCountPath),
+					Datatype: "http://www.w3.org/2001/XMLSchema#integer",
+				}},
+				hasUnitPath: {{
+					Id: rdf2go.NewResource(hasUnitPath),
+				}},
+				hasKindOfQuantityPath: {{
+					Id:       rdf2go.NewResource(hasKindOfQuantityPath),
+					HasValue: true,
+				}},
+			},
+		},
+	}
+	t.Cleanup(func() { rdf.Profiles = previousProfiles })
+
+	// Denormalize qualified shapes so the indexer can recurse into them.
+	for _, profile := range rdf.Profiles {
+		for _, props := range profile.Properties {
+			for _, prop := range props {
+				if prop.QualifiedValueShape != "" {
+					if target, ok := rdf.Profiles[prop.QualifiedValueShape]; ok {
+						prop.QualifiedValueShapeDenormalized = target
+					}
+				}
+			}
+		}
+	}
+
+	root := rdf2go.NewResource(rootSubjectURI)
+	measurement := rdf2go.NewResource(measurementURI)
+	graph := rdf2go.NewGraph("")
+	graph.AddTriple(root, rdf2go.NewResource(hasMeasurementPath), measurement)
+	graph.AddTriple(measurement, rdf2go.NewResource(hasNumericalValuePath), rdf2go.NewLiteralWithDatatype("100.0", rdf2go.NewResource("http://www.w3.org/2001/XMLSchema#double")))
+	graph.AddTriple(measurement, rdf2go.NewResource(sampleCountPath), rdf2go.NewLiteralWithDatatype("2", rdf2go.NewResource("http://www.w3.org/2001/XMLSchema#integer")))
+	graph.AddTriple(measurement, rdf2go.NewResource(hasUnitPath), rdf2go.NewResource(celsiusUnit))
+	graph.AddTriple(measurement, rdf2go.NewResource(hasKindOfQuantityPath), rdf2go.NewResource(temperatureKind))
+
+	metadata := &rdf.ResourceMetadata{Conformance: map[string][]string{
+		rootSubjectURI: {rootID},
+		measurementURI: {measurementShapeID},
+	}}
+
+	rootDoc := document{}
+	measurementDoc := document{}
+	traversal := newQueryTraversalState()
+	traversal.entities = map[string]*document{
+		rootSubjectURI: &rootDoc,
+		measurementURI: &measurementDoc,
+	}
+
+	newQueryIndexer(graph, metadata, rootID, traversal, quantityPredicates).index(root, rdf.Profiles[rootID], &rootDoc)
+
+	// 100°C = 373.15 K (canonical). The valueNumber field should contain the
+	// converted Kelvin value, not the original 100.0.
+	numPath := []string{hasMeasurementPath, hasNumericalValuePath}
+	values := valueChildren(measurementDoc, numPath, "valueNumber")
+	if len(values) != 1 {
+		t.Fatalf("expected exactly one numeric value, got %#v", values)
+	}
+	if values[0] != "373.15" {
+		t.Fatalf("expected canonical value 373.15 K, got %v", values[0])
+	}
+	// The hasUnit valueString should carry the canonical unit URI, not the original.
+	unitPath := []string{hasMeasurementPath, hasUnitPath}
+	unitValues := valueChildren(measurementDoc, unitPath, "valueString")
+	if len(unitValues) != 1 {
+		t.Fatalf("expected exactly one unit value, got %#v", unitValues)
+	}
+	const kelvinURI = "http://qudt.org/vocab/unit/K"
+	if unitValues[0] != rdf2go.NewResource(kelvinURI).String() {
+		t.Fatalf("expected canonical unit %s, got %v", kelvinURI, unitValues[0])
+	}
+	// Other numeric properties on the quantity node are not governed by its unit.
+	if countValues := valueChildren(measurementDoc, []string{hasMeasurementPath, sampleCountPath}, "valueNumber"); len(countValues) != 1 || countValues[0] != "2" {
+		t.Fatalf("expected sample count to remain unchanged, got %#v", countValues)
+	}
+
+	// Traversing the quantity as its own entity must produce canonical relative
+	// fields too, not only canonical fields rooted at the containing resource.
+	standaloneDoc := document{}
+	standaloneTraversal := newQueryTraversalState()
+	standaloneTraversal.entities = map[string]*document{measurementURI: &standaloneDoc}
+	newQueryIndexer(graph, metadata, measurementShapeID, standaloneTraversal, quantityPredicates).index(measurement, rdf.Profiles[measurementShapeID], &standaloneDoc)
+	if standaloneValues := valueChildren(standaloneDoc, []string{hasNumericalValuePath}, "valueNumber"); len(standaloneValues) != 1 || standaloneValues[0] != "373.15" {
+		t.Fatalf("expected standalone canonical value 373.15 K, got %#v", standaloneValues)
+	}
+}
+
+func TestBuildQueryDocConvertsDeltaQuantityWithoutOffset(t *testing.T) {
+	const (
+		rootID                = "http://example.org/Sample"
+		measurementShapeID    = "http://example.org/TempDiffMeasurement"
+		rootSubjectURI        = "http://example.org/sample2"
+		measurementURI        = "http://example.org/measurement2"
+		hasMeasurementPath    = "http://w3id.org/nfdi4ing/metadata4ing#hasMeasurement"
+		hasNumericalValuePath = "http://w3id.org/nfdi4ing/metadata4ing#hasNumericalValue"
+		hasUnitPath           = "http://w3id.org/nfdi4ing/metadata4ing#hasUnit"
+		hasKindOfQuantityPath = "http://w3id.org/nfdi4ing/metadata4ing#hasKindOfQuantity"
+		celsiusUnit           = "http://qudt.org/vocab/unit/DEG_C"
+		tempDiffKind          = "http://qudt.org/vocab/quantitykind/TemperatureDifference"
+		isDeltaProperty       = "http://qudt.org/schema/qudt#isDeltaQuantity"
+	)
+	quantityPredicates := qudt.NewPredicateConfig(hasUnitPath, hasKindOfQuantityPath, hasNumericalValuePath)
+
+	previousProfiles := rdf.Profiles
+	rdf.Profiles = map[string]*shacl.NodeShape{
+		rootID: {
+			Id:           rdf2go.NewResource(rootID),
+			Parents:      map[string]bool{},
+			Alternatives: map[string]bool{},
+			Properties: map[string][]*shacl.Property{
+				hasMeasurementPath: {{
+					Id:                  rdf2go.NewResource(hasMeasurementPath),
+					QualifiedValueShape: measurementShapeID,
+				}},
+			},
+		},
+		measurementShapeID: {
+			Id:           rdf2go.NewResource(measurementShapeID),
+			Parents:      map[string]bool{},
+			Alternatives: map[string]bool{},
+			Properties: map[string][]*shacl.Property{
+				hasNumericalValuePath: {{
+					Id:       rdf2go.NewResource(hasNumericalValuePath),
+					Datatype: "http://www.w3.org/2001/XMLSchema#double",
+				}},
+				hasUnitPath: {{
+					Id: rdf2go.NewResource(hasUnitPath),
+				}},
+				hasKindOfQuantityPath: {{
+					Id:       rdf2go.NewResource(hasKindOfQuantityPath),
+					HasValue: true,
+				}},
+			},
+		},
+	}
+	t.Cleanup(func() { rdf.Profiles = previousProfiles })
+
+	for _, profile := range rdf.Profiles {
+		for _, props := range profile.Properties {
+			for _, prop := range props {
+				if prop.QualifiedValueShape != "" {
+					if target, ok := rdf.Profiles[prop.QualifiedValueShape]; ok {
+						prop.QualifiedValueShapeDenormalized = target
+					}
+				}
+			}
+		}
+	}
+
+	root := rdf2go.NewResource(rootSubjectURI)
+	measurement := rdf2go.NewResource(measurementURI)
+	graph := rdf2go.NewGraph("")
+	graph.AddTriple(root, rdf2go.NewResource(hasMeasurementPath), measurement)
+	graph.AddTriple(measurement, rdf2go.NewResource(hasNumericalValuePath), rdf2go.NewLiteralWithDatatype("100.0", rdf2go.NewResource("http://www.w3.org/2001/XMLSchema#double")))
+	graph.AddTriple(measurement, rdf2go.NewResource(hasUnitPath), rdf2go.NewResource(celsiusUnit))
+	graph.AddTriple(measurement, rdf2go.NewResource(hasKindOfQuantityPath), rdf2go.NewResource(tempDiffKind))
+	graph.AddTriple(measurement, rdf2go.NewResource(isDeltaProperty), rdf2go.NewLiteralWithDatatype("true", rdf2go.NewResource("http://www.w3.org/2001/XMLSchema#boolean")))
+
+	metadata := &rdf.ResourceMetadata{Conformance: map[string][]string{
+		rootSubjectURI: {rootID},
+		measurementURI: {measurementShapeID},
+	}}
+
+	rootDoc := document{}
+	measurementDoc := document{}
+	traversal := newQueryTraversalState()
+	traversal.entities = map[string]*document{
+		rootSubjectURI: &rootDoc,
+		measurementURI: &measurementDoc,
+	}
+
+	newQueryIndexer(graph, metadata, rootID, traversal, quantityPredicates).index(root, rdf.Profiles[rootID], &rootDoc)
+
+	// A 100°C temperature *difference* = 100 K difference (offsets skipped).
+	numPath := []string{hasMeasurementPath, hasNumericalValuePath}
+	values := valueChildren(measurementDoc, numPath, "valueNumber")
+	if len(values) != 1 {
+		t.Fatalf("expected exactly one numeric value, got %#v", values)
+	}
+	if values[0] != "100" {
+		t.Fatalf("expected delta value 100 K (no offset), got %v", values[0])
+	}
+	unitPath := []string{hasMeasurementPath, hasUnitPath}
+	unitValues := valueChildren(measurementDoc, unitPath, "valueString")
+	if len(unitValues) != 1 {
+		t.Fatalf("expected exactly one unit value, got %#v", unitValues)
+	}
+	const kelvinURI = "http://qudt.org/vocab/unit/K"
+	if unitValues[0] != rdf2go.NewResource(kelvinURI).String() {
+		t.Fatalf("expected canonical unit %s, got %v", kelvinURI, unitValues[0])
 	}
 }

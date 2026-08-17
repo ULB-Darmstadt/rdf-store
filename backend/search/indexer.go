@@ -9,12 +9,20 @@ import (
 	"log/slog"
 	"rdf-store-backend/base"
 	"rdf-store-backend/rdf"
+	"rdf-store-backend/search/qudt"
 	"rdf-store-backend/shacl"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/deiu/rdf2go"
+)
+
+var defaultQuantityPredicates = qudt.NewPredicateConfig(
+	base.EnvVar("HAS_UNIT_PREDICATE", ""),
+	base.EnvVar("HAS_KIND_OF_QUANTITY_PREDICATE", ""),
+	base.EnvVar("HAS_NUMERICAL_VALUE_PREDICATE", ""),
 )
 
 // Init prepares the Solr collection and schema for indexing.
@@ -79,7 +87,7 @@ func IndexResource(resource *rdf2go.Graph, metadata *rdf.ResourceMetadata) error
 	if err := DeindexResource(metadata.Id.RawValue()); err != nil {
 		return err
 	}
-	docs, err := buildResourceDocuments(resource, metadata)
+	docs, err := buildResourceDocuments(resource, metadata, defaultQuantityPredicates)
 	if err != nil {
 		return err
 	}
@@ -93,7 +101,7 @@ func IndexResource(resource *rdf2go.Graph, metadata *rdf.ResourceMetadata) error
 // resource that conforms to a SHACL shape. The resource root is indexed like
 // any other entity. Documents link back to their owning resource via the
 // resourceId field and carry their RDF subject for highlighting.
-func buildResourceDocuments(resource *rdf2go.Graph, metadata *rdf.ResourceMetadata) ([]*document, error) {
+func buildResourceDocuments(resource *rdf2go.Graph, metadata *rdf.ResourceMetadata, quantityPredicates qudt.PredicateConfig) ([]*document, error) {
 	_, profile, err := rdf.FindResourceProfile(resource, metadata.Id)
 	if err != nil {
 		slog.Warn("not indexing because resource misses conformance entry", "resource", metadata.Id.RawValue(), "creator", metadata.Creator)
@@ -145,7 +153,7 @@ func buildResourceDocuments(resource *rdf2go.Graph, metadata *rdf.ResourceMetada
 			entities:  docsBySubject,
 			valueKeys: valueKeys,
 		}
-		buildQueryDoc(metadata.Id, profile, targetShape, nil, nil, resource, metadata, rootDoc, rootDoc, traversal)
+		newQueryIndexer(resource, metadata, targetShape, traversal, quantityPredicates).index(metadata.Id, profile, rootDoc)
 	}
 	// Every entity is additionally traversed from its own most specific
 	// shape so its leaf values are also indexed under paths relative to the
@@ -170,7 +178,7 @@ func buildResourceDocuments(resource *rdf2go.Graph, metadata *rdf.ResourceMetada
 			entities:  docsBySubject,
 			valueKeys: valueKeys,
 		}
-		buildQueryDoc(rdf2go.NewResource(subjectID), topShape, topShapeID, nil, nil, resource, metadata, entityDoc, entityDoc, traversal)
+		newQueryIndexer(resource, metadata, topShapeID, traversal, quantityPredicates).index(rdf2go.NewResource(subjectID), topShape, entityDoc)
 	}
 	return docs, nil
 }
@@ -395,6 +403,35 @@ type queryTraversalState struct {
 	valueKeys map[string]map[string]bool
 }
 
+// queryIndexer owns the dependencies and mutable state shared by one query
+// document traversal. Recursive calls only need to carry the node-specific
+// state below.
+type queryIndexer struct {
+	resource           *rdf2go.Graph
+	metadata           *rdf.ResourceMetadata
+	targetShape        string
+	traversal          *queryTraversalState
+	quantityPredicates qudt.PredicateConfig
+	quantityContexts   map[string]*qudt.QuantityContext
+}
+
+type queryIndexNode struct {
+	subject      rdf2go.Term
+	profile      *shacl.NodeShape
+	propertyPath []string
+	shapePath    []string
+	owner        *document
+	conforming   *document
+}
+
+type queryIndexValue struct {
+	document     *document
+	shapePath    []string
+	predicateURI string
+	term         rdf2go.Term
+	quantity     *qudt.QuantityContext
+}
+
 func newQueryTraversalState() *queryTraversalState {
 	return &queryTraversalState{
 		active:    make(map[string]bool),
@@ -403,41 +440,85 @@ func newQueryTraversalState() *queryTraversalState {
 	}
 }
 
-func buildQueryDoc(subject rdf2go.Term, profile *shacl.NodeShape, targetShape string, propertyPath, shapePath []string, resource *rdf2go.Graph, metadata *rdf.ResourceMetadata, owner *document, conforming *document, traversal *queryTraversalState) {
-	activeKey := subject.RawValue() + "\x00" + profile.Id.RawValue()
-	if traversal.active[activeKey] {
-		slog.Warn("skipping recursive query-index shape", "subject", subject.RawValue(), "shape", profile.Id.RawValue())
-		return
+func newQueryIndexer(resource *rdf2go.Graph, metadata *rdf.ResourceMetadata, targetShape string, traversal *queryTraversalState, quantityPredicates qudt.PredicateConfig) *queryIndexer {
+	return &queryIndexer{
+		resource:           resource,
+		metadata:           metadata,
+		targetShape:        targetShape,
+		traversal:          traversal,
+		quantityPredicates: quantityPredicates,
+		quantityContexts:   make(map[string]*qudt.QuantityContext),
 	}
-	visitKey := activeKey + "\x00" + strings.Join(propertyPath, "\x00") + "\x00" + strings.Join(shapePath, "\x00")
-	if traversal.visited[visitKey] {
-		return
-	}
-	traversal.visited[visitKey] = true
-	traversal.active[activeKey] = true
-	defer delete(traversal.active, activeKey)
+}
 
-	for parentId := range profile.Parents {
+func (indexer *queryIndexer) index(subject rdf2go.Term, profile *shacl.NodeShape, current *document) {
+	indexer.walk(queryIndexNode{
+		subject:    subject,
+		profile:    profile,
+		owner:      current,
+		conforming: current,
+	})
+}
+
+func (indexer *queryIndexer) quantityContext(subject rdf2go.Term) *qudt.QuantityContext {
+	key := subject.String()
+	if context, scanned := indexer.quantityContexts[key]; scanned {
+		return context
+	}
+	context := indexer.quantityPredicates.ScanQuantityContext(subject, indexer.resource)
+	indexer.quantityContexts[key] = context
+	return context
+}
+
+func (indexer *queryIndexer) walk(node queryIndexNode) {
+	quantity := indexer.quantityContext(node.subject)
+	activeKey := node.subject.RawValue() + "\x00" + node.profile.Id.RawValue()
+	if indexer.traversal.active[activeKey] {
+		slog.Warn("skipping recursive query-index shape", "subject", node.subject.RawValue(), "shape", node.profile.Id.RawValue())
+		return
+	}
+	visitKey := activeKey + "\x00" + strings.Join(node.propertyPath, "\x00") + "\x00" + strings.Join(node.shapePath, "\x00")
+	if indexer.traversal.visited[visitKey] {
+		return
+	}
+	indexer.traversal.visited[visitKey] = true
+	indexer.traversal.active[activeKey] = true
+	defer delete(indexer.traversal.active, activeKey)
+
+	for parentId := range node.profile.Parents {
 		if parent, ok := rdf.Profiles[parentId]; ok {
-			buildQueryDoc(subject, parent, targetShape, propertyPath, shapePath, resource, metadata, owner, conforming, traversal)
+			parentNode := node
+			parentNode.profile = parent
+			indexer.walk(parentNode)
 		}
 	}
-	for alternativeId := range profile.Alternatives {
-		if alternative, ok := rdf.Profiles[alternativeId]; ok && conforms(subject.RawValue(), alternativeId, metadata) {
-			buildQueryDoc(subject, alternative, targetShape, propertyPath, shapePath, resource, metadata, owner, conforming, traversal)
+	for alternativeId := range node.profile.Alternatives {
+		if alternative, ok := rdf.Profiles[alternativeId]; ok && conforms(node.subject.RawValue(), alternativeId, indexer.metadata) {
+			alternativeNode := node
+			alternativeNode.profile = alternative
+			indexer.walk(alternativeNode)
 		}
 	}
 
-	for path, properties := range profile.Properties {
+	for path, properties := range node.profile.Properties {
 		pathTerm := rdf2go.NewResource(path)
 		for _, property := range properties {
-			nextPropertyPath := appendPath(propertyPath, path)
+			nextPropertyPath := appendPath(node.propertyPath, path)
 			shapePathSegment := path
 			if property.QualifiedValueShape != "" {
 				shapePathSegment = property.Id.RawValue()
 			}
-			nextShapePath := appendPath(shapePath, shapePathSegment)
-			for _, value := range resource.All(subject, pathTerm, nil) {
+			nextShapePath := appendPath(node.shapePath, shapePathSegment)
+			for _, value := range indexer.resource.All(node.subject, pathTerm, nil) {
+				appendTo := func(document *document, quantity *qudt.QuantityContext) {
+					indexer.appendValue(queryIndexValue{
+						document:     document,
+						shapePath:    nextShapePath,
+						predicateURI: path,
+						term:         value.Object,
+						quantity:     quantity,
+					})
+				}
 				childShapes := make(map[string]bool, len(property.NodeShapes)+len(property.AlternativeNodeShapes)+1)
 				for shape := range property.NodeShapes {
 					childShapes[shape] = true
@@ -450,7 +531,7 @@ func buildQueryDoc(subject rdf2go.Term, profile *shacl.NodeShape, targetShape st
 				}
 
 				recursed := false
-				childDoc := traversal.entities[value.Object.RawValue()]
+				childDoc := indexer.traversal.entities[value.Object.RawValue()]
 				if _, literal := value.Object.(*rdf2go.Literal); !literal {
 					// A query field is only reachable by the SHACL query UI when the
 					// document that carries it belongs to a resource whose root profile
@@ -459,8 +540,8 @@ func buildQueryDoc(subject rdf2go.Term, profile *shacl.NodeShape, targetShape st
 					// entities are also stored there. Otherwise a criterion on a nested
 					// property (e.g. owner.firstName) would only match the nested entity
 					// document, which does not conform to the selected shape itself.
-					nextConforming := conforming
-					if childDoc != nil && conforms(value.Object.RawValue(), targetShape, metadata) {
+					nextConforming := node.conforming
+					if childDoc != nil && conforms(value.Object.RawValue(), indexer.targetShape, indexer.metadata) {
 						nextConforming = childDoc
 					}
 					if structuredPropertyIsFacet(property, childShapes) {
@@ -468,14 +549,14 @@ func buildQueryDoc(subject rdf2go.Term, profile *shacl.NodeShape, targetShape st
 						// over its referenced resources. Index the resource ID at the
 						// relationship path instead of recursing into the nested shape.
 						for shape := range childShapes {
-							if !conforms(value.Object.RawValue(), shape, metadata) {
+							if !conforms(value.Object.RawValue(), shape, indexer.metadata) {
 								continue
 							}
-							if owner != nil {
-								appendQueryValue(owner, nextShapePath, value.Object, traversal.valueKeys)
+							if node.owner != nil {
+								appendTo(node.owner, nil)
 							}
-							if conforming != nil && conforming != owner {
-								appendQueryValue(conforming, nextShapePath, value.Object, traversal.valueKeys)
+							if node.conforming != nil && node.conforming != node.owner {
+								appendTo(node.conforming, nil)
 							}
 							break
 						}
@@ -483,19 +564,26 @@ func buildQueryDoc(subject rdf2go.Term, profile *shacl.NodeShape, targetShape st
 					} else {
 						for shape := range childShapes {
 							child, ok := rdf.Profiles[shape]
-							if ok && conforms(value.Object.RawValue(), shape, metadata) {
-								buildQueryDoc(value.Object, child, targetShape, nextPropertyPath, nextShapePath, resource, metadata, childDoc, nextConforming, traversal)
+							if ok && conforms(value.Object.RawValue(), shape, indexer.metadata) {
+								indexer.walk(queryIndexNode{
+									subject:      value.Object,
+									profile:      child,
+									propertyPath: nextPropertyPath,
+									shapePath:    nextShapePath,
+									owner:        childDoc,
+									conforming:   nextConforming,
+								})
 								recursed = true
 							}
 						}
 					}
 				}
 				if !recursed && len(childShapes) == 0 {
-					if owner != nil {
-						appendQueryValue(owner, nextShapePath, value.Object, traversal.valueKeys)
+					if node.owner != nil {
+						appendTo(node.owner, quantity)
 					}
-					if conforming != nil && conforming != owner {
-						appendQueryValue(conforming, nextShapePath, value.Object, traversal.valueKeys)
+					if node.conforming != nil && node.conforming != node.owner {
+						appendTo(node.conforming, quantity)
 					}
 				}
 			}
@@ -533,17 +621,17 @@ func queryPathID(shapePath []string) string {
 	return hex.EncodeToString(digest[:16])
 }
 
-func appendQueryValue(current *document, shapePath []string, value rdf2go.Term, valueKeys map[string]map[string]bool) {
-	slog.Debug("append query value", "path", shapePath, "value", value.String(), "doc", (*current)["id"])
-	path := queryPathID(shapePath)
+func (indexer *queryIndexer) appendValue(value queryIndexValue) {
+	slog.Debug("append query value", "path", value.shapePath, "value", value.term.String(), "doc", (*value.document)["id"])
+	path := queryPathID(value.shapePath)
 	field := "valueString"
-	storedValue := value.String()
+	storedValue := value.term.String()
 	child := document{
 		"docType":    "value",
-		"resourceId": (*current)["resourceId"],
+		"resourceId": (*value.document)["resourceId"],
 		"path":       path,
 	}
-	if literal, ok := value.(*rdf2go.Literal); ok {
+	if literal, ok := value.term.(*rdf2go.Literal); ok {
 		datatype := ""
 		if literal.Datatype != nil {
 			datatype = literal.Datatype.RawValue()
@@ -557,6 +645,15 @@ func appendQueryValue(current *document, shapePath []string, value rdf2go.Term, 
 		case "ds":
 			field = "valueNumber"
 			storedValue = literal.RawValue()
+			// Convert to canonical SI unit when quantity context is available.
+			if value.quantity.ConvertsNumericPredicate(value.predicateURI) {
+				if num, err := strconv.ParseFloat(literal.RawValue(), 64); err == nil {
+					if converted, ok := qudt.Convert(num, value.quantity.UnitURI, value.quantity.QuantityKindURI, value.quantity.IsDelta); ok {
+						storedValue = strconv.FormatFloat(converted, 'f', -1, 64)
+						slog.Debug("converted quantity value", "original", literal.RawValue(), "unit", value.quantity.UnitURI, "canonical", storedValue)
+					}
+				}
+			}
 		case "bs":
 			field = "valueBoolean"
 			storedValue = literal.RawValue()
@@ -579,6 +676,17 @@ func appendQueryValue(current *document, shapePath []string, value rdf2go.Term, 
 			storedValue = literal.RawValue()
 		}
 	}
+	// Replace the original unit URI with its canonical form when a quantity
+	// context is available and the value is the source unit resource.
+	if value.quantity.CanonicalizesUnitPredicate(value.predicateURI) {
+		if res, ok := value.term.(*rdf2go.Resource); ok && res.RawValue() == value.quantity.UnitURI {
+			if canonical := qudt.CanonicalUnitURI(value.quantity.UnitURI, value.quantity.QuantityKindURI); canonical != "" && value.quantity.UnitURI != canonical {
+				// Resource-valued facets use RDF term syntax (for example <...>) so
+				// converted and already-canonical units land in the same Solr bucket.
+				storedValue = rdf2go.NewResource(canonical).String()
+			}
+		}
+	}
 	child[field] = storedValue
 	// Text literals need analyzed search and exact-value faceting. Keeping both
 	// representations in the same value document avoids another schema field or
@@ -587,16 +695,16 @@ func appendQueryValue(current *document, shapePath []string, value rdf2go.Term, 
 		child["valueString"] = storedValue
 	}
 
-	parentID := fmt.Sprint((*current)["id"])
+	parentID := fmt.Sprint((*value.document)["id"])
 	key := path + "\x00" + field + "\x00" + storedValue
 	ownerKey := parentID
 	if ownerKey == "<nil>" || ownerKey == "" {
-		ownerKey = fmt.Sprintf("%p", current)
+		ownerKey = fmt.Sprintf("%p", value.document)
 	}
-	parentKeys := valueKeys[ownerKey]
+	parentKeys := indexer.traversal.valueKeys[ownerKey]
 	if parentKeys == nil {
 		parentKeys = make(map[string]bool)
-		valueKeys[ownerKey] = parentKeys
+		indexer.traversal.valueKeys[ownerKey] = parentKeys
 	}
 	if parentKeys[key] {
 		return
@@ -604,8 +712,8 @@ func appendQueryValue(current *document, shapePath []string, value rdf2go.Term, 
 	parentKeys[key] = true
 	digest := sha256.Sum256([]byte(parentID + "\x00" + key))
 	child["id"] = parentID + "|value|" + hex.EncodeToString(digest[:16])
-	children, _ := (*current)["_childDocuments_"].([]any)
-	(*current)["_childDocuments_"] = append(children, child)
+	children, _ := (*value.document)["_childDocuments_"].([]any)
+	(*value.document)["_childDocuments_"] = append(children, child)
 }
 
 func hasTimezoneOffset(value string) bool {
