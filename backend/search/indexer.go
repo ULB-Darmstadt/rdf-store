@@ -84,10 +84,21 @@ func Reindex() {
 // Every entity conforming to a SHACL shape becomes its own search document.
 // It returns an error when indexing or deindexing fails.
 func IndexResource(resource *rdf2go.Graph, metadata *rdf.ResourceMetadata) error {
+	labelIDs := make([]string, 0, len(metadata.Conformance))
+	for subjectID := range metadata.Conformance {
+		labelIDs = append(labelIDs, rdf2go.NewResource(subjectID).String())
+	}
+	labels, err := rdf.GetDefaultLabels(labelIDs)
+	if err != nil {
+		return fmt.Errorf("loading extracted resource labels: %w", err)
+	}
 	if err := DeindexResource(metadata.Id.RawValue()); err != nil {
 		return err
 	}
-	docs, err := buildResourceDocuments(resource, metadata, defaultQuantityPredicates)
+	docs, err := buildResourceDocuments(resource, metadata, resourceIndexOptions{
+		quantityPredicates: defaultQuantityPredicates,
+		extractedLabels:    labels,
+	})
 	if err != nil {
 		return err
 	}
@@ -101,7 +112,12 @@ func IndexResource(resource *rdf2go.Graph, metadata *rdf.ResourceMetadata) error
 // resource that conforms to a SHACL shape. The resource root is indexed like
 // any other entity. Documents link back to their owning resource via the
 // resourceId field and carry their RDF subject for highlighting.
-func buildResourceDocuments(resource *rdf2go.Graph, metadata *rdf.ResourceMetadata, quantityPredicates qudt.PredicateConfig) ([]*document, error) {
+type resourceIndexOptions struct {
+	quantityPredicates qudt.PredicateConfig
+	extractedLabels    map[string]string
+}
+
+func buildResourceDocuments(resource *rdf2go.Graph, metadata *rdf.ResourceMetadata, options resourceIndexOptions) ([]*document, error) {
 	_, profile, err := rdf.FindResourceProfile(resource, metadata.Id)
 	if err != nil {
 		slog.Warn("not indexing because resource misses conformance entry", "resource", metadata.Id.RawValue(), "creator", metadata.Creator)
@@ -120,6 +136,10 @@ func buildResourceDocuments(resource *rdf2go.Graph, metadata *rdf.ResourceMetada
 	for subjectID, shapeIDs := range metadata.Conformance {
 		shapeIDs = orderShapesBySpecificity(shapeIDs)
 		subject := rdf2go.NewResource(subjectID)
+		labels := rdf.FindLabels(subject, resource)
+		if extracted := options.extractedLabels[subject.String()]; extracted != "" {
+			labels = []string{extracted}
+		}
 		doc := &document{
 			"id":           metadata.Id.RawValue() + "|" + subjectID,
 			"docType":      "entity",
@@ -127,7 +147,7 @@ func buildResourceDocuments(resource *rdf2go.Graph, metadata *rdf.ResourceMetada
 			"subject":      subjectID,
 			"creator":      metadata.Creator,
 			"lastModified": metadata.LastModified,
-			"label":        findLabels(subject, resource),
+			"label":        labels,
 		}
 		conformingShapes := make(map[string]bool)
 		for _, shapeID := range shapeIDs {
@@ -153,7 +173,7 @@ func buildResourceDocuments(resource *rdf2go.Graph, metadata *rdf.ResourceMetada
 			entities:  docsBySubject,
 			valueKeys: valueKeys,
 		}
-		newQueryIndexer(resource, metadata, targetShape, traversal, quantityPredicates).index(metadata.Id, profile, rootDoc)
+		newQueryIndexer(resource, metadata, targetShape, traversal, options.quantityPredicates).index(metadata.Id, profile, rootDoc)
 	}
 	// Every entity is additionally traversed from its own most specific
 	// shape so its leaf values are also indexed under paths relative to the
@@ -178,7 +198,7 @@ func buildResourceDocuments(resource *rdf2go.Graph, metadata *rdf.ResourceMetada
 			entities:  docsBySubject,
 			valueKeys: valueKeys,
 		}
-		newQueryIndexer(resource, metadata, topShapeID, traversal, quantityPredicates).index(rdf2go.NewResource(subjectID), topShape, entityDoc)
+		newQueryIndexer(resource, metadata, topShapeID, traversal, options.quantityPredicates).index(rdf2go.NewResource(subjectID), topShape, entityDoc)
 	}
 	return docs, nil
 }
@@ -358,7 +378,7 @@ func buildDocRecursive(subject rdf2go.Term, profile *shacl.NodeShape, resource *
 		for _, property := range properties {
 			for _, value := range resource.All(subject, pathTerm, nil) {
 				if property.QualifiedValueShapeDenormalized != nil && conforms(value.Object.RawValue(), property.QualifiedValueShape, metadata) {
-					current.appendValue("_text_", findLabels(value.Object, resource))
+					current.appendValue("_text_", rdf.FindLabels(value.Object, resource))
 					buildDocRecursive(value.Object, property.QualifiedValueShapeDenormalized, resource, metadata, current, active)
 				} else if len(property.NodeShapes) > 0 || len(property.AlternativeNodeShapes) > 0 {
 					childShapes := make(map[string]bool, len(property.NodeShapes)+len(property.AlternativeNodeShapes))
@@ -374,7 +394,7 @@ func buildDocRecursive(subject rdf2go.Term, profile *shacl.NodeShape, resource *
 							if !ok {
 								slog.Error("profile not found", "id", shape)
 							} else {
-								current.appendValue("_text_", findLabels(value.Object, resource))
+								current.appendValue("_text_", rdf.FindLabels(value.Object, resource))
 								buildDocRecursive(value.Object, profile, resource, metadata, current, active)
 							}
 						}
@@ -738,15 +758,4 @@ func conforms(id string, shape string, metadata *rdf.ResourceMetadata) bool {
 		}
 	}
 	return false
-}
-
-// findLabels collects literal labels for a subject in the graph.
-// It returns the collected label strings.
-func findLabels(subject rdf2go.Term, data *rdf2go.Graph) (labels []string) {
-	for _, triple := range data.All(subject, nil, nil) {
-		if _, ok := rdf.LabelPredicates[triple.Predicate.RawValue()]; ok {
-			labels = append(labels, triple.Object.RawValue())
-		}
-	}
-	return labels
 }

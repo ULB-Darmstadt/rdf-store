@@ -236,6 +236,30 @@ func newMeasurementFixture(t *testing.T) *measurementFixture {
 	}
 }
 
+func TestBuildResourceDocumentsUsesExtractedLabel(t *testing.T) {
+	fx := newMeasurementFixture(t)
+	fx.graph.AddTriple(rdf2go.NewResource(fx.resourceID), shacl.FOAF_FIRST_NAME, rdf2go.NewLiteral("Leonard"))
+	fx.graph.AddTriple(rdf2go.NewResource(fx.resourceID), shacl.FOAF_LAST_NAME, rdf2go.NewLiteral("Nimoy"))
+	extracted := "Nimoy, Leonard"
+
+	docs, err := buildResourceDocuments(fx.graph, fx.metadata, resourceIndexOptions{
+		extractedLabels: map[string]string{rdf2go.NewResource(fx.resourceID).String(): extracted},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, doc := range docs {
+		if (*doc)["subject"] == fx.resourceID {
+			labels, ok := (*doc)["label"].([]string)
+			if !ok || len(labels) != 1 || labels[0] != extracted {
+				t.Fatalf("expected extracted label %q, got %#v", extracted, (*doc)["label"])
+			}
+			return
+		}
+	}
+	t.Fatal("root resource document not found")
+}
+
 func TestBuildResourceDocumentsIndexesInheritedShapeContexts(t *testing.T) {
 	const (
 		derivedID = "http://example.org/Derived"
@@ -283,7 +307,7 @@ func TestBuildResourceDocumentsIndexesInheritedShapeContexts(t *testing.T) {
 		},
 	}
 
-	docs, err := buildResourceDocuments(graph, metadata, qudt.PredicateConfig{})
+	docs, err := buildResourceDocuments(graph, metadata, resourceIndexOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -316,7 +340,7 @@ func TestBuildResourceDocumentsIndexesInheritedShapeContexts(t *testing.T) {
 func TestBuildResourceDocumentsCreatesEntityDocuments(t *testing.T) {
 	fx := newMeasurementFixture(t)
 
-	docs, err := buildResourceDocuments(fx.graph, fx.metadata, qudt.PredicateConfig{})
+	docs, err := buildResourceDocuments(fx.graph, fx.metadata, resourceIndexOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -368,7 +392,7 @@ func TestBuildResourceDocumentsCreatesEntityDocuments(t *testing.T) {
 func TestBuildResourceDocumentsIndexesEmbeddedEntityQueryFields(t *testing.T) {
 	fx := newMeasurementFixture(t)
 
-	docs, err := buildResourceDocuments(fx.graph, fx.metadata, qudt.PredicateConfig{})
+	docs, err := buildResourceDocuments(fx.graph, fx.metadata, resourceIndexOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}

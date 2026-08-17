@@ -2,11 +2,25 @@ package rdf
 
 import (
 	"bytes"
+	"rdf-store-backend/shacl"
 	"strings"
 	"testing"
 
 	"github.com/deiu/rdf2go"
 )
+
+func TestFindLabelsOrdersPersonSurnameBeforeFirstName(t *testing.T) {
+	person := rdf2go.NewResource("http://example.org/person")
+	graph := rdf2go.NewGraph("")
+	// Insert firstName first to ensure graph order cannot determine display order.
+	graph.AddTriple(person, shacl.FOAF_FIRST_NAME, rdf2go.NewLiteral("Leonard"))
+	graph.AddTriple(person, shacl.FOAF_LAST_NAME, rdf2go.NewLiteral("Nimoy"))
+
+	labels := FindLabels(person, graph)
+	if len(labels) != 2 || labels[0] != "Nimoy" || labels[1] != "Leonard" {
+		t.Fatalf("expected lastName, firstName order, got %#v", labels)
+	}
+}
 
 func TestWriteCombinedPersonLabelsCombinesLastNameAndFirstName(t *testing.T) {
 	graph := rdf2go.NewGraph("")

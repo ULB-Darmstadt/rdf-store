@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"rdf-store-backend/base"
 	"rdf-store-backend/shacl"
+	"sort"
 	"strings"
 	"text/template"
 
@@ -42,6 +43,37 @@ WHERE {
 }
 `
 var labelsQueryTemplate = template.Must(template.New("listQuery").Funcs(template.FuncMap{}).Parse(labelsQuery))
+
+// FindLabels collects literal labels for a subject in predicate-priority order.
+// The deterministic order is also significant for composite display labels:
+// FOAF lastName precedes firstName, so consumers render "lastName, firstName".
+func FindLabels(subject rdf2go.Term, graph *rdf2go.Graph) []string {
+	type candidate struct {
+		value    string
+		priority int
+	}
+	var candidates []candidate
+	for _, triple := range graph.All(subject, nil, nil) {
+		priority, ok := LabelPredicates[triple.Predicate.RawValue()]
+		if !ok {
+			continue
+		}
+		if literal, ok := triple.Object.(*rdf2go.Literal); ok {
+			candidates = append(candidates, candidate{value: literal.RawValue(), priority: priority})
+		}
+	}
+	sort.Slice(candidates, func(i, j int) bool {
+		if candidates[i].priority != candidates[j].priority {
+			return candidates[i].priority < candidates[j].priority
+		}
+		return candidates[i].value < candidates[j].value
+	})
+	labels := make([]string, len(candidates))
+	for i, candidate := range candidates {
+		labels[i] = candidate.value
+	}
+	return labels
+}
 
 // GetLabels retrieves preferred labels for IDs in the given language.
 // It returns a map of ID to label and any error encountered.
@@ -92,6 +124,12 @@ func GetLabels(language string, ids []string) (map[string]string, error) {
 		}
 	}
 	return result, nil
+}
+
+// GetDefaultLabels retrieves preferred labels using the configured primary
+// label language and the standard fallback order.
+func GetDefaultLabels(ids []string) (map[string]string, error) {
+	return GetLabels(defaultLabelLanguage(), ids)
 }
 
 type labelCandidate struct {
