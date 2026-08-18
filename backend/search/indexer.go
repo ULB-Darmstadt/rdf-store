@@ -11,6 +11,7 @@ import (
 	"rdf-store-backend/rdf"
 	"rdf-store-backend/search/qudt"
 	"rdf-store-backend/shacl"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -19,10 +20,10 @@ import (
 	"github.com/deiu/rdf2go"
 )
 
-var defaultQuantityPredicates = qudt.NewPredicateConfig(
-	base.EnvVar("HAS_UNIT_PREDICATE", ""),
-	base.EnvVar("HAS_KIND_OF_QUANTITY_PREDICATE", ""),
-	base.EnvVar("HAS_NUMERICAL_VALUE_PREDICATE", ""),
+var defaultConversionPredicates = qudt.NewPredicateConfig(
+	base.EnvVar("CONVERSION_UNIT", ""),
+	base.EnvVar("CONVERSION_QUANTITY", ""),
+	base.EnvVar("CONVERSION_VALUE", ""),
 )
 
 // Init prepares the Solr collection and schema for indexing.
@@ -96,8 +97,8 @@ func IndexResource(resource *rdf2go.Graph, metadata *rdf.ResourceMetadata) error
 		return err
 	}
 	docs, err := buildResourceDocuments(resource, metadata, resourceIndexOptions{
-		quantityPredicates: defaultQuantityPredicates,
-		extractedLabels:    labels,
+		conversionPredicates: defaultConversionPredicates,
+		extractedLabels:      labels,
 	})
 	if err != nil {
 		return err
@@ -108,15 +109,15 @@ func IndexResource(resource *rdf2go.Graph, metadata *rdf.ResourceMetadata) error
 	return updateDocs(docs)
 }
 
+type resourceIndexOptions struct {
+	conversionPredicates qudt.PredicateConfig
+	extractedLabels      map[string]string
+}
+
 // buildResourceDocuments creates one Solr document for every entity in the
 // resource that conforms to a SHACL shape. The resource root is indexed like
 // any other entity. Documents link back to their owning resource via the
 // resourceId field and carry their RDF subject for highlighting.
-type resourceIndexOptions struct {
-	quantityPredicates qudt.PredicateConfig
-	extractedLabels    map[string]string
-}
-
 func buildResourceDocuments(resource *rdf2go.Graph, metadata *rdf.ResourceMetadata, options resourceIndexOptions) ([]*document, error) {
 	_, profile, err := rdf.FindResourceProfile(resource, metadata.Id)
 	if err != nil {
@@ -173,7 +174,7 @@ func buildResourceDocuments(resource *rdf2go.Graph, metadata *rdf.ResourceMetada
 			entities:  docsBySubject,
 			valueKeys: valueKeys,
 		}
-		newQueryIndexer(resource, metadata, targetShape, traversal, options.quantityPredicates).index(metadata.Id, profile, rootDoc)
+		newQueryIndexer(resource, metadata, targetShape, traversal, options.conversionPredicates).index(metadata.Id, profile, rootDoc)
 	}
 	// Every entity is additionally traversed from its own most specific
 	// shape so its leaf values are also indexed under paths relative to the
@@ -198,7 +199,7 @@ func buildResourceDocuments(resource *rdf2go.Graph, metadata *rdf.ResourceMetada
 			entities:  docsBySubject,
 			valueKeys: valueKeys,
 		}
-		newQueryIndexer(resource, metadata, topShapeID, traversal, options.quantityPredicates).index(rdf2go.NewResource(subjectID), topShape, entityDoc)
+		newQueryIndexer(resource, metadata, topShapeID, traversal, options.conversionPredicates).index(rdf2go.NewResource(subjectID), topShape, entityDoc)
 	}
 	return docs, nil
 }
@@ -427,12 +428,12 @@ type queryTraversalState struct {
 // document traversal. Recursive calls only need to carry the node-specific
 // state below.
 type queryIndexer struct {
-	resource           *rdf2go.Graph
-	metadata           *rdf.ResourceMetadata
-	targetShape        string
-	traversal          *queryTraversalState
-	quantityPredicates qudt.PredicateConfig
-	quantityContexts   map[string]*qudt.QuantityContext
+	resource             *rdf2go.Graph
+	metadata             *rdf.ResourceMetadata
+	targetShape          string
+	traversal            *queryTraversalState
+	conversionPredicates qudt.PredicateConfig
+	conversionContexts   map[string]*qudt.QuantityContext
 }
 
 type queryIndexNode struct {
@@ -462,12 +463,12 @@ func newQueryTraversalState() *queryTraversalState {
 
 func newQueryIndexer(resource *rdf2go.Graph, metadata *rdf.ResourceMetadata, targetShape string, traversal *queryTraversalState, quantityPredicates qudt.PredicateConfig) *queryIndexer {
 	return &queryIndexer{
-		resource:           resource,
-		metadata:           metadata,
-		targetShape:        targetShape,
-		traversal:          traversal,
-		quantityPredicates: quantityPredicates,
-		quantityContexts:   make(map[string]*qudt.QuantityContext),
+		resource:             resource,
+		metadata:             metadata,
+		targetShape:          targetShape,
+		traversal:            traversal,
+		conversionPredicates: quantityPredicates,
+		conversionContexts:   make(map[string]*qudt.QuantityContext),
 	}
 }
 
@@ -480,18 +481,18 @@ func (indexer *queryIndexer) index(subject rdf2go.Term, profile *shacl.NodeShape
 	})
 }
 
-func (indexer *queryIndexer) quantityContext(subject rdf2go.Term) *qudt.QuantityContext {
+func (indexer *queryIndexer) conversionContext(subject rdf2go.Term) *qudt.QuantityContext {
 	key := subject.String()
-	if context, scanned := indexer.quantityContexts[key]; scanned {
+	if context, scanned := indexer.conversionContexts[key]; scanned {
 		return context
 	}
-	context := indexer.quantityPredicates.ScanQuantityContext(subject, indexer.resource)
-	indexer.quantityContexts[key] = context
+	context := indexer.conversionPredicates.ScanConversionContext(subject, indexer.resource)
+	indexer.conversionContexts[key] = context
 	return context
 }
 
 func (indexer *queryIndexer) walk(node queryIndexNode) {
-	quantity := indexer.quantityContext(node.subject)
+	quantity := indexer.conversionContext(node.subject)
 	activeKey := node.subject.RawValue() + "\x00" + node.profile.Id.RawValue()
 	if indexer.traversal.active[activeKey] {
 		slog.Warn("skipping recursive query-index shape", "subject", node.subject.RawValue(), "shape", node.profile.Id.RawValue())
@@ -752,10 +753,5 @@ func conforms(id string, shape string, metadata *rdf.ResourceMetadata) bool {
 	if !ok {
 		return false
 	}
-	for _, value := range values {
-		if value == shape {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(values, shape)
 }

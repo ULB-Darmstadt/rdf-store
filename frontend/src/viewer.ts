@@ -52,12 +52,24 @@ export class Viewer extends LitElement {
     @query('rdf-graph')
     private graph?: RdfGraph
     private loadTimeout?: number
+    private graphLoading = false
+    private detailLoading = false
+    private reportedLoading = false
+
+    disconnectedCallback() {
+        super.disconnectedCallback()
+        this.graphLoading = false
+        this.detailLoading = false
+        this.reportLoading()
+    }
 
     willUpdate(changedProperties: PropertyValues) {
         if (changedProperties.has('rdfSubject') && !this.rdfSubject) {
             window.clearTimeout(this.loadTimeout)
             this.rdf = ''
             this.graphExportReady = false
+            this.setGraphLoading(false)
+            this.setDetailLoading(false)
         }
         if ((changedProperties.has('rdfSubject') || changedProperties.has('highlightSubject')) && this.rdfSubject) {
             this.highlightSubject = this.highlightSubject || this.rdfSubject
@@ -70,12 +82,50 @@ export class Viewer extends LitElement {
         if ((changedProperties.has('rdfSubject') || changedProperties.has('highlightSubject')) && this.rdfSubject) {
             this.load()
         }
-        if (changedProperties.has('graphView') && !this.graphView) {
-            (this.shadowRoot!.querySelector('shacl-form') as ShaclForm)?.setResourceLinkProvider(resourceLinkProvider)
+        if (!this.graphView && (changedProperties.has('graphView') || changedProperties.has('rdf') || changedProperties.has('editMode'))) {
+            const form = this.shadowRoot!.querySelector<ShaclForm>('shacl-form')
+            form?.setResourceLinkProvider(resourceLinkProvider)
+            this.setGraphLoading(false)
+            this.setDetailLoading(form?.hasAttribute('loading') ?? false)
         }
         if (changedProperties.has('graphView') && this.graphView) {
             this.graphExportReady = false
+            this.setDetailLoading(false)
         }
+    }
+
+    private setGraphLoading(loading: boolean) {
+        if (this.graphLoading === loading) {
+            return
+        }
+        this.graphLoading = loading
+        this.reportLoading()
+    }
+
+    private setDetailLoading(loading: boolean) {
+        if (this.detailLoading === loading) {
+            return
+        }
+        this.detailLoading = loading
+        this.reportLoading()
+    }
+
+    private reportLoading() {
+        const loading = this.graphLoading || this.detailLoading
+        if (this.reportedLoading === loading) {
+            return
+        }
+        this.reportedLoading = loading
+        this.dispatchEvent(new CustomEvent('viewer-loading-change', {
+            detail: { loading },
+            bubbles: true,
+            composed: true
+        }))
+    }
+
+    private handleGraphState(event: CustomEvent<{ loading: boolean, hasData: boolean }>) {
+        this.graphExportReady = event.detail.hasData && !event.detail.loading
+        this.setGraphLoading(event.detail.loading)
     }
 
     private async load() {
@@ -215,13 +265,12 @@ export class Viewer extends LitElement {
                 <rdf-graph
                     rdfSubject="${this.rdfSubject}"
                     highlightSubject="${this.highlightSubject}"
-                    @graph-state-change="${(event: CustomEvent<{ loading: boolean, hasData: boolean }>) => {
-                        this.graphExportReady = event.detail.hasData && !event.detail.loading
-                    }}"
+                    @graph-state-change="${this.handleGraphState}"
                 ></rdf-graph>
             ` : html`
                 <shacl-form
                     id="form"
+                    @ready="${() => this.setDetailLoading(false)}"
                     data-values="${this.rdf}"
                     data-values-subject="${this.rdfSubject}"
                     data-values-namespace="${this.rdfNamespace}"

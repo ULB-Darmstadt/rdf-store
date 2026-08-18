@@ -67,11 +67,11 @@ func NewPredicateConfig(hasUnit, hasKindOfQuantity, hasNumericalValue string) Pr
 	return config
 }
 
-// ScanQuantityContext inspects a measurement node for quantity
+// ScanConversionContext inspects a measurement node for quantity
 // properties (hasUnit, hasKindOfQuantity) and the QUDT isDeltaQuantity flag.
 // It returns a context suitable for unit conversion, or nil if the node is
 // not a quantity measurement.
-func (config PredicateConfig) ScanQuantityContext(node rdf2go.Term, resource *rdf2go.Graph) *QuantityContext {
+func (config PredicateConfig) ScanConversionContext(node rdf2go.Term, resource *rdf2go.Graph) *QuantityContext {
 	if !config.enabled {
 		return nil
 	}

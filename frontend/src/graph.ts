@@ -5,8 +5,12 @@ import { type D3DragEvent, type Simulation, type SimulationLinkDatum, type Simul
 import { Parser, Quad } from 'n3'
 import { BACKEND_URL, RDF_TYPE } from './constants'
 import { fetchLabels, i18n } from './i18n'
-import { mergeQuads, nodeId, serializeNQuads } from './graph-model'
+import {
+    collectGraphNodeIds, edgePath, graphDepths, mergeQuads, nodeId, quadKey, radialRadii, reserveRequestWave,
+    routeGraphEdges, serializeNQuads, stableGraphSeed, type EdgeRoute, type GraphLayoutEdge
+} from './graph-model'
 import { globalStyles } from './styles'
+import { removeSnackbarMessages, RokitSnackbar, showSnackbarMessage } from '@ro-kit/ui-widgets'
 
 type Node = SimulationNodeDatum & {
     id: string
@@ -14,18 +18,40 @@ type Node = SimulationNodeDatum & {
     type?: string
     navigable: boolean
     properties: Record<string, string[]>
+    depth?: number
+    radialRadius?: number
 }
 
 type Edge = SimulationLinkDatum<Node> & {
+    id: string
+    sourceId: string
+    targetId: string
     type: string
     label?: string
+    route: EdgeRoute
 }
 
-type IncomingProgress = { offset: number, total: number }
+type Direction = 'incoming' | 'outgoing'
+type NeighborhoodProgress = { offset: number, initialized: boolean, hasMore: boolean }
+type NeighborhoodTask = { subject: string, direction: Direction }
+type NeighborhoodPage = {
+    quads: string
+    localSubjects: string[]
+    offset: number
+    limit: number
+    returned: number
+    hasMore: boolean
+    nextOffset: number
+}
+type LoadedPage = { task: NeighborhoodTask, page: NeighborhoodPage, quads: Quad[] }
 
 const width = 400
 const height = 400
-const incomingBatchSize = 25
+const automaticPageSize = 10
+const manualPageSize = 25
+const automaticWaveSize = 4
+const automaticNodeLimit = 50
+const automaticEdgeLimit = 100
 
 @customElement('rdf-graph')
 export class RdfGraph extends LitElement {
@@ -66,13 +92,6 @@ export class RdfGraph extends LitElement {
         .toolbar .counts { font-size: 11px; color: #666; white-space: nowrap; padding-right: 5px; }
         .material-icons { font-size: 20px; }
 
-        .status {
-            position: absolute; z-index: 3; left: 50%; bottom: 12px; transform: translateX(-50%);
-            max-width: min(540px, calc(100% - 24px)); padding: 8px 12px; border-radius: 8px;
-            background: #fff; box-shadow: 0 4px 16px #0003; font-size: 12px;
-        }
-        .status.error { color: #a40000; background: #fff2f2; }
-
         .radial-menu {
             position: absolute; z-index: 5; width: 190px; height: 190px;
             transform: translate(-50%, -50%); pointer-events: none;
@@ -102,6 +121,8 @@ export class RdfGraph extends LitElement {
         #info-pane h4 { margin: 0 0 8px; font-size: 13px; }
         #info-pane dt { font-size: 12px; color: #888; margin-top: 6px; }
         #info-pane dd { margin: 0; font-size: 12px; overflow-wrap: anywhere; }
+
+        #snackbar::part(snackbar) { width: 500px; }
     `]
 
     @property() rdfSubject = ''
@@ -115,6 +136,7 @@ export class RdfGraph extends LitElement {
     @state() private nodeCount = 0
     @state() private edgeCount = 0
     @state() private actionLoading = new Set<string>()
+    @state() private notice = ''
 
     private menuPinned = false
     private menuCloseTimer?: number
@@ -123,15 +145,19 @@ export class RdfGraph extends LitElement {
 
     @query('#info-pane') private infopane!: HTMLElement
     @query('#mount') private mount!: HTMLElement
+    @query('#snackbar') private snackbar!: RokitSnackbar
 
     private initialSubject = ''
     private activeSubject = ''
     private quads = new Map<string, Quad>()
-    private outgoingLoaded = new Set<string>()
-    private incomingProgress = new Map<string, IncomingProgress>()
+    private neighborhoodProgress = new Map<string, NeighborhoodProgress>()
+    private automaticQueue: NeighborhoodTask[] = []
+    private queuedTasks = new Set<string>()
+    private localSubjects = new Map<string, boolean>()
     private positions = new Map<string, { x: number, y: number }>()
     private newNodes = new Set<string>()
     private requestEpoch = 0
+    private abortController?: AbortController
     private drawVersion = 0
     private currentSvg?: SVGSVGElement
 
@@ -156,7 +182,13 @@ export class RdfGraph extends LitElement {
         super.disconnectedCallback()
         this.removeEventListener('click', this.onBackgroundClick)
         window.removeEventListener('keydown', this.keyListener)
+        this.abortController?.abort()
+        this.abortController = undefined
         this.requestEpoch++
+        if (this.loading) {
+            this.loading = false
+            this.notifyState()
+        }
     }
 
     exportNQuads() {
@@ -176,17 +208,21 @@ export class RdfGraph extends LitElement {
     }
 
     private clearGraph() {
+        this.abortController?.abort()
+        this.abortController = undefined
         this.requestEpoch++
         this.drawVersion++
         this.activeSubject = ''
         this.quads.clear()
-        this.outgoingLoaded.clear()
-        this.incomingProgress.clear()
+        this.neighborhoodProgress.clear()
+        this.automaticQueue = []
+        this.queuedTasks.clear()
+        this.actionLoading = new Set()
+        this.localSubjects.clear()
         this.positions.clear()
         this.closeMenu()
         this.clearMenuOpenTimer()
         this.loading = false
-        this.error = ''
         this.nodeCount = 0
         this.edgeCount = 0
         this.mount?.replaceChildren()
@@ -194,23 +230,29 @@ export class RdfGraph extends LitElement {
     }
 
     private async focusEntity(subject: string) {
+        this.abortController?.abort()
+        this.abortController = new AbortController()
         const epoch = ++this.requestEpoch
         this.drawVersion++
         this.activeSubject = subject
         this.quads.clear()
-        this.outgoingLoaded.clear()
-        this.incomingProgress.clear()
+        this.neighborhoodProgress.clear()
+        this.automaticQueue = []
+        this.queuedTasks.clear()
+        this.actionLoading = new Set()
+        this.localSubjects.clear()
+        this.localSubjects.set(subject, true)
         this.positions.clear()
         this.newNodes.clear()
         this.closeMenu()
         this.clearMenuOpenTimer()
-        this.error = ''
         this.loading = true
         this.nodeCount = 0
         this.edgeCount = 0
         this.mount?.replaceChildren()
         this.notifyState()
-        await this.loadNeighborhood(subject, 'outgoing', 0, epoch)
+        this.enqueueSubject(subject)
+        await this.loadAdaptiveGraph(epoch)
         if (epoch === this.requestEpoch) {
             this.loading = false
             this.notifyState()
@@ -227,144 +269,190 @@ export class RdfGraph extends LitElement {
         return `${direction}:${subject}`
     }
 
-    private async loadIncoming(subject: string) {
-        const progress = this.incomingProgress.get(subject) ?? { offset: 0, total: Number.POSITIVE_INFINITY }
-        if (progress.offset >= progress.total) {
-            return
+    private progressFor(task: NeighborhoodTask) {
+        const key = this.actionKey(task.subject, task.direction)
+        let progress = this.neighborhoodProgress.get(key)
+        if (!progress) {
+            progress = { offset: 0, initialized: false, hasMore: true }
+            this.neighborhoodProgress.set(key, progress)
         }
-        await this.loadNeighborhood(subject, 'incoming', progress.offset, this.requestEpoch)
+        return progress
     }
 
-    private async loadOutgoing(subject: string) {
-        if (!this.outgoingLoaded.has(subject)) {
-            await this.loadNeighborhood(subject, 'outgoing', 0, this.requestEpoch)
-        }
-    }
-
-    private isSameDataset(id: string) {
-        try {
-            const namespace = (iri: string) => {
-                const index = Math.max(iri.lastIndexOf('/'), iri.lastIndexOf('#'))
-                return index >= 0 ? iri.slice(0, index + 1) : iri
-            }
-            return namespace(id) === namespace(this.activeSubject)
-        } catch {
-            return false
+    private enqueueTask(task: NeighborhoodTask) {
+        const key = this.actionKey(task.subject, task.direction)
+        const progress = this.progressFor(task)
+        if ((!progress.initialized || progress.hasMore) && !this.queuedTasks.has(key)) {
+            this.automaticQueue.push(task)
+            this.queuedTasks.add(key)
         }
     }
 
-    private async loadAllLinks() {
-        const epoch = this.requestEpoch
-        if (this.loading) {
-            return
+    private enqueueSubject(subject: string) {
+        this.enqueueTask({ subject, direction: 'outgoing' })
+        this.enqueueTask({ subject, direction: 'incoming' })
+    }
+
+    private automaticCapacity() {
+        const nodes = collectGraphNodeIds(this.quads.values(), quad => this.isGraphNodeObject(quad))
+        if (this.activeSubject) {
+            nodes.add(this.activeSubject)
         }
-        this.closeMenu()
-        this.clearMenuOpenTimer()
-        this.loading = true
-        this.error = ''
+        const edges = Array.from(this.quads.values()).filter(quad => this.isGraphNodeObject(quad)).length
+        return Math.min(automaticNodeLimit - nodes.size, automaticEdgeLimit - edges)
+    }
+
+    private async loadAdaptiveGraph(epoch: number) {
         this.suppressFit = true
-        this.notifyState()
+        let graphChanged = false
         try {
-            const expanded = new Set<string>()
-            const queue: string[] = []
-
-            const enqueue = (id: string) => {
-                if (!expanded.has(id) && this.isSameDataset(id)) {
-                    expanded.add(id)
-                    queue.push(id)
+            while (this.automaticQueue.length > 0 && epoch === this.requestEpoch) {
+                const remaining = this.automaticCapacity()
+                if (remaining <= 0) {
+                    removeSnackbarMessages(this.snackbar)
+                    showSnackbarMessage({ message: i18n['graph_automatic_limited'], ttl: 5000, cssClass: 'success', closable: true }, this.snackbar)
+                    break
                 }
-            }
-
-            const enqueueNew = () => {
-                for (const quad of this.quads.values()) {
-                    if (quad.subject.termType === 'NamedNode') {
-                        enqueue(nodeId(quad.subject, quad.graph.value))
-                    }
-                    if (quad.object.termType === 'NamedNode') {
-                        enqueue(nodeId(quad.object, quad.graph.value))
+                const reservations = reserveRequestWave(this.automaticQueue, remaining, automaticPageSize, automaticWaveSize)
+                const wave: Array<{ task: NeighborhoodTask, limit: number }> = []
+                for (const reservation of reservations) {
+                    const task = reservation.item
+                    this.automaticQueue.shift()
+                    this.queuedTasks.delete(this.actionKey(task.subject, task.direction))
+                    wave.push({ task, limit: reservation.limit })
+                }
+                const results = await Promise.allSettled(wave.map(({ task, limit }) => this.fetchNeighborhoodPage(task, limit, epoch)))
+                if (epoch !== this.requestEpoch) {
+                    return
+                }
+                const loaded: LoadedPage[] = []
+                let failed = false
+                for (const result of results) {
+                    if (result.status === 'fulfilled' && result.value) {
+                        loaded.push(result.value)
+                    } else if (result.status === 'rejected' && !(result.reason instanceof DOMException && result.reason.name === 'AbortError')) {
+                        showSnackbarMessage({ message:  `${i18n['graph_load_failed']}: ${result.reason}`, ttl: 0, cssClass: 'error', closable: true }, this.snackbar)
+                        failed = true
                     }
                 }
-                enqueue(this.activeSubject)
-            }
-
-            enqueueNew()
-            while (queue.length > 0 && epoch === this.requestEpoch) {
-                const subject = queue.shift()!
-                if (!this.outgoingLoaded.has(subject)) {
-                    await this.loadNeighborhood(subject, 'outgoing', 0, epoch)
-                    enqueueNew()
+                if (loaded.length > 0) {
+                    this.applyPages(loaded, true)
+                    graphChanged = true
                 }
-                let offset = this.incomingProgress.get(subject)?.offset ?? 0
-                let total = this.incomingProgress.get(subject)?.total ?? Number.POSITIVE_INFINITY
-                while (epoch === this.requestEpoch && offset < total) {
-                    await this.loadNeighborhood(subject, 'incoming', offset, epoch)
-                    enqueueNew()
-                    const progress = this.incomingProgress.get(subject)
-                    if (!progress || progress.offset >= progress.total || progress.offset <= offset) {
-                        break
-                    }
-                    offset = progress.offset
-                    total = progress.total
+                if (failed) {
+                    break
                 }
             }
         } finally {
             this.suppressFit = false
             if (epoch === this.requestEpoch) {
-                this.loading = false
+                if (graphChanged || !this.currentSvg) {
+                    await this.drawGraph()
+                }
                 this.fitGraph()
-                this.notifyState()
             }
         }
     }
 
-    private async loadNeighborhood(subject: string, direction: 'incoming' | 'outgoing', offset: number, epoch: number) {
+    private async loadDirection(subject: string, direction: Direction) {
+        const epoch = this.requestEpoch
+        const task = { subject, direction }
         const key = this.actionKey(subject, direction)
-        if (this.actionLoading.has(key)) {
+        const progress = this.progressFor(task)
+        if (this.loading || this.actionLoading.has(key) || (progress.initialized && !progress.hasMore)) {
             return
         }
-        this.actionLoading = new Set(this.actionLoading).add(key)
-        this.error = ''
+        this.closeMenu()
         try {
-            const params = new URLSearchParams({ subject, direction })
-            if (direction === 'incoming') {
-                params.set('offset', String(offset))
-                params.set('limit', String(incomingBatchSize))
+            const loaded = await this.fetchNeighborhoodPage(task, manualPageSize, epoch)
+            if (loaded) {
+                this.applyPages([loaded], false)
+                await this.drawGraph()
+                this.notifyState()
             }
-            const response = await fetch(`${BACKEND_URL}/graph/neighborhood?${params}`)
+        } catch (error) {
+            if (epoch === this.requestEpoch && !(error instanceof DOMException && error.name === 'AbortError')) {
+                showSnackbarMessage({ message:  `${i18n['graph_load_failed']}: ${error}`, ttl: 0, cssClass: 'error', closable: true }, this.snackbar)
+            }
+        }
+    }
+
+    private async fetchNeighborhoodPage(task: NeighborhoodTask, limit: number, epoch: number): Promise<LoadedPage | undefined> {
+        const key = this.actionKey(task.subject, task.direction)
+        const progress = this.progressFor(task)
+        this.actionLoading = new Set(this.actionLoading).add(key)
+        try {
+            const params = new URLSearchParams({
+                subject: task.subject,
+                direction: task.direction,
+                offset: String(progress.offset),
+                limit: String(limit)
+            })
+            const response = await fetch(`${BACKEND_URL}/graph/neighborhood?${params}`, { signal: this.abortController?.signal })
             if (!response.ok) {
                 const message = await response.json().then(body => body.error).catch(() => response.statusText)
                 throw new Error(message || response.statusText)
             }
-            const text = await response.text()
+            const page = await response.json() as NeighborhoodPage
+            if (!isNeighborhoodPage(page) || page.offset !== progress.offset || page.limit !== limit) {
+                throw new Error('invalid graph neighborhood response')
+            }
             if (epoch !== this.requestEpoch) {
-                return
+                return undefined
             }
-            const parsed = new Parser({ format: 'N-Quads' }).parse(text)
-            this.mergeQuads(parsed)
-            if (direction === 'outgoing') {
-                this.outgoingLoaded.add(subject)
-            } else {
-                const total = Number(response.headers.get('X-Total-Count') ?? 0)
-                this.incomingProgress.set(subject, {
-                    offset: Math.min(offset + incomingBatchSize, total),
-                    total
-                })
+            const quads = new Parser({ format: 'N-Quads' }).parse(page.quads)
+            if (quads.length !== page.returned) {
+                throw new Error('graph neighborhood row count does not match its payload')
             }
-            await this.drawGraph()
-            this.notifyState()
-        } catch (error) {
-            if (epoch === this.requestEpoch) {
-                this.error = `${i18n['graph_load_failed']}: ${error}`
-            }
+            return { task, page, quads }
         } finally {
-            const next = new Set(this.actionLoading)
-            next.delete(key)
-            this.actionLoading = next
+            if (epoch === this.requestEpoch) {
+                const next = new Set(this.actionLoading)
+                next.delete(key)
+                this.actionLoading = next
+            }
         }
     }
 
+    private applyPages(loaded: LoadedPage[], enqueueDiscovered: boolean) {
+        for (const { page } of loaded) {
+            for (const subject of page.localSubjects) {
+                this.localSubjects.set(subject, true)
+            }
+        }
+        const quads = loaded.flatMap(result => result.quads)
+        this.mergeQuads(quads)
+        for (const { task, page } of loaded) {
+            const progress = this.progressFor(task)
+            progress.offset = page.nextOffset
+            progress.initialized = true
+            progress.hasMore = page.hasMore
+            if (enqueueDiscovered && page.hasMore) {
+                this.enqueueTask(task)
+            }
+        }
+        if (enqueueDiscovered) {
+            for (const { quads: pageQuads } of loaded) {
+                for (const quad of pageQuads) {
+                    if (quad.subject.termType === 'NamedNode') {
+                        this.enqueueSubject(quad.subject.value)
+                    }
+                    if (quad.predicate.value !== RDF_TYPE.value && quad.object.termType === 'NamedNode'
+                        && this.localSubjects.get(quad.object.value) === true) {
+                        this.enqueueSubject(quad.object.value)
+                    }
+                }
+            }
+        }
+    }
+
+    private isGraphNodeObject(quad: Quad) {
+        return quad.predicate.value !== RDF_TYPE.value && (quad.object.termType === 'BlankNode'
+            || (quad.object.termType === 'NamedNode' && this.localSubjects.get(quad.object.value) === true))
+    }
+
     private mergeQuads(quads: Quad[]) {
-        this.newNodes = mergeQuads(this.quads, quads)
+        this.newNodes = mergeQuads(this.quads, quads, values => collectGraphNodeIds(values, quad => this.isGraphNodeObject(quad)))
     }
 
     private showInfoPane(node: Node, pinned: boolean) {
@@ -499,15 +587,23 @@ export class RdfGraph extends LitElement {
                 subject.type = quad.object.value
                 labelsToFetch.add(quad.object.value)
             } else if (quad.object.termType === 'Literal'
-                || (quad.object.termType === 'NamedNode' && !this.isSameDataset(quad.object.value))) {
+                || (quad.object.termType === 'NamedNode' && this.localSubjects.get(quad.object.value) !== true)) {
                 (subject.properties[quad.predicate.value] ??= []).push(quad.object.value)
                 if (quad.object.termType === 'NamedNode') {
                     labelsToFetch.add(quad.object.value)
                 }
-            } else if (quad.object.termType === 'NamedNode' || quad.object.termType === 'BlankNode') {
+            } else if (this.isGraphNodeObject(quad)) {
                 const objectId = nodeId(quad.object, quad.graph.value)
                 ensureNode(objectId, quad.object.termType === 'NamedNode')
-                links.push({ source: subjectId, target: objectId, type: quad.predicate.value })
+                links.push({
+                    id: quadKey(quad),
+                    source: subjectId,
+                    target: objectId,
+                    sourceId: subjectId,
+                    targetId: objectId,
+                    type: quad.predicate.value,
+                    route: { bend: 0 }
+                })
                 if (quad.object.termType === 'NamedNode') {
                     labelsToFetch.add(objectId)
                 }
@@ -535,15 +631,49 @@ export class RdfGraph extends LitElement {
             link.label = i18n[link.type]
         }
 
+        const layoutEdges = links.map(graphLayoutEdge)
+        const depths = graphDepths(nodeArray.map(node => node.id), layoutEdges, this.activeSubject)
+        const phase = stableGraphSeed(this.activeSubject, nodeArray.map(node => node.id), links.map(link => link.id)) * Math.PI * 2
+        const rings = new Map<number, Node[]>()
+        for (const node of nodeArray) {
+            node.depth = depths.get(node.id) ?? 1
+            const ring = rings.get(node.depth) ?? []
+            ring.push(node)
+            rings.set(node.depth, ring)
+        }
+        const ringRadii = radialRadii(nodeArray.map(node => node.depth ?? 1))
+        for (const [depth, ring] of rings) {
+            ring.sort((left, right) => left.id.localeCompare(right.id))
+            for (let index = 0; index < ring.length; index++) {
+                const node = ring[index]
+                node.radialRadius = ringRadii.get(depth) ?? depth * 85
+                if (node.id === this.activeSubject) {
+                    node.x = 0
+                    node.y = 0
+                    node.fx = 0
+                    node.fy = 0
+                } else if (!this.positions.has(node.id)) {
+                    const angle = phase + index / ring.length * Math.PI * 2
+                    node.x = Math.cos(angle) * node.radialRadius
+                    node.y = Math.sin(angle) * node.radialRadius
+                }
+            }
+        }
+
         const types = Array.from(new Set(links.map(link => link.type)))
         const color = d3.scaleOrdinal(types, d3.schemeTableau10)
         const simulation = d3.forceSimulation<Node, Edge>(nodeArray)
-            .force('link', d3.forceLink<Node, Edge>(links).id(node => node.id).distance(65))
-            .force('charge', d3.forceManyBody().strength(-850))
+            .randomSource(d3.randomLcg(stableGraphSeed(this.activeSubject, nodeArray.map(node => node.id), links.map(link => link.id))))
+            .force('link', d3.forceLink<Node, Edge>(links).id(node => node.id).distance(edge => {
+                const source = edge.source as Node
+                const target = edge.target as Node
+                return Math.max(65, Math.abs((source.radialRadius ?? 0) - (target.radialRadius ?? 0)))
+            }).strength(0.2))
+            .force('charge', d3.forceManyBody().strength(-600))
             .force('collide', d3.forceCollide<Node>().radius(22).iterations(2))
-            .force('x', d3.forceX())
-            .force('y', d3.forceY())
-            .alpha(1.4).alphaMin(0.08).alphaDecay(0.07).velocityDecay(0.55)
+            .force('radial', d3.forceRadial<Node>(node => node.radialRadius ?? 85, 0, 0).strength(node => node.id === this.activeSubject ? 1 : 0.9))
+            .alpha(1.2).alphaMin(0.03).alphaDecay(0.055).velocityDecay(0.5)
+            .stop()
 
         const svg = d3.create('svg').attr('viewBox', `${-width / 2} ${-height / 2} ${width} ${height}`)
             .attr('aria-label', i18n['graph_view'])
@@ -555,7 +685,8 @@ export class RdfGraph extends LitElement {
         const zoom = d3.zoom<SVGSVGElement, undefined>().scaleExtent([0.25, 2.5]).on('zoom', event => scene.attr('transform', event.transform))
         svg.call(zoom)
 
-        svg.append('defs').selectAll('marker').data(types).join('marker')
+        const defs = svg.append('defs')
+        defs.selectAll('marker').data(types).join('marker')
             .attr('id', (_, index) => `arrow-${index}`)
             .attr('viewBox', '0 -5 10 10').attr('refX', 11).attr('refY', -1)
             .attr('markerWidth', 6).attr('markerHeight', 6).attr('orient', 'auto')
@@ -568,10 +699,15 @@ export class RdfGraph extends LitElement {
             .attr('stroke', edge => color(edge.type))
             .attr('marker-end', edge => `url(${new URL(`#arrow-${types.indexOf(edge.type)}`, location.toString())})`)
 
+        const labelGuide = defs.append('g').selectAll('path').data(links).join('path')
+            .attr('id', (_, index) => `label-path-${index}`)
+
         scene.append('g').attr('class', 'link-labels').selectAll('text').data(links).join('text')
-            .attr('font-size', 7).attr('dy', '-0.3em').append('textPath')
-            .attr('fill', edge => color(edge.type)).attr('href', (_, index) => `#link-path-${index}`)
-            .attr('startOffset', '45%').attr('text-anchor', 'middle').text(edge => edge.label || edge.type)
+            .attr('font-size', 7).attr('dy', '-0.3em')
+            .attr('paint-order', 'stroke').attr('stroke', 'var(--background-color, white)').attr('stroke-width', 2)
+            .append('textPath')
+            .attr('fill', edge => color(edge.type)).attr('href', (_, index) => `#label-path-${index}`)
+            .attr('startOffset', '50%').attr('text-anchor', 'middle').text(edge => edge.label || edge.type)
 
         const node = scene.append('g').attr('fill', '#888').selectAll<SVGGElement, Node>('g').data(nodeArray).join('g')
             .attr('class', item => `node${item.id === this.activeSubject ? ' root' : ''}${!hydrated.has(item.id) ? ' stub' : ''}${this.newNodes.has(item.id) ? ' new' : ''}`)
@@ -619,20 +755,43 @@ export class RdfGraph extends LitElement {
         })
         node.on('pointerdown', event => event.stopPropagation())
 
+        const currentPositions = () => new Map(nodeArray.map(node => [node.id, { x: node.x ?? 0, y: node.y ?? 0 }]))
+        const assignRoutes = () => {
+            const positions = nodeArray.map(node => ({ id: node.id, x: node.x ?? 0, y: node.y ?? 0 }))
+            const routes = routeGraphEdges(positions, layoutEdges)
+            for (const edge of links) {
+                edge.route = routes.get(edge.id) ?? { bend: 0 }
+            }
+        }
         const updatePositions = () => {
-            link.attr('d', linkArc)
+            const positions = currentPositions()
+            link.attr('d', edge => edgePath(graphLayoutEdge(edge), edge.route, positions))
+            labelGuide.attr('d', edge => edgePath(graphLayoutEdge(edge), edge.route, positions, true))
             node.attr('transform', item => {
                 this.positions.set(item.id, { x: item.x ?? 0, y: item.y ?? 0 })
                 return `translate(${item.x},${item.y})`
             })
         }
-        simulation.on('tick', updatePositions)
-        for (let index = 0; index < 45; index++) {
+        simulation.on('tick', updatePositions).on('end', () => {
+            assignRoutes()
+            updatePositions()
+        })
+        for (let index = 0; index < 90; index++) {
             simulation.tick()
         }
+        assignRoutes()
         updatePositions()
+        const activeNode = nodeArray.find(node => node.id === this.activeSubject)
+        if (activeNode) {
+            activeNode.fx = null
+            activeNode.fy = null
+        }
         simulation.stop()
-        return Object.assign(svg.node()!, { zoomBehaviour: zoom, nodeCount: nodeArray.length, edgeCount: links.length })
+        return Object.assign(svg.node()!, {
+            zoomBehaviour: zoom,
+            nodeCount: nodeArray.length,
+            edgeCount: links.length
+        })
     }
 
     private fitGraph() {
@@ -642,40 +801,46 @@ export class RdfGraph extends LitElement {
     }
 
     render() {
-        const progress = this.incomingProgress.get(this.menuSubject)
-        const incomingComplete = progress !== undefined && progress.offset >= progress.total
+        const incomingProgress = this.neighborhoodProgress.get(this.actionKey(this.menuSubject, 'incoming'))
+        const outgoingProgress = this.neighborhoodProgress.get(this.actionKey(this.menuSubject, 'outgoing'))
+        const incomingComplete = incomingProgress?.initialized === true && !incomingProgress.hasMore
+        const outgoingComplete = outgoingProgress?.initialized === true && !outgoingProgress.hasMore
         const incomingLoading = this.actionLoading.has(this.actionKey(this.menuSubject, 'incoming'))
         const outgoingLoading = this.actionLoading.has(this.actionKey(this.menuSubject, 'outgoing'))
         const incomingLabel = incomingLoading
             ? i18n['graph_loading']
             : incomingComplete
                 ? i18n['graph_incoming_loaded']
-                : progress && progress.total > incomingBatchSize
-                    ? `${i18n['graph_load_more']} (${progress.offset}/${progress.total})`
+                : incomingProgress?.initialized
+                    ? i18n['graph_load_more']
                     : i18n['graph_load_incoming']
+        const outgoingLabel = outgoingLoading
+            ? i18n['graph_loading']
+            : outgoingComplete
+                ? i18n['graph_outgoing_loaded']
+                : outgoingProgress?.initialized
+                    ? i18n['graph_load_more']
+                    : i18n['graph_load_outgoing']
         return html`
             <div id="mount"></div>
             <div class="toolbar" @click=${(event: Event) => event.stopPropagation()}>
                 <button @click=${this.fitGraph} title=${i18n['graph_fit']} aria-label=${i18n['graph_fit']}><span class="material-icons">fit_screen</span></button>
                 <button @click=${this.reset} title=${i18n['graph_reset']} aria-label=${i18n['graph_reset']} ?disabled=${this.loading}><span class="material-icons">restart_alt</span></button>
-                <button @click=${this.loadAllLinks} title=${i18n['graph_load_all']} aria-label=${i18n['graph_load_all']} ?disabled=${this.loading}><span class="material-icons">account_tree</span></button>
                 <span class="counts">${this.nodeCount} ${i18n['graph_nodes']} · ${this.edgeCount} ${i18n['graph_edges']}</span>
             </div>
-            ${this.loading ? html`<div class="status">${i18n['graph_loading']}</div>` : nothing}
-            ${this.error ? html`<div class="status error" role="alert">${this.error}</div>` : nothing}
             ${!this.menuSubject ? nothing : html`
                 <div class="radial-menu" style="left:${this.menuX}px;top:${this.menuY}px" @click=${(event: Event) => event.stopPropagation()}>
-                    <button class="incoming" @click=${() => this.loadIncoming(this.menuSubject)}
+                    <button class="incoming" @click=${() => this.loadDirection(this.menuSubject, 'incoming')}
                         @mouseenter=${this.clearMenuCloseTimer} @mouseleave=${this.scheduleMenuClose}
-                        ?disabled=${incomingComplete || incomingLoading}
+                        ?disabled=${this.loading || incomingComplete || incomingLoading}
                         title=${incomingLabel} aria-label=${incomingLabel}>
                         <span class="material-icons">${incomingLoading ? 'hourglass_top' : incomingComplete ? 'done' : 'call_received'}</span><span>${incomingLabel}</span>
                     </button>
-                    <button class="outgoing" @click=${() => this.loadOutgoing(this.menuSubject)}
+                    <button class="outgoing" @click=${() => this.loadDirection(this.menuSubject, 'outgoing')}
                         @mouseenter=${this.clearMenuCloseTimer} @mouseleave=${this.scheduleMenuClose}
-                        ?disabled=${this.outgoingLoaded.has(this.menuSubject) || outgoingLoading}
-                        title=${outgoingLoading ? i18n['graph_loading'] : i18n['graph_load_outgoing']} aria-label=${outgoingLoading ? i18n['graph_loading'] : i18n['graph_load_outgoing']}>
-                        <span class="material-icons">${outgoingLoading ? 'hourglass_top' : this.outgoingLoaded.has(this.menuSubject) ? 'done' : 'call_made'}</span><span>${outgoingLoading ? i18n['graph_loading'] : i18n['graph_load_outgoing']}</span>
+                        ?disabled=${this.loading || outgoingComplete || outgoingLoading}
+                        title=${outgoingLabel} aria-label=${outgoingLabel}>
+                        <span class="material-icons">${outgoingLoading ? 'hourglass_top' : outgoingComplete ? 'done' : 'call_made'}</span><span>${outgoingLabel}</span>
                     </button>
                     <button class="focus" @click=${() => this.focusEntity(this.menuSubject)} title=${i18n['graph_focus']} aria-label=${i18n['graph_focus']}
                         @mouseenter=${this.clearMenuCloseTimer} @mouseleave=${this.scheduleMenuClose}>
@@ -685,8 +850,23 @@ export class RdfGraph extends LitElement {
                 </div>
             `}
             <div id="info-pane" @click=${(event: Event) => event.stopPropagation()}></div>
+            <rokit-snackbar id="snackbar" class="right contained"></rokit-snackbar>
         `
     }
+}
+
+function isNeighborhoodPage(value: unknown): value is NeighborhoodPage {
+    if (!value || typeof value !== 'object') {
+        return false
+    }
+    const page = value as Partial<NeighborhoodPage>
+    return typeof page.quads === 'string'
+        && Array.isArray(page.localSubjects) && page.localSubjects.every(subject => typeof subject === 'string')
+        && Number.isInteger(page.offset) && (page.offset ?? -1) >= 0
+        && Number.isInteger(page.limit) && (page.limit ?? 0) >= 1 && (page.limit ?? 101) <= 100
+        && Number.isInteger(page.returned) && (page.returned ?? -1) >= 0 && (page.returned ?? 101) <= (page.limit ?? 0)
+        && typeof page.hasMore === 'boolean'
+        && Number.isInteger(page.nextOffset) && page.nextOffset === (page.offset ?? 0) + (page.returned ?? 0)
 }
 
 function addDefinition(list: HTMLDListElement, key: string, value: string) {
@@ -718,11 +898,8 @@ function fitToView(svg: SVGSVGElement) {
     d3.select<SVGSVGElement, undefined>(svg).call(zoom.transform, transform)
 }
 
-function linkArc(edge: Edge) {
-    const source = edge.source as Node
-    const target = edge.target as Node
-    const radius = Math.max(Math.hypot((target.x ?? 0) - (source.x ?? 0), (target.y ?? 0) - (source.y ?? 0)), 1)
-    return `M${source.x},${source.y} A${radius},${radius} 0 0,1 ${target.x},${target.y}`
+function graphLayoutEdge(edge: Edge): GraphLayoutEdge {
+    return { id: edge.id, source: edge.sourceId, target: edge.targetId, label: edge.label }
 }
 
 function drag(simulation: Simulation<Node, Edge>) {

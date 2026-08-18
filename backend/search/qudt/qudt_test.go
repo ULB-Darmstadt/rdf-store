@@ -34,7 +34,7 @@ func TestPredicateConfigurationGate(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			config := NewPredicateConfig(test.unit, test.kind, test.numerical)
-			if got := config.ScanQuantityContext(node, graph) != nil; got != test.want {
+			if got := config.ScanConversionContext(node, graph) != nil; got != test.want {
 				t.Errorf("ScanQuantityContext() presence = %v, want %v", got, test.want)
 			}
 		})

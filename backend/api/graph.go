@@ -11,11 +11,17 @@ import (
 
 const defaultNeighborhoodLimit = 25
 
+type graphNeighborhoodGetter func(subject, direction string, offset, limit int) (*rdf.GraphNeighborhood, error)
+
 func init() {
 	Router.GET(BasePath+"/graph/neighborhood", handleGetGraphNeighborhood)
 }
 
 func handleGetGraphNeighborhood(c *gin.Context) {
+	handleGetGraphNeighborhoodWith(c, rdf.GetGraphNeighborhood)
+}
+
+func handleGetGraphNeighborhoodWith(c *gin.Context, getNeighborhood graphNeighborhoodGetter) {
 	subject := c.Query("subject")
 	direction := c.Query("direction")
 	offset, err := queryInt(c, "offset", 0)
@@ -29,7 +35,7 @@ func handleGetGraphNeighborhood(c *gin.Context) {
 		return
 	}
 
-	data, total, err := rdf.GetGraphNeighborhood(subject, direction, offset, limit)
+	page, err := getNeighborhood(subject, direction, offset, limit)
 	if err != nil {
 		status := http.StatusInternalServerError
 		if errors.Is(err, rdf.ErrInvalidNeighborhoodRequest) {
@@ -38,10 +44,7 @@ func handleGetGraphNeighborhood(c *gin.Context) {
 		c.JSON(status, gin.H{"error": err.Error()})
 		return
 	}
-	c.Header("X-Total-Count", strconv.Itoa(total))
-	c.Header("X-Offset", strconv.Itoa(offset))
-	c.Header("X-Limit", strconv.Itoa(limit))
-	c.Data(http.StatusOK, "application/n-quads", data)
+	c.JSON(http.StatusOK, page)
 }
 
 func queryInt(c *gin.Context, name string, fallback int) (int, error) {

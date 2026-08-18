@@ -63,6 +63,7 @@ export class App extends LitElement {
     observedQueryForm?: ShaclForm
     searchLoading = false
     queryFormLoading = false
+    viewerLoading = false
 
     @query('#search-field')
     searchField?: RokitInput
@@ -180,7 +181,12 @@ export class App extends LitElement {
     }
 
     updateMainLoading() {
-        this.shadowRoot?.querySelector('#main')?.classList.toggle('loading', this.searchLoading || this.queryFormLoading)
+        this.shadowRoot?.querySelector('#main')?.classList.toggle('loading', this.searchLoading || this.queryFormLoading || this.viewerLoading)
+    }
+
+    private viewerLoadingChanged(event: CustomEvent<{ loading: boolean }>) {
+        this.viewerLoading = event.detail.loading
+        this.updateMainLoading()
     }
 
     filterChanged(fromPager = false) {
@@ -377,6 +383,7 @@ export class App extends LitElement {
                         rdfNamespace="${this.config.rdfNamespace}"
                         highlightSubject="${this.viewHiglightSubject}"
                         .config="${this.config}"
+                        @viewer-loading-change="${this.viewerLoadingChanged}"
                         @delete="${() => { this.viewResource(null); this.filterChanged() }}"
                     ></rdf-viewer>
                 </rokit-splitpane>

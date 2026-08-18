@@ -12,7 +12,7 @@
   "dependencies": {
     "@fontsource/material-icons": "^5.3.0",
     "@fontsource/roboto": "^5.3.0",
-    "@ro-kit/ui-widgets": "^1.0.57",
+    "@ro-kit/ui-widgets": "^1.0.58",
     "@ulb-darmstadt/shacl-form": "^3.4.2",
     "d3": "^7.9.0",
     "leaflet": "^1.9.4",

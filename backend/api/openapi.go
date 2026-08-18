@@ -116,6 +116,15 @@ func addSchemas(spec *openapi3.T) {
 	spec.Components.Schemas["ProfileSummary"] = openapi3.NewSchemaRef("", openapi3.NewObjectSchema().
 		WithProperty("id", openapi3.NewStringSchema()).
 		WithProperty("parents", openapi3.NewArraySchema().WithItems(openapi3.NewStringSchema())))
+	spec.Components.Schemas["GraphNeighborhoodResponse"] = openapi3.NewSchemaRef("", openapi3.NewObjectSchema().
+		WithProperty("quads", openapi3.NewStringSchema()).
+		WithProperty("localSubjects", openapi3.NewArraySchema().WithItems(openapi3.NewStringSchema())).
+		WithProperty("offset", openapi3.NewIntegerSchema().WithMin(0)).
+		WithProperty("limit", openapi3.NewIntegerSchema().WithMin(1).WithMax(100)).
+		WithProperty("returned", openapi3.NewIntegerSchema().WithMin(0).WithMax(100)).
+		WithProperty("hasMore", openapi3.NewBoolSchema()).
+		WithProperty("nextOffset", openapi3.NewIntegerSchema().WithMin(0)).
+		WithRequired([]string{"quads", "localSubjects", "offset", "limit", "returned", "hasMore", "nextOffset"}))
 	spec.Components.Schemas["Error"] = openapi3.NewSchemaRef("", openapi3.NewSchema().
 		WithProperty("error", openapi3.NewStringSchema()))
 }
@@ -252,16 +261,16 @@ func addPaths(spec *openapi3.T) {
 
 	spec.Paths.Set("/graph/neighborhood", &openapi3.PathItem{Get: &openapi3.Operation{
 		Summary:     "Fetch an entity graph neighborhood",
-		Description: "Returns direct outgoing statements for one entity, or a page of direct incoming relationship statements. Pagination metadata is returned in X-Total-Count, X-Offset, and X-Limit headers.",
+		Description: "Returns a deterministic page of direct outgoing or incoming statements as N-Quads in a JSON envelope. Local named subjects adjacent to the page are classified for traversal. A one-row lookahead determines whether another page exists.",
 		OperationID: "getGraphNeighborhood",
 		Parameters: openapi3.Parameters{
 			&openapi3.ParameterRef{Value: openapi3.NewQueryParameter("subject").WithRequired(true).WithDescription("Entity IRI")},
 			&openapi3.ParameterRef{Value: openapi3.NewQueryParameter("direction").WithRequired(true).WithSchema(openapi3.NewStringSchema().WithEnum("outgoing", "incoming"))},
-			&openapi3.ParameterRef{Value: openapi3.NewQueryParameter("offset").WithDescription("Incoming entity offset; defaults to 0").WithSchema(openapi3.NewIntegerSchema().WithMin(0))},
-			&openapi3.ParameterRef{Value: openapi3.NewQueryParameter("limit").WithDescription("Incoming entity batch size; defaults to 25 and is capped at 100").WithSchema(openapi3.NewIntegerSchema().WithMin(1).WithMax(100))},
+			&openapi3.ParameterRef{Value: openapi3.NewQueryParameter("offset").WithDescription("Statement offset; defaults to 0").WithSchema(openapi3.NewIntegerSchema().WithMin(0))},
+			&openapi3.ParameterRef{Value: openapi3.NewQueryParameter("limit").WithDescription("Statement page size; defaults to 25 and must be between 1 and 100").WithSchema(openapi3.NewIntegerSchema().WithMin(1).WithMax(100))},
 		},
 		Responses: responses(map[string]*openapi3.Response{
-			"200": nquadsResponse(),
+			"200": jsonSchemaResponse(openapi3.NewSchemaRef("#/components/schemas/GraphNeighborhoodResponse", nil), "OK"),
 			"400": errorResponse(),
 			"500": errorResponse(),
 		}),
@@ -375,12 +384,6 @@ func turtleResponse() *openapi3.Response {
 	return openapi3.NewResponse().
 		WithDescription("Turtle response").
 		WithContent(openapi3.NewContentWithSchema(openapi3.NewStringSchema(), []string{"text/turtle"}))
-}
-
-func nquadsResponse() *openapi3.Response {
-	return openapi3.NewResponse().
-		WithDescription("N-Quads graph neighborhood response").
-		WithContent(openapi3.NewContentWithSchema(openapi3.NewStringSchema(), []string{"application/n-quads"}))
 }
 
 // errorResponse constructs a standard error response schema.
