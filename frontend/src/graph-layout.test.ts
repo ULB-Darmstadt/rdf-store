@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { Parser } from 'n3'
 import {
-    collectGraphNodeIds, collectNodeIds, countRouteCrossings, edgePath, graphDepths, mergeQuads,
-    radialRadii, reserveRequestWave, routeGraphEdges, serializeNQuads, stableGraphSeed, type EdgeRoute,
-    type GraphLayoutEdge, type GraphLayoutNode
-} from './graph-model'
+    collectGraphNodeIds, collectNodeIds, countRouteCrossings, edgePath, estimateLabelSize,
+    graphDepths, mergeQuads, radialRadii, reserveRequestWave, routeGraphEdges, serializeNQuads,
+    stableGraphSeed, type EdgeRoute, type GraphLayoutEdge, type LayoutEngine, type PositionedNode
+} from './graph-layout'
+import { RadialLayoutEngine } from './graph-layout-radial'
 
 const parse = (value: string) => new Parser({ format: 'N-Quads' }).parse(value)
 
@@ -30,7 +31,7 @@ describe('graph model', () => {
     })
 
     it('keeps an unobstructed single relationship slightly bent', () => {
-        const nodes: GraphLayoutNode[] = [{ id: 'a', x: 0, y: 0 }, { id: 'b', x: 100, y: 0 }]
+        const nodes: PositionedNode[] = [{ id: 'a', x: 0, y: 0 }, { id: 'b', x: 100, y: 0 }]
         const edges: GraphLayoutEdge[] = [{ id: 'ab', source: 'a', target: 'b', label: 'links' }]
         const route = routeGraphEdges(nodes, edges).get('ab')!
         expect(Math.abs(route.bend)).toBeGreaterThan(0)
@@ -50,7 +51,7 @@ describe('graph model', () => {
     })
 
     it('assigns distinct lanes to parallel and reciprocal relationships', () => {
-        const nodes: GraphLayoutNode[] = [{ id: 'a', x: 0, y: 0 }, { id: 'b', x: 100, y: 0 }]
+        const nodes: PositionedNode[] = [{ id: 'a', x: 0, y: 0 }, { id: 'b', x: 100, y: 0 }]
         const edges: GraphLayoutEdge[] = [
             { id: 'one', source: 'a', target: 'b' },
             { id: 'two', source: 'a', target: 'b' },
@@ -61,7 +62,7 @@ describe('graph model', () => {
     })
 
     it('creates separate self-loop routes', () => {
-        const nodes: GraphLayoutNode[] = [{ id: 'a', x: 20, y: 30 }]
+        const nodes: PositionedNode[] = [{ id: 'a', x: 20, y: 30 }]
         const edges: GraphLayoutEdge[] = [
             { id: 'one', source: 'a', target: 'a' },
             { id: 'two', source: 'a', target: 'a' },
@@ -98,7 +99,7 @@ describe('graph model', () => {
     })
 
     it('reduces crossings in a fixed crossing fixture', () => {
-        const nodes: GraphLayoutNode[] = [
+        const nodes: PositionedNode[] = [
             { id: 'nw', x: -60, y: -60 }, { id: 'ne', x: 60, y: -60 },
             { id: 'sw', x: -60, y: 60 }, { id: 'se', x: 60, y: 60 }
         ]
@@ -112,7 +113,7 @@ describe('graph model', () => {
     })
 
     it('prefers shortest-arc bend direction in a radial tree', () => {
-        const nodes: GraphLayoutNode[] = [
+        const nodes: PositionedNode[] = [
             { id: 'root', x: 0, y: 0 },
             { id: 'a', x: 85, y: 0 },
             { id: 'b', x: -85, y: 0 },
@@ -137,7 +138,7 @@ describe('graph model', () => {
 
     it('eliminates crossings in a star-to-ring pattern', () => {
         const n = 8
-        const nodes: GraphLayoutNode[] = [{ id: 'center', x: 0, y: 0 }]
+        const nodes: PositionedNode[] = [{ id: 'center', x: 0, y: 0 }]
         const edges: GraphLayoutEdge[] = []
         for (let i = 0; i < n; i++) {
             const angle = (i / n) * Math.PI * 2
@@ -149,6 +150,65 @@ describe('graph model', () => {
         }
         const routes = routeGraphEdges(nodes, edges)
         expect(countRouteCrossings(nodes, edges, routes)).toBe(0)
+    })
+
+    it('straightens single-outgoing edges when target is not a leaf', () => {
+        const nodes: PositionedNode[] = [
+            { id: 'a', x: 0, y: 0 },
+            { id: 'b', x: 100, y: 0 },
+            { id: 'c', x: 200, y: 0 },
+            { id: 'd', x: 250, y: -60 },
+        ]
+        const edges: GraphLayoutEdge[] = [
+            { id: 'a1', source: 'a', target: 'b' },
+            { id: 'b1', source: 'b', target: 'c' },
+            { id: 'c1', source: 'c', target: 'd' },
+        ]
+        const routes = routeGraphEdges(nodes, edges)
+        expect(routes.get('a1')!.bend).toBe(0)
+        expect(routes.get('b1')!.bend).toBe(0)
+    })
+
+    it('bends single-outgoing edges when target is a leaf', () => {
+        const nodes: PositionedNode[] = [
+            { id: 'a', x: 0, y: 0 },
+            { id: 'b', x: 100, y: 0 },
+        ]
+        const edges: GraphLayoutEdge[] = [
+            { id: 'e', source: 'a', target: 'b' },
+        ]
+        const routes = routeGraphEdges(nodes, edges)
+        expect(routes.get('e')!.bend).not.toBe(0)
+    })
+
+    it('bends single-outgoing edges to a leaf with multiple incoming edges', () => {
+        const nodes: PositionedNode[] = [
+            { id: 'a', x: -60, y: 0 },
+            { id: 'b', x: 60, y: 0 },
+            { id: 'leaf', x: 0, y: 120 },
+        ]
+        const edges: GraphLayoutEdge[] = [
+            { id: 'a1', source: 'a', target: 'leaf' },
+            { id: 'b1', source: 'b', target: 'leaf' },
+        ]
+        const routes = routeGraphEdges(nodes, edges)
+        expect(routes.get('a1')!.bend).not.toBe(0)
+        expect(routes.get('b1')!.bend).not.toBe(0)
+    })
+
+    it('bends edges from nodes with multiple outgoing edges', () => {
+        const nodes: PositionedNode[] = [
+            { id: 'root', x: 0, y: 0 },
+            { id: 'a', x: 100, y: -50 },
+            { id: 'b', x: 100, y: 50 },
+        ]
+        const edges: GraphLayoutEdge[] = [
+            { id: 'ra', source: 'root', target: 'a' },
+            { id: 'rb', source: 'root', target: 'b' },
+        ]
+        const routes = routeGraphEdges(nodes, edges)
+        expect(routes.get('ra')!.bend).not.toBe(0)
+        expect(routes.get('rb')!.bend).not.toBe(0)
     })
 
     it('reserves fair bounded request waves without consuming the queue', () => {
@@ -224,4 +284,136 @@ describe('graph model', () => {
         expect(ids).toEqual(new Set(['https://one.example/root', 'urn:local:item']))
     })
 
+})
+
+describe('RadialLayoutEngine', () => {
+    const engine = new RadialLayoutEngine()
+
+    it('assigns depth 0 to root and depth 1 to direct neighbors', () => {
+        const nodes = [{ id: 'root' }, { id: 'a' }, { id: 'b' }, { id: 'c' }]
+        const edges: GraphLayoutEdge[] = [
+            { id: 'e1', source: 'root', target: 'a' },
+            { id: 'e2', source: 'root', target: 'b' }
+        ]
+        const result = engine.compute(nodes, edges, 'root', 0.5)
+        expect(result.depths.get('root')).toBe(0)
+        expect(result.depths.get('a')).toBe(1)
+        expect(result.depths.get('b')).toBe(1)
+        expect(result.depths.get('c')).toBe(2)
+    })
+
+    it('places root at the origin', () => {
+        const nodes = [{ id: 'root' }, { id: 'a' }]
+        const edges: GraphLayoutEdge[] = [{ id: 'e1', source: 'root', target: 'a' }]
+        const result = engine.compute(nodes, edges, 'root', 0.5)
+        const rootPos = result.positions.get('root')!
+        expect(rootPos.x).toBe(0)
+        expect(rootPos.y).toBe(0)
+    })
+
+    it('places non-root nodes at their ring radius', () => {
+        const nodes = [{ id: 'root' }, { id: 'a' }]
+        const edges: GraphLayoutEdge[] = [{ id: 'e1', source: 'root', target: 'a' }]
+        const result = engine.compute(nodes, edges, 'root', 0.5)
+        const pos = result.positions.get('a')!
+        expect(pos.radialRadius).toBeGreaterThan(0)
+        const distance = Math.hypot(pos.x, pos.y)
+        expect(distance).toBeCloseTo(pos.radialRadius, 0)
+    })
+
+    it('produces deterministic output for the same input', () => {
+        const nodes = [{ id: 'root' }, { id: 'a' }, { id: 'b' }, { id: 'c' }]
+        const edges: GraphLayoutEdge[] = [
+            { id: 'e1', source: 'root', target: 'a' },
+            { id: 'e2', source: 'root', target: 'b' },
+            { id: 'e3', source: 'a', target: 'c' }
+        ]
+        const first = engine.compute(nodes, edges, 'root', 0.42)
+        const second = engine.compute(nodes, edges, 'root', 0.42)
+        expect(first.positions.get('a')?.x).toBe(second.positions.get('a')?.x)
+        expect(first.positions.get('c')?.x).toBe(second.positions.get('c')?.x)
+    })
+
+    it('produces different rotations for different seeds', () => {
+        const nodes = [{ id: 'root' }, { id: 'a' }, { id: 'b' }]
+        const edges: GraphLayoutEdge[] = [
+            { id: 'e1', source: 'root', target: 'a' },
+            { id: 'e2', source: 'root', target: 'b' }
+        ]
+        const first = engine.compute(nodes, edges, 'root', 0.1)
+        const second = engine.compute(nodes, edges, 'root', 0.9)
+        expect(first.positions.get('a')?.x).not.toBe(second.positions.get('a')?.x)
+    })
+
+    it('assigns isolated nodes to a fallback depth beyond connected nodes', () => {
+        const nodes = [{ id: 'root' }, { id: 'a' }, { id: 'isolated' }]
+        const edges: GraphLayoutEdge[] = [{ id: 'e1', source: 'root', target: 'a' }]
+        const result = engine.compute(nodes, edges, 'root', 0.5)
+        expect(result.depths.get('isolated')).toBeGreaterThan(result.depths.get('a')!)
+    })
+
+    it('computes ring radii that increase with depth', () => {
+        const nodes = [{ id: 'root' }, { id: 'a' }, { id: 'b' }, { id: 'c' }]
+        const edges: GraphLayoutEdge[] = [
+            { id: 'e1', source: 'root', target: 'a' },
+            { id: 'e2', source: 'a', target: 'b' },
+            { id: 'e3', source: 'b', target: 'c' }
+        ]
+        const result = engine.compute(nodes, edges, 'root', 0.5)
+        expect(result.radii.get(1)!).toBeGreaterThan(result.radii.get(0)!)
+        expect(result.radii.get(2)!).toBeGreaterThan(result.radii.get(1)!)
+    })
+
+    it('implements the LayoutEngine interface', () => {
+        const engine: LayoutEngine = new RadialLayoutEngine()
+        const result = engine.compute([{ id: 'x' }], [], 'x', 0)
+        expect(result.positions.has('x')).toBe(true)
+    })
+
+    it('returns larger collision radius for longer labels', () => {
+        const engine = new RadialLayoutEngine()
+        const short = engine.compute([{ id: 'root' }, { id: 'a' }], [{ id: 'e', source: 'root', target: 'a' }], 'root', 0.5)
+        const long = engine.compute([{ id: 'root' }, { id: 'a', label: 'a very long label text' }], [{ id: 'e', source: 'root', target: 'a' }], 'root', 0.5)
+        const shortR = short.force.collideRadius({ id: 'a' })
+        const longR = long.force.collideRadius({ id: 'a' })
+        expect(longR).toBeGreaterThan(shortR)
+    })
+
+    it('scales ring radius with wider labels', () => {
+        const engine = new RadialLayoutEngine()
+        const edges: GraphLayoutEdge[] = [
+            { id: 'e1', source: 'root', target: 'a' },
+            { id: 'e2', source: 'root', target: 'b' },
+            { id: 'e3', source: 'root', target: 'c' }
+        ]
+        const narrow = engine.compute([{ id: 'root' }, { id: 'a' }, { id: 'b' }, { id: 'c' }], edges, 'root', 0.5)
+        const wide = engine.compute([{ id: 'root' }, { id: 'a', label: 'alpha beta gamma delta' }, { id: 'b', label: 'alpha beta gamma delta' }, { id: 'c', label: 'alpha beta gamma delta' }], edges, 'root', 0.5)
+        expect(wide.radii.get(1)!).toBeGreaterThan(narrow.radii.get(1)!)
+    })
+})
+
+describe('estimateLabelSize', () => {
+    it('returns minimum dimensions for undefined label', () => {
+        const size = estimateLabelSize(undefined)
+        expect(size.width).toBeGreaterThan(0)
+        expect(size.height).toBeGreaterThan(0)
+    })
+
+    it('scales width with label length', () => {
+        const short = estimateLabelSize('ab')
+        const long = estimateLabelSize('a much longer label')
+        expect(long.width).toBeGreaterThan(short.width)
+    })
+
+    it('strips hidden type spans when measuring', () => {
+        const withType = estimateLabelSize('hello <tspan class="type node-type">&lt;Type&gt;</tspan>')
+        const plain = estimateLabelSize('hello')
+        expect(withType.width).toBe(plain.width)
+    })
+
+    it('strips remaining HTML tags when measuring', () => {
+        const html = estimateLabelSize('<b>bold</b> text')
+        const plain = estimateLabelSize('bold text')
+        expect(html.width).toBe(plain.width)
+    })
 })

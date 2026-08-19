@@ -1,9 +1,60 @@
 import { Quad, Writer } from 'n3'
 
 export type GraphPoint = { x: number, y: number }
-export type GraphLayoutNode = GraphPoint & { id: string }
+export type GraphLayoutNode = { id: string, label?: string }
+export type PositionedNode = GraphLayoutNode & GraphPoint
 export type GraphLayoutEdge = { id: string, source: string, target: string, label?: string }
 export type EdgeRoute = { bend: number, loopRadius?: number, loopSide?: -1 | 1 }
+
+export type LayoutPosition = GraphPoint
+
+const FONT_SIZE = 12
+const CHAR_WIDTH = 7
+const LABEL_PADDING_X = 9
+const LABEL_PADDING_Y = 2
+const MIN_LABEL_HEIGHT = 14
+
+export function estimateLabelSize(label: string | undefined): { width: number, height: number } {
+    const visible = label?.replace(/<tspan class="type[^"]*">[^<]*<\/tspan>/g, '').replace(/<[^>]*>/g, '').trim() ?? ''
+    const width = visible.length * CHAR_WIDTH + LABEL_PADDING_X
+    const height = Math.max(MIN_LABEL_HEIGHT, FONT_SIZE + LABEL_PADDING_Y)
+    return { width, height }
+}
+
+export type ForceConfig = {
+    linkDistance: (source: { id: string }, target: { id: string }) => number
+    linkStrength: number
+    chargeStrength: number
+    collideRadius: (node: { id: string }) => number
+    collideIterations: number
+    radialForce: ((node: { id: string }) => number) | null
+    radialStrength: (node: { id: string }) => number
+    alpha: number
+    alphaMin: number
+    alphaDecay: number
+    velocityDecay: number
+}
+
+export type LayoutResult<P extends LayoutPosition = LayoutPosition> = {
+    positions: Map<string, P>
+    force?: ForceConfig
+}
+
+export interface LayoutEngine {
+    compute(nodes: GraphLayoutNode[], edges: GraphLayoutEdge[], root: string, seed: number): LayoutResult
+}
+
+const engines: Record<string, () => LayoutEngine> = {}
+
+export function registerLayoutEngine(type: string, factory: () => LayoutEngine) {
+    engines[type] = factory
+}
+
+export function selectLayoutEngine(_nodes: GraphLayoutNode[], _edges: GraphLayoutEdge[], _root: string): LayoutEngine {
+    // TODO: analyze graph metrics (edge density, type distribution, tree-ness)
+    // and select the most suitable engine.
+    return engines['radial']()
+}
 
 export function termKey(term: Quad['subject'] | Quad['predicate'] | Quad['object'] | Quad['graph']) {
     const language = term.termType === 'Literal' ? term.language : ''
@@ -131,7 +182,7 @@ export function stableGraphSeed(root: string, nodeIds: Iterable<string>, edgeIds
     return (hash >>> 0) / 4294967296
 }
 
-export function routeGraphEdges(nodes: Iterable<GraphLayoutNode>, edges: GraphLayoutEdge[]) {
+export function routeGraphEdges(nodes: Iterable<PositionedNode>, edges: GraphLayoutEdge[]) {
     const positions = new Map(Array.from(nodes, node => [node.id, node]))
     const routes = new Map<string, EdgeRoute>()
     const sortedEdges = [...edges].sort((left, right) => edgePairKey(left).localeCompare(edgePairKey(right)) || left.id.localeCompare(right.id))
@@ -139,6 +190,19 @@ export function routeGraphEdges(nodes: Iterable<GraphLayoutNode>, edges: GraphLa
     for (const edge of sortedEdges) {
         const key = edgePairKey(edge)
         pairSizes.set(key, (pairSizes.get(key) ?? 0) + 1)
+    }
+    const straightEdges = new Set<string>()
+    const outDegree = new Map<string, number>()
+    for (const edge of sortedEdges) {
+        if (edge.source === edge.target) {
+            continue
+        }
+        outDegree.set(edge.source, (outDegree.get(edge.source) ?? 0) + 1)
+    }
+    for (const edge of sortedEdges) {
+        if (edge.source !== edge.target && (outDegree.get(edge.source) ?? 0) === 1 && (outDegree.get(edge.target) ?? 0) > 0) {
+            straightEdges.add(edge.id)
+        }
     }
     const loopIndexes = new Map<string, number>()
     for (const edge of sortedEdges) {
@@ -153,7 +217,7 @@ export function routeGraphEdges(nodes: Iterable<GraphLayoutNode>, edges: GraphLa
             continue
         }
         const candidates = routeCandidates(edge, positions, pairSizes.get(edgePairKey(edge)) ?? 1)
-        routes.set(edge.id, bestRoute(edge, candidates, positions, sortedEdges, routes))
+        routes.set(edge.id, bestRoute(edge, candidates, positions, sortedEdges, routes, straightEdges))
     }
 
     // Three deterministic improvement passes reduce the ordering bias of the
@@ -165,7 +229,7 @@ export function routeGraphEdges(nodes: Iterable<GraphLayoutNode>, edges: GraphLa
             }
             const candidates = routeCandidates(edge, positions, pairSizes.get(edgePairKey(edge)) ?? 1)
             routes.delete(edge.id)
-            routes.set(edge.id, bestRoute(edge, candidates, positions, sortedEdges, routes))
+            routes.set(edge.id, bestRoute(edge, candidates, positions, sortedEdges, routes, straightEdges))
         }
     }
     return routes
@@ -193,7 +257,7 @@ export function edgePath(edge: GraphLayoutEdge, route: EdgeRoute, nodes: Map<str
     return `M${start.x},${start.y} Q${control.x},${control.y} ${end.x},${end.y}`
 }
 
-export function countRouteCrossings(nodes: Iterable<GraphLayoutNode>, edges: GraphLayoutEdge[], routes: Map<string, EdgeRoute>) {
+export function countRouteCrossings(nodes: Iterable<PositionedNode>, edges: GraphLayoutEdge[], routes: Map<string, EdgeRoute>) {
     const positions = new Map(Array.from(nodes, node => [node.id, node]))
     let crossings = 0
     for (let leftIndex = 0; leftIndex < edges.length; leftIndex++) {
@@ -216,19 +280,20 @@ export function countRouteCrossings(nodes: Iterable<GraphLayoutNode>, edges: Gra
     return crossings
 }
 
-function bestRoute(edge: GraphLayoutEdge, candidates: EdgeRoute[], positions: Map<string, GraphPoint>, edges: GraphLayoutEdge[], routes: Map<string, EdgeRoute>) {
+function bestRoute(edge: GraphLayoutEdge, candidates: EdgeRoute[], positions: Map<string, GraphPoint>, edges: GraphLayoutEdge[], routes: Map<string, EdgeRoute>, straightEdges: Set<string>) {
     let selected = candidates[0]
     let selectedScore = Number.POSITIVE_INFINITY
     const source = positions.get(edge.source)
     const target = positions.get(edge.target)
     const distance = source && target ? pointDistance(source, target) : 100
     const preferPositive = source && target ? preferredBendSign(source, target) : undefined
+    const preferStraight = straightEdges.has(edge.id)
     for (const candidate of candidates) {
         const points = routePoints(edge, candidate, positions)
         const relativeBend = Math.abs(candidate.bend) / Math.max(1, distance)
         let score = Math.abs(candidate.bend) * 0.05 + relativeBend * relativeBend * 20
         if (Math.abs(candidate.bend) < 0.001) {
-            score += Math.max(2, distance * 0.03)
+            score += preferStraight ? -10 : Math.max(2, distance * 0.03)
         }
         if (preferPositive !== undefined && Math.abs(candidate.bend) > 0.001) {
             const wrongDirection = preferPositive ? candidate.bend < 0 : candidate.bend > 0

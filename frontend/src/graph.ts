@@ -6,9 +6,11 @@ import { Parser, Quad } from 'n3'
 import { BACKEND_URL, RDF_TYPE } from './constants'
 import { fetchLabels, i18n } from './i18n'
 import {
-    collectGraphNodeIds, countRouteCrossings, edgePath, graphDepths, mergeQuads, nodeId, quadKey, radialRadii,
-    reserveRequestWave, routeGraphEdges, serializeNQuads, stableGraphSeed, type EdgeRoute, type GraphLayoutEdge
-} from './graph-model'
+    collectGraphNodeIds, countRouteCrossings, edgePath, mergeQuads, nodeId, quadKey,
+    reserveRequestWave, routeGraphEdges, serializeNQuads, stableGraphSeed, selectLayoutEngine,
+    type EdgeRoute, type GraphLayoutEdge
+} from './graph-layout'
+import './graph-layout-radial'
 import { globalStyles } from './styles'
 import { removeSnackbarMessages, RokitSnackbar, showSnackbarMessage } from '@ro-kit/ui-widgets'
 
@@ -18,8 +20,6 @@ type Node = SimulationNodeDatum & {
     type?: string
     navigable: boolean
     properties: Record<string, string[]>
-    depth?: number
-    radialRadius?: number
 }
 
 type Edge = SimulationLinkDatum<Node> & {
@@ -208,11 +208,8 @@ export class RdfGraph extends LitElement {
         const debugNodes = nodes.map(n => ({
             id: n.id,
             label: n.label?.replace(/<[^>]*>/g, '') ?? n.id,
-            depth: n.depth,
             x: Math.round((n.x ?? 0) * 100) / 100,
-            y: Math.round((n.y ?? 0) * 100) / 100,
-            angle: n.radialRadius ? Math.round(Math.atan2(n.y ?? 0, n.x ?? 0) * 1000) / 1000 : undefined,
-            radius: n.radialRadius
+            y: Math.round((n.y ?? 0) * 100) / 100
         }))
         const debugEdges = links.map(l => {
             const route = routes.get(l.id)
@@ -232,9 +229,6 @@ export class RdfGraph extends LitElement {
             crossings,
             nodeCount: nodes.length,
             edgeCount: links.length,
-            depthCounts: Object.entries(
-                nodes.reduce((acc, n) => { acc[n.depth ?? 0] = (acc[n.depth ?? 0] ?? 0) + 1; return acc }, {} as Record<number, number>)
-            ).map(([d, c]) => `depth ${d}: ${c} nodes`).join(', '),
             nodes: debugNodes,
             edges: debugEdges
         }
@@ -353,7 +347,7 @@ export class RdfGraph extends LitElement {
                 const remaining = this.automaticCapacity()
                 if (remaining <= 0) {
                     removeSnackbarMessages(this.snackbar)
-                    showSnackbarMessage({ message: i18n['graph_automatic_limited'], ttl: 5000, cssClass: 'success', closable: true }, this.snackbar)
+                    showSnackbarMessage({ message: i18n['graph_automatic_limited'], ttl: 7000, cssClass: 'success', closable: true }, this.snackbar)
                     break
                 }
                 const reservations = reserveRequestWave(this.automaticQueue, remaining, automaticPageSize, automaticWaveSize)
@@ -675,94 +669,47 @@ export class RdfGraph extends LitElement {
         }
 
         const layoutEdges = links.map(graphLayoutEdge)
-        const depths = graphDepths(nodeArray.map(node => node.id), layoutEdges, this.activeSubject)
-        const phase = stableGraphSeed(this.activeSubject, nodeArray.map(node => node.id), links.map(link => link.id)) * Math.PI * 2
-        const rings = new Map<number, Node[]>()
+        const seed = stableGraphSeed(this.activeSubject, nodeArray.map(node => node.id), links.map(link => link.id))
+        const engine = selectLayoutEngine(nodeArray, layoutEdges, this.activeSubject)
+        const layout = engine.compute(nodeArray, layoutEdges, this.activeSubject, seed)
+        const force = layout.force
+
         for (const node of nodeArray) {
-            node.depth = depths.get(node.id) ?? 1
-            const ring = rings.get(node.depth) ?? []
-            ring.push(node)
-            rings.set(node.depth, ring)
-        }
-        const ringRadii = radialRadii(nodeArray.map(node => node.depth ?? 1))
-        const neighborMap = new Map<string, string[]>()
-        for (const link of links) {
-            if (link.sourceId !== link.targetId) {
-                let list = neighborMap.get(link.sourceId)
-                if (!list) {
-                    neighborMap.set(link.sourceId, list = [])
-                }
-                list.push(link.targetId)
-                let revList = neighborMap.get(link.targetId)
-                if (!revList) {
-                    neighborMap.set(link.targetId, revList = [])
-                }
-                revList.push(link.sourceId)
-            }
-        }
-        const nodeAngle = new Map<string, number>()
-        const sortedDepths = Array.from(rings.keys()).sort((a, b) => a - b)
-        for (const depth of sortedDepths) {
-            const ring = rings.get(depth)!
-            if (depth === 0) {
-                ring.sort((left, right) => left.id.localeCompare(right.id))
-            } else {
-                ring.sort((left, right) => {
-                    const lBary = barycentricAngle(neighborMap.get(left.id), nodeAngle)
-                    const rBary = barycentricAngle(neighborMap.get(right.id), nodeAngle)
-                    return lBary - rBary || left.id.localeCompare(right.id)
-                })
-            }
-            for (let index = 0; index < ring.length; index++) {
-                nodeAngle.set(ring[index].id, index / ring.length * Math.PI * 2)
-            }
-        }
-        for (const depth of sortedDepths) {
-            if (depth === 0) {
+            const pos = layout.positions.get(node.id)
+            if (!pos) {
                 continue
             }
-            const ring = rings.get(depth)!
-            ring.sort((left, right) => {
-                const lBary = barycentricAngle(neighborMap.get(left.id), nodeAngle)
-                const rBary = barycentricAngle(neighborMap.get(right.id), nodeAngle)
-                return lBary - rBary || left.id.localeCompare(right.id)
-            })
-            for (let index = 0; index < ring.length; index++) {
-                nodeAngle.set(ring[index].id, index / ring.length * Math.PI * 2)
-            }
-        }
-        for (const depth of sortedDepths) {
-            const ring = rings.get(depth)!
-            for (let index = 0; index < ring.length; index++) {
-                const node = ring[index]
-                node.radialRadius = ringRadii.get(depth) ?? depth * 85
-                if (node.id === this.activeSubject) {
-                    node.x = 0
-                    node.y = 0
-                    node.fx = 0
-                    node.fy = 0
-                } else if (!this.positions.has(node.id)) {
-                    const angle = phase + (nodeAngle.get(node.id) ?? 0)
-                    node.x = Math.cos(angle) * node.radialRadius
-                    node.y = Math.sin(angle) * node.radialRadius
-                }
+            if (node.id === this.activeSubject) {
+                node.x = 0
+                node.y = 0
+                node.fx = 0
+                node.fy = 0
+            } else if (!this.positions.has(node.id)) {
+                node.x = pos.x
+                node.y = pos.y
             }
         }
 
         const types = Array.from(new Set(links.map(link => link.type)))
         const color = d3.scaleOrdinal(types, d3.schemeTableau10)
         const simulation = d3.forceSimulation<Node, Edge>(nodeArray)
-            .randomSource(d3.randomLcg(stableGraphSeed(this.activeSubject, nodeArray.map(node => node.id), links.map(link => link.id))))
-            .force('link', d3.forceLink<Node, Edge>(links).id(node => node.id).distance(edge => {
-                const source = edge.source as Node
-                const target = edge.target as Node
-                return Math.max(65, Math.abs((source.radialRadius ?? 0) - (target.radialRadius ?? 0)))
-            }).strength(0.2))
-            .force('charge', d3.forceManyBody().strength(-200))
-            .force('collide', d3.forceCollide<Node>().radius(22).iterations(2))
-            .force('radial', d3.forceRadial<Node>(node => node.radialRadius ?? 85, 0, 0).strength(node => node.id === this.activeSubject ? 1 : 0.9))
-            .alpha(1.2).alphaMin(0.03).alphaDecay(0.055).velocityDecay(0.5)
-            .stop()
+            .randomSource(d3.randomLcg(seed))
+        if (force) {
+            const linkForce = d3.forceLink<Node, Edge>(links).id(node => node.id)
+                .distance(link => {
+                    const src = typeof link.source === 'object' ? link.source : { id: String(link.source) }
+                    const tgt = typeof link.target === 'object' ? link.target : { id: String(link.target) }
+                    return force.linkDistance(src, tgt)
+                }).strength(force.linkStrength)
+            simulation.force('link', linkForce)
+            simulation.force('charge', d3.forceManyBody().strength(force.chargeStrength))
+            simulation.force('collide', d3.forceCollide<Node>().radius(force.collideRadius).iterations(force.collideIterations))
+            if (force.radialForce) {
+                simulation.force('radial', d3.forceRadial<Node>(force.radialForce, 0, 0).strength(force.radialStrength))
+            }
+            simulation.alpha(force.alpha).alphaMin(force.alphaMin).alphaDecay(force.alphaDecay).velocityDecay(force.velocityDecay)
+        }
+        simulation.stop()
 
         const svg = d3.create('svg').attr('viewBox', `${-width / 2} ${-height / 2} ${width} ${height}`)
             .attr('aria-label', i18n['graph_view'])
@@ -777,7 +724,7 @@ export class RdfGraph extends LitElement {
         const defs = svg.append('defs')
         defs.selectAll('marker').data(types).join('marker')
             .attr('id', (_, index) => `arrow-${index}`)
-            .attr('viewBox', '0 -5 10 10').attr('refX', 11).attr('refY', -1)
+            .attr('viewBox', '0 -5 10 10').attr('refX', 11).attr('refY', 0)
             .attr('markerWidth', 6).attr('markerHeight', 6).attr('orient', 'auto')
             .attr('stroke', 'var(--background-color, white)').attr('stroke-width', 2)
             .append('path').attr('fill', type => color(type)).attr('d', 'M0,-5L10,0L0,5')
@@ -975,27 +922,6 @@ function addDefinition(list: HTMLDListElement, key: string, value: string) {
     const dd = document.createElement('dd')
     dd.textContent = value
     list.append(dt, dd)
-}
-
-function barycentricAngle(neighbors: string[] | undefined, nodeAngle: Map<string, number>): number {
-    if (!neighbors || neighbors.length === 0) {
-        return Infinity
-    }
-    let sumSin = 0
-    let sumCos = 0
-    let counted = 0
-    for (const id of neighbors) {
-        const angle = nodeAngle.get(id)
-        if (angle !== undefined) {
-            sumSin += Math.sin(angle)
-            sumCos += Math.cos(angle)
-            counted++
-        }
-    }
-    if (counted === 0) {
-        return Infinity
-    }
-    return Math.atan2(sumSin / counted, sumCos / counted)
 }
 
 function escapeHtml(value: string) {
