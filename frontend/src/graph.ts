@@ -6,8 +6,8 @@ import { Parser, Quad } from 'n3'
 import { BACKEND_URL, RDF_TYPE } from './constants'
 import { fetchLabels, i18n } from './i18n'
 import {
-    collectGraphNodeIds, edgePath, graphDepths, mergeQuads, nodeId, quadKey, radialRadii, reserveRequestWave,
-    routeGraphEdges, serializeNQuads, stableGraphSeed, type EdgeRoute, type GraphLayoutEdge
+    collectGraphNodeIds, countRouteCrossings, edgePath, graphDepths, mergeQuads, nodeId, quadKey, radialRadii,
+    reserveRequestWave, routeGraphEdges, serializeNQuads, stableGraphSeed, type EdgeRoute, type GraphLayoutEdge
 } from './graph-model'
 import { globalStyles } from './styles'
 import { removeSnackbarMessages, RokitSnackbar, showSnackbarMessage } from '@ro-kit/ui-widgets'
@@ -129,14 +129,12 @@ export class RdfGraph extends LitElement {
     @property() highlightSubject = ''
 
     @state() private loading = false
-    @state() private error = ''
     @state() private menuSubject = ''
     @state() private menuX = 0
     @state() private menuY = 0
     @state() private nodeCount = 0
     @state() private edgeCount = 0
     @state() private actionLoading = new Set<string>()
-    @state() private notice = ''
 
     private menuPinned = false
     private menuCloseTimer?: number
@@ -160,6 +158,7 @@ export class RdfGraph extends LitElement {
     private abortController?: AbortController
     private drawVersion = 0
     private currentSvg?: SVGSVGElement
+    private lastLayout?: { nodes: Node[], links: Edge[], routes: Map<string, EdgeRoute>, crossings: number }
 
     updated(changed: PropertyValues) {
         if (changed.has('rdfSubject') || changed.has('highlightSubject')) {
@@ -197,6 +196,50 @@ export class RdfGraph extends LitElement {
 
     hasExportData() {
         return !this.loading && this.quads.size > 0
+    }
+
+    debugLayout() {
+        if (!this.lastLayout) {
+            console.log('No layout data available')
+            return
+        }
+        const { nodes, links, routes, crossings } = this.lastLayout
+        const nodeMap = new Map(nodes.map(n => [n.id, n]))
+        const debugNodes = nodes.map(n => ({
+            id: n.id,
+            label: n.label?.replace(/<[^>]*>/g, '') ?? n.id,
+            depth: n.depth,
+            x: Math.round((n.x ?? 0) * 100) / 100,
+            y: Math.round((n.y ?? 0) * 100) / 100,
+            angle: n.radialRadius ? Math.round(Math.atan2(n.y ?? 0, n.x ?? 0) * 1000) / 1000 : undefined,
+            radius: n.radialRadius
+        }))
+        const debugEdges = links.map(l => {
+            const route = routes.get(l.id)
+            const src = nodeMap.get(l.sourceId)
+            const tgt = nodeMap.get(l.targetId)
+            return {
+                id: l.id,
+                source: l.sourceId,
+                target: l.targetId,
+                type: l.type,
+                bend: route?.bend ?? 0,
+                srcAngle: src ? Math.atan2(src.y ?? 0, src.x ?? 0) : undefined,
+                tgtAngle: tgt ? Math.atan2(tgt.y ?? 0, tgt.x ?? 0) : undefined
+            }
+        })
+        const output = {
+            crossings,
+            nodeCount: nodes.length,
+            edgeCount: links.length,
+            depthCounts: Object.entries(
+                nodes.reduce((acc, n) => { acc[n.depth ?? 0] = (acc[n.depth ?? 0] ?? 0) + 1; return acc }, {} as Record<number, number>)
+            ).map(([d, c]) => `depth ${d}: ${c} nodes`).join(', '),
+            nodes: debugNodes,
+            edges: debugEdges
+        }
+        console.log(JSON.stringify(output, null, 2))
+        return output
     }
 
     private notifyState() {
@@ -331,7 +374,7 @@ export class RdfGraph extends LitElement {
                     if (result.status === 'fulfilled' && result.value) {
                         loaded.push(result.value)
                     } else if (result.status === 'rejected' && !(result.reason instanceof DOMException && result.reason.name === 'AbortError')) {
-                        showSnackbarMessage({ message:  `${i18n['graph_load_failed']}: ${result.reason}`, ttl: 0, cssClass: 'error', closable: true }, this.snackbar)
+                        showSnackbarMessage({ message: `${i18n['graph_load_failed']}: ${result.reason}`, ttl: 0, cssClass: 'error', closable: true }, this.snackbar)
                         failed = true
                     }
                 }
@@ -372,7 +415,7 @@ export class RdfGraph extends LitElement {
             }
         } catch (error) {
             if (epoch === this.requestEpoch && !(error instanceof DOMException && error.name === 'AbortError')) {
-                showSnackbarMessage({ message:  `${i18n['graph_load_failed']}: ${error}`, ttl: 0, cssClass: 'error', closable: true }, this.snackbar)
+                showSnackbarMessage({ message: `${i18n['graph_load_failed']}: ${error}`, ttl: 0, cssClass: 'error', closable: true }, this.snackbar)
             }
         }
     }
@@ -642,8 +685,54 @@ export class RdfGraph extends LitElement {
             rings.set(node.depth, ring)
         }
         const ringRadii = radialRadii(nodeArray.map(node => node.depth ?? 1))
-        for (const [depth, ring] of rings) {
-            ring.sort((left, right) => left.id.localeCompare(right.id))
+        const neighborMap = new Map<string, string[]>()
+        for (const link of links) {
+            if (link.sourceId !== link.targetId) {
+                let list = neighborMap.get(link.sourceId)
+                if (!list) {
+                    neighborMap.set(link.sourceId, list = [])
+                }
+                list.push(link.targetId)
+                let revList = neighborMap.get(link.targetId)
+                if (!revList) {
+                    neighborMap.set(link.targetId, revList = [])
+                }
+                revList.push(link.sourceId)
+            }
+        }
+        const nodeAngle = new Map<string, number>()
+        const sortedDepths = Array.from(rings.keys()).sort((a, b) => a - b)
+        for (const depth of sortedDepths) {
+            const ring = rings.get(depth)!
+            if (depth === 0) {
+                ring.sort((left, right) => left.id.localeCompare(right.id))
+            } else {
+                ring.sort((left, right) => {
+                    const lBary = barycentricAngle(neighborMap.get(left.id), nodeAngle)
+                    const rBary = barycentricAngle(neighborMap.get(right.id), nodeAngle)
+                    return lBary - rBary || left.id.localeCompare(right.id)
+                })
+            }
+            for (let index = 0; index < ring.length; index++) {
+                nodeAngle.set(ring[index].id, index / ring.length * Math.PI * 2)
+            }
+        }
+        for (const depth of sortedDepths) {
+            if (depth === 0) {
+                continue
+            }
+            const ring = rings.get(depth)!
+            ring.sort((left, right) => {
+                const lBary = barycentricAngle(neighborMap.get(left.id), nodeAngle)
+                const rBary = barycentricAngle(neighborMap.get(right.id), nodeAngle)
+                return lBary - rBary || left.id.localeCompare(right.id)
+            })
+            for (let index = 0; index < ring.length; index++) {
+                nodeAngle.set(ring[index].id, index / ring.length * Math.PI * 2)
+            }
+        }
+        for (const depth of sortedDepths) {
+            const ring = rings.get(depth)!
             for (let index = 0; index < ring.length; index++) {
                 const node = ring[index]
                 node.radialRadius = ringRadii.get(depth) ?? depth * 85
@@ -653,7 +742,7 @@ export class RdfGraph extends LitElement {
                     node.fx = 0
                     node.fy = 0
                 } else if (!this.positions.has(node.id)) {
-                    const angle = phase + index / ring.length * Math.PI * 2
+                    const angle = phase + (nodeAngle.get(node.id) ?? 0)
                     node.x = Math.cos(angle) * node.radialRadius
                     node.y = Math.sin(angle) * node.radialRadius
                 }
@@ -669,7 +758,7 @@ export class RdfGraph extends LitElement {
                 const target = edge.target as Node
                 return Math.max(65, Math.abs((source.radialRadius ?? 0) - (target.radialRadius ?? 0)))
             }).strength(0.2))
-            .force('charge', d3.forceManyBody().strength(-600))
+            .force('charge', d3.forceManyBody().strength(-200))
             .force('collide', d3.forceCollide<Node>().radius(22).iterations(2))
             .force('radial', d3.forceRadial<Node>(node => node.radialRadius ?? 85, 0, 0).strength(node => node.id === this.activeSubject ? 1 : 0.9))
             .alpha(1.2).alphaMin(0.03).alphaDecay(0.055).velocityDecay(0.5)
@@ -756,11 +845,12 @@ export class RdfGraph extends LitElement {
         node.on('pointerdown', event => event.stopPropagation())
 
         const currentPositions = () => new Map(nodeArray.map(node => [node.id, { x: node.x ?? 0, y: node.y ?? 0 }]))
+        let lastRoutes = new Map<string, EdgeRoute>()
         const assignRoutes = () => {
             const positions = nodeArray.map(node => ({ id: node.id, x: node.x ?? 0, y: node.y ?? 0 }))
-            const routes = routeGraphEdges(positions, layoutEdges)
+            lastRoutes = routeGraphEdges(positions, layoutEdges)
             for (const edge of links) {
-                edge.route = routes.get(edge.id) ?? { bend: 0 }
+                edge.route = lastRoutes.get(edge.id) ?? { bend: 0 }
             }
         }
         const updatePositions = () => {
@@ -779,14 +869,24 @@ export class RdfGraph extends LitElement {
         for (let index = 0; index < 90; index++) {
             simulation.tick()
         }
-        assignRoutes()
-        updatePositions()
         const activeNode = nodeArray.find(node => node.id === this.activeSubject)
         if (activeNode) {
             activeNode.fx = null
             activeNode.fy = null
         }
+        simulation.alpha(1.0)
+        for (let index = 0; index < 300; index++) {
+            simulation.tick()
+        }
+        assignRoutes()
+        updatePositions()
         simulation.stop()
+        this.lastLayout = {
+            nodes: nodeArray,
+            links,
+            routes: lastRoutes,
+            crossings: countRouteCrossings(nodeArray.map(n => ({ id: n.id, x: n.x ?? 0, y: n.y ?? 0 })), layoutEdges, lastRoutes)
+        }
         return Object.assign(svg.node()!, {
             zoomBehaviour: zoom,
             nodeCount: nodeArray.length,
@@ -875,6 +975,27 @@ function addDefinition(list: HTMLDListElement, key: string, value: string) {
     const dd = document.createElement('dd')
     dd.textContent = value
     list.append(dt, dd)
+}
+
+function barycentricAngle(neighbors: string[] | undefined, nodeAngle: Map<string, number>): number {
+    if (!neighbors || neighbors.length === 0) {
+        return Infinity
+    }
+    let sumSin = 0
+    let sumCos = 0
+    let counted = 0
+    for (const id of neighbors) {
+        const angle = nodeAngle.get(id)
+        if (angle !== undefined) {
+            sumSin += Math.sin(angle)
+            sumCos += Math.cos(angle)
+            counted++
+        }
+    }
+    if (counted === 0) {
+        return Infinity
+    }
+    return Math.atan2(sumSin / counted, sumCos / counted)
 }
 
 function escapeHtml(value: string) {

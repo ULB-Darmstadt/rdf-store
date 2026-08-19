@@ -156,9 +156,9 @@ export function routeGraphEdges(nodes: Iterable<GraphLayoutNode>, edges: GraphLa
         routes.set(edge.id, bestRoute(edge, candidates, positions, sortedEdges, routes))
     }
 
-    // Two deterministic improvement passes reduce the ordering bias of the
+    // Three deterministic improvement passes reduce the ordering bias of the
     // initial greedy assignment without introducing an expensive global solver.
-    for (let pass = 0; pass < 2; pass++) {
+    for (let pass =0; pass < 3; pass++) {
         for (const edge of sortedEdges) {
             if (edge.source === edge.target) {
                 continue
@@ -205,7 +205,7 @@ export function countRouteCrossings(nodes: Iterable<GraphLayoutNode>, edges: Gra
         for (let rightIndex = leftIndex + 1; rightIndex < edges.length; rightIndex++) {
             const right = edges[rightIndex]
             const rightRoute = routes.get(right.id)
-            if (!rightRoute || edgesShareEndpoint(left, right)) {
+            if (!rightRoute) {
                 continue
             }
             if (polylinesCross(routePoints(left, leftRoute, positions), routePoints(right, rightRoute, positions))) {
@@ -219,16 +219,30 @@ export function countRouteCrossings(nodes: Iterable<GraphLayoutNode>, edges: Gra
 function bestRoute(edge: GraphLayoutEdge, candidates: EdgeRoute[], positions: Map<string, GraphPoint>, edges: GraphLayoutEdge[], routes: Map<string, EdgeRoute>) {
     let selected = candidates[0]
     let selectedScore = Number.POSITIVE_INFINITY
+    const source = positions.get(edge.source)
+    const target = positions.get(edge.target)
+    const distance = source && target ? pointDistance(source, target) : 100
+    const preferPositive = source && target ? preferredBendSign(source, target) : undefined
     for (const candidate of candidates) {
         const points = routePoints(edge, candidate, positions)
-        let score = Math.abs(candidate.bend) * 0.05
+        const relativeBend = Math.abs(candidate.bend) / Math.max(1, distance)
+        let score = Math.abs(candidate.bend) * 0.05 + relativeBend * relativeBend * 20
+        if (Math.abs(candidate.bend) < 0.001) {
+            score += Math.max(2, distance * 0.03)
+        }
+        if (preferPositive !== undefined && Math.abs(candidate.bend) > 0.001) {
+            const wrongDirection = preferPositive ? candidate.bend < 0 : candidate.bend > 0
+            if (wrongDirection) {
+                score += 0.5
+            }
+        }
         for (const [nodeId, node] of positions) {
             if (nodeId === edge.source || nodeId === edge.target) {
                 continue
             }
-            const distance = distanceToPolyline(node, points)
-            if (distance < 14) {
-                score += 1000 + (14 - distance) * 200
+            const dist = distanceToPolyline(node, points)
+            if (dist < 8) {
+                score += 1000 + (8 - dist) * 200
             }
         }
         for (const other of edges) {
@@ -239,13 +253,8 @@ function bestRoute(edge: GraphLayoutEdge, candidates: EdgeRoute[], positions: Ma
             if (edgePairKey(edge) === edgePairKey(other) && Math.abs(candidate.bend - otherRoute.bend) < 0.001) {
                 score += 100000
             }
-            if (!edgesShareEndpoint(edge, other) && polylinesCross(points, routePoints(other, otherRoute, positions))) {
+            if (polylinesCross(points, routePoints(other, otherRoute, positions))) {
                 score += 10000
-            }
-            const labelDistance = pointDistance(midpoint(points), midpoint(routePoints(other, otherRoute, positions)))
-            const labelClearance = Math.min(120, ((edge.label?.length ?? 8) + (other.label?.length ?? 8)) * 1.8)
-            if (labelDistance < labelClearance) {
-                score += (labelClearance - labelDistance) * 10
             }
         }
         if (score < selectedScore) {
@@ -266,18 +275,37 @@ function routeCandidates(edge: GraphLayoutEdge, positions: Map<string, GraphPoin
     const step = Math.max(16, Math.min(56, distance * 0.22))
     const candidates: EdgeRoute[] = [{ bend: 0 }]
     const laneCount = Math.max(3, Math.ceil(pairSize / 2) + 1)
+    const preferPositive = preferredBendSign(source, target)
     for (let lane = 1; lane <= laneCount; lane++) {
-        candidates.push({ bend: step * lane }, { bend: -step * lane })
+        if (preferPositive === undefined) {
+            candidates.push({ bend: step * lane }, { bend: -step * lane })
+        } else if (preferPositive) {
+            candidates.push({ bend: step * lane }, { bend: -step * lane })
+        } else {
+            candidates.push({ bend: -step * lane }, { bend: step * lane })
+        }
     }
     return candidates
 }
 
-function edgePairKey(edge: Pick<GraphLayoutEdge, 'source' | 'target'>) {
-    return edge.source < edge.target ? `${edge.source}\u0000${edge.target}` : `${edge.target}\u0000${edge.source}`
+function preferredBendSign(source: GraphPoint, target: GraphPoint): boolean | undefined {
+    if (Math.abs(source.x) < 0.001 && Math.abs(source.y) < 0.001) {
+        return undefined
+    }
+    if (Math.abs(target.x) < 0.001 && Math.abs(target.y) < 0.001) {
+        return undefined
+    }
+    const srcAngle = Math.atan2(source.y, source.x)
+    const tgtAngle = Math.atan2(target.y, target.x)
+    const ccw = ((tgtAngle - srcAngle) % (Math.PI * 2) + Math.PI * 3) % (Math.PI * 2) - Math.PI
+    if (Math.abs(ccw) < 0.01) {
+        return undefined
+    }
+    return ccw > 0
 }
 
-function edgesShareEndpoint(left: GraphLayoutEdge, right: GraphLayoutEdge) {
-    return left.source === right.source || left.source === right.target || left.target === right.source || left.target === right.target
+function edgePairKey(edge: Pick<GraphLayoutEdge, 'source' | 'target'>) {
+    return edge.source < edge.target ? `${edge.source}\u0000${edge.target}` : `${edge.target}\u0000${edge.source}`
 }
 
 function edgeControlPoint(source: GraphPoint, target: GraphPoint, bend: number) {
@@ -303,10 +331,10 @@ function routePoints(edge: GraphLayoutEdge, route: EdgeRoute, positions: Map<str
         const control1 = { x: source.x - radius, y: source.y + side * radius }
         const control2 = { x: source.x + radius, y: source.y + side * radius }
         const end = { x: source.x + 7, y: source.y }
-        return Array.from({ length: 13 }, (_, index) => cubicPoint(start, control1, control2, end, index / 12))
+        return Array.from({ length: 25 }, (_, index) => cubicPoint(start, control1, control2, end, index / 24))
     }
     const control = edgeControlPoint(source, target, route.bend)
-    return Array.from({ length: 13 }, (_, index) => quadraticPoint(source, control, target, index / 12))
+    return Array.from({ length: 25 }, (_, index) => quadraticPoint(source, control, target, index / 24))
 }
 
 function quadraticPoint(start: GraphPoint, control: GraphPoint, end: GraphPoint, time: number) {
@@ -339,10 +367,6 @@ function distanceToSegment(point: GraphPoint, start: GraphPoint, end: GraphPoint
     const lengthSquared = dx * dx + dy * dy
     const time = lengthSquared === 0 ? 0 : Math.max(0, Math.min(1, ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared))
     return Math.hypot(point.x - (start.x + time * dx), point.y - (start.y + time * dy))
-}
-
-function midpoint(points: GraphPoint[]) {
-    return points[Math.floor(points.length / 2)] ?? { x: 0, y: 0 }
 }
 
 function pointDistance(left: GraphPoint, right: GraphPoint) {

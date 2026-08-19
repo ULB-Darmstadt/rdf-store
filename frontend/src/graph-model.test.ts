@@ -29,19 +29,21 @@ describe('graph model', () => {
         expect(radii.get(2)! - radii.get(1)!).toBeGreaterThanOrEqual(85)
     })
 
-    it('keeps an unobstructed single relationship straight', () => {
+    it('keeps an unobstructed single relationship slightly bent', () => {
         const nodes: GraphLayoutNode[] = [{ id: 'a', x: 0, y: 0 }, { id: 'b', x: 100, y: 0 }]
         const edges: GraphLayoutEdge[] = [{ id: 'ab', source: 'a', target: 'b', label: 'links' }]
-        expect(routeGraphEdges(nodes, edges).get('ab')).toEqual({ bend: 0 })
+        const route = routeGraphEdges(nodes, edges).get('ab')!
+        expect(Math.abs(route.bend)).toBeGreaterThan(0)
+        expect(Math.abs(route.bend)).toBeLessThan(30)
     })
 
     it('chooses either bend direction to avoid nodes', () => {
         const edge: GraphLayoutEdge = { id: 'ab', source: 'a', target: 'b' }
         const above = routeGraphEdges([
-            { id: 'a', x: 0, y: 0 }, { id: 'b', x: 100, y: 0 }, { id: 'obstacle', x: 50, y: 8 }
+            { id: 'a', x: 0, y: 0 }, { id: 'b', x: 100, y: 0 }, { id: 'obstacle', x: 50, y: 6 }
         ], [edge]).get('ab')!
         const below = routeGraphEdges([
-            { id: 'a', x: 0, y: 0 }, { id: 'b', x: 100, y: 0 }, { id: 'obstacle', x: 50, y: -8 }
+            { id: 'a', x: 0, y: 0 }, { id: 'b', x: 100, y: 0 }, { id: 'obstacle', x: 50, y: -6 }
         ], [edge]).get('ab')!
         expect(above.bend).toBeLessThan(0)
         expect(below.bend).toBeGreaterThan(0)
@@ -107,6 +109,46 @@ describe('graph model', () => {
         const baseline = new Map(edges.map(edge => [edge.id, { bend: 24 }]))
         const optimized = routeGraphEdges(nodes, edges)
         expect(countRouteCrossings(nodes, edges, optimized)).toBeLessThan(countRouteCrossings(nodes, edges, baseline))
+    })
+
+    it('prefers shortest-arc bend direction in a radial tree', () => {
+        const nodes: GraphLayoutNode[] = [
+            { id: 'root', x: 0, y: 0 },
+            { id: 'a', x: 85, y: 0 },
+            { id: 'b', x: -85, y: 0 },
+            { id: 'a1', x: 150, y: -20 },
+            { id: 'a2', x: 150, y: 20 },
+            { id: 'b1', x: -150, y: -20 },
+            { id: 'b2', x: -150, y: 20 },
+        ]
+        const edges: GraphLayoutEdge[] = [
+            { id: 'ra', source: 'root', target: 'a' },
+            { id: 'rb', source: 'root', target: 'b' },
+            { id: 'aa1', source: 'a', target: 'a1' },
+            { id: 'aa2', source: 'a', target: 'a2' },
+            { id: 'bb1', source: 'b', target: 'b1' },
+            { id: 'bb2', source: 'b', target: 'b2' },
+            { id: 'a1b1', source: 'a1', target: 'b1' },
+            { id: 'a2b2', source: 'a2', target: 'b2' },
+        ]
+        const routes = routeGraphEdges(nodes, edges)
+        expect(countRouteCrossings(nodes, edges, routes)).toBe(0)
+    })
+
+    it('eliminates crossings in a star-to-ring pattern', () => {
+        const n = 8
+        const nodes: GraphLayoutNode[] = [{ id: 'center', x: 0, y: 0 }]
+        const edges: GraphLayoutEdge[] = []
+        for (let i = 0; i < n; i++) {
+            const angle = (i / n) * Math.PI * 2
+            nodes.push({ id: `ring${i}`, x: 120 * Math.cos(angle), y: 120 * Math.sin(angle) })
+            edges.push({ id: `c${i}`, source: 'center', target: `ring${i}` })
+        }
+        for (let i = 0; i < n; i++) {
+            edges.push({ id: `r${i}`, source: `ring${i}`, target: `ring${(i + 1) % n}` })
+        }
+        const routes = routeGraphEdges(nodes, edges)
+        expect(countRouteCrossings(nodes, edges, routes)).toBe(0)
     })
 
     it('reserves fair bounded request waves without consuming the queue', () => {
