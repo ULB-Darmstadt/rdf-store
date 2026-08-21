@@ -32,9 +32,7 @@ func main() {
 		if err := startSyncProfiles(); err != nil {
 			log.Fatal(err)
 		}
-		if err := importLocalResources(); err != nil {
-			slog.Error("failed importing local resources", "error", err)
-		}
+		importLocalResources()
 	}()
 	if err := api.Router.Run(":3000"); err != nil {
 		log.Fatal(err)
@@ -120,25 +118,22 @@ func serveStaticFiles() func(c *gin.Context) {
 
 // importLocalResources loads local RDF graphs into the resource dataset.
 // It returns an error if any local graph cannot be read or uploaded.
-func importLocalResources() error {
+func importLocalResources() {
 	baseDir := path.Join("local", "datagraph")
 	if files, err := os.ReadDir(baseDir); err == nil {
 		for _, file := range files {
 			if !file.IsDir() && strings.HasSuffix(file.Name(), ".ttl") {
 				slog.Info("importing resource graph", "file", file.Name())
-				data, err := os.ReadFile(path.Join(baseDir, file.Name()))
-				if err != nil {
-					return err
+				if data, err := os.ReadFile(path.Join(baseDir, file.Name())); err == nil {
+					if resource, metadata, err := rdf.CreateResource(data, ""); err == nil {
+						err = search.IndexResource(resource, metadata)
+					}
 				}
-				resource, metadata, err := rdf.CreateResource(data, "")
 				if err != nil {
-					return err
-				}
-				if err = search.IndexResource(resource, metadata); err != nil {
-					return err
+					slog.Warn("failed importing local resource", "error", err)
 				}
 			}
 		}
 	}
-	return nil
+	return
 }
