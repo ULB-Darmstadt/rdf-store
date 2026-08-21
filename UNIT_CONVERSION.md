@@ -5,9 +5,19 @@ are converted to their SI base equivalents.
 
 ## Overview
 
-The conversion system works in two phases: a **build-time catalog generation** phase that
-selects canonical SI units and computes conversion factors, and a **runtime conversion**
-phase that applies those factors to measurement values when indexing RDF resources.
+The conversion system works in three phases:
+
+1. **Build-time catalog generation** selects canonical SI units and computes
+   conversion factors into an embedded catalog (`units.json`).
+2. **Index-time conversion** applies those factors to numeric measurement values
+   when indexing RDF resources, so all indexed quantities are stored in their
+   canonical SI form. The unit predicate itself is *not* rewritten — the index
+   keeps the original unit URI so unit facets show the units actually used in
+   the data.
+3. **Query-time conversion** translates user-entered filter bounds to SI before
+   querying Solr and converts returned facet statistics back to the user's
+   selected unit. It is implemented in the frontend and uses conversion factors
+   served by the backend's `/quantities` endpoint.
 
 ## Dimension Vectors
 
@@ -87,6 +97,49 @@ data models that don't carry quantity information.
 There is no explicit on/off toggle; simply omitting the variables is sufficient
 to turn conversion off.
 
+The same three values are part of the application configuration (`Config` struct
+in `backend/base/config.go`) and are served to the frontend as
+`conversionUnit`, `conversionQuantity`, and `conversionValue` via the
+`/api/v1/config` endpoint, where they drive query-time conversion.
+
+## Indexing Behavior
+
+During indexing, numeric values on a measurement node whose predicate matches
+`CONVERSION_VALUE` are converted to the canonical SI unit of the node's quantity
+kind (`qudt.Convert`). The stored value under the unit predicate is left
+untouched: the original unit URI (e.g. `…unit/DEG_C`) remains in the index so
+that unit facets and filters reflect the units present in the data. Unit URI
+canonicalization at index time was removed in favor of converting filter bounds
+at query time instead.
+
+## Query-Time Conversion (Filtering)
+
+The frontend module `frontend/src/unit-conversion.ts` converts between the
+user's selected unit and SI when building filters and displaying facet
+statistics:
+
+- **`UnitConversionResolver`** scans the query's fields and criteria for sibling
+  fields whose path ends with the configured value/unit/quantity predicates (plus
+  the fixed `qudt:isDeltaQuantity` predicate for delta detection). Fields sharing
+  the same subject path form a quantity group. The selected unit and quantity kind
+  are taken from `equals` criteria on the group's unit/kind fields; a quantity kind
+  can also be learned automatically when a kind facet resolves to exactly one
+  bucket (auto-detection).
+- Conversions are fetched in a single batch from the backend's `/quantities`
+  endpoint and cached per `(quantityKind, unit, isDelta)` triple; lookups that cannot be
+  resolved are cached as "no conversion" to avoid repeated requests. If the request
+  itself fails, filtering degrades gracefully to unconverted values and nothing is
+  cached, so a later request retries.
+- **Range criteria** are converted to SI with `(value + offset) × multiplier`
+  before they are turned into Solr range filters, matching the index-time
+  conversion.
+- **Facet statistics** (min/max) returned by Solr in SI are converted back with
+  `value / multiplier − offset` for display.
+- Unit and quantity-kind fields are pure metadata: once their selection produced a
+  resolved conversion, their criteria never restrict search results. If no
+  conversion could be resolved, unit criteria remain active as plain filters so a
+  unit facet selection still narrows results.
+
 ## Delta Quantities
 
 For difference quantities (e.g. a temperature *difference* of 10 °C), both offsets are
@@ -97,6 +150,12 @@ zeroed out. This means:
 
 The `isDelta` flag is set when the RDF triple `qudt:isDeltaQuantity` on a measurement
 node is `"true"` or `"1"`.
+
+Query-time conversion handles delta quantities as well: when a sibling field on the
+`qudt:isDeltaQuantity` predicate is selected (e.g. via an `equals` criterion with
+`"true"` or `"1"`), the frontend requests a delta-aware conversion and the
+`/quantities` endpoint returns the factors without offsets — matching index-time
+behavior.
 
 ## Canonical Unit Selection
 
@@ -179,6 +238,8 @@ The generator downloads three RDF/Turtle vocabularies from the
 
 ## Runtime API
 
+### Backend (Go, `backend/search/qudt`)
+
 - **`Convert(value, srcUnitURI, quantityKindURI, isDelta)`** — Converts to the
   canonical SI unit for the given quantity kind. Returns `(0, false)` if the source
   is already canonical or units are unknown.
@@ -186,6 +247,24 @@ The generator downloads three RDF/Turtle vocabularies from the
   dimensionally compatible units.
 - **`Unit(unitURI)`** — Returns the `UnitInfo` (multiplier, offset, dimension vector)
   for a given unit URI.
+
+### HTTP Endpoint
+
+- **`POST /api/v1/quantities`** — Accepts a JSON array of
+  `{unitURI, quantityKindURI, isDelta?}` objects and returns the same array enriched with a
+  `conversion` field (`UnitInfo`) or `null`. A conversion is only reported when a
+  dimensionally compatible canonical unit exists for the quantity kind — mirroring
+  what `qudt.Convert` applied at index time; for delta quantities the offset is
+  zeroed. Used by the frontend to resolve conversion factors for query-time filtering.
+
+### Frontend (`frontend/src/unit-conversion.ts`)
+
+- **`UnitConversionResolver`** — Groups query fields into quantity groups,
+  resolves their conversions via `/quantities` (with caching), and produces a
+  `QuantitySelection` mapping value fields to conversion factors.
+- **`convertTermToSi(term, conversion)`** — Converts a literal filter bound to SI.
+- **`statFromSi(value, conversion)`** — Converts an SI facet statistic back to the
+  display unit.
 
 ## Edge Cases
 
@@ -199,3 +278,14 @@ The generator downloads three RDF/Turtle vocabularies from the
   domains.
 - **Disabled conversion**: If any required RDF predicate URI is empty, the entire
   conversion system is disabled gracefully.
+- **Unresolvable frontend lookups**: A `(quantityKind, unit, isDelta)` triple without a
+  conversion returns `null` from `/quantities`; the result is cached so values
+  pass through unconverted instead of being re-requested. A failing request is
+  not cached and degrades to unconverted filtering.
+- **Ambiguous quantity kinds**: Auto-detection only applies when a quantity-kind
+  facet has exactly one bucket; otherwise no kind is learned. When a kind is
+  learned mid-request, the facet request is re-issued once so filters and
+  statistics are computed with the same conversion state.
+- **Unit facets keep original units**: Because index-time canonicalization was
+  removed, identical SI values may appear under different unit URIs in unit
+  facets — this is intentional so facets reflect the data as authored.

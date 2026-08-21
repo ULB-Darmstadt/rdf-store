@@ -159,12 +159,12 @@ export class SolrQueryFacetProvider implements QueryFacetProvider {
         return this.trackLoading(this.getFacetsTask(request))
     }
 
-    private async getFacetsTask(request: QueryFacetRequest): Promise<ShaclQueryFacet[]> {
+    private async getFacetsTask(request: QueryFacetRequest, allowLearnRetry = true): Promise<ShaclQueryFacet[]> {
         if (!request.fields.length) {
             return []
         }
 
-        let quantitySelection = await this.unitConversion.resolveSelection(request.fields, request.query.criteria)
+        const quantitySelection = await this.unitConversion.resolveSelection(request.fields, request.query.criteria)
         const filters = ['docType:entity', ...await this.buildFilters(request.query, quantitySelection)]
         const facet: Record<string, unknown> = {}
         const paths = await Promise.all(request.fields.map(field => this.pathFilter(field)))
@@ -216,9 +216,10 @@ export class SolrQueryFacetProvider implements QueryFacetProvider {
                 }
             })
         })
-        if (autoKindDetected) {
-            // re-resolve so the current response's stats are converted as well
-            quantitySelection = await this.unitConversion.resolveSelection(request.fields, request.query.criteria)
+        if (autoKindDetected && allowLearnRetry) {
+            // re-run the whole request so filters and statistics are computed
+            // with the same conversion state
+            return this.getFacetsTask(request, false)
         }
 
         const labelIds = new Set<string>()

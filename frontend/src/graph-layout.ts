@@ -105,6 +105,7 @@ export function computeHierarchyScore(
     return total > 0 ? downward / total : 0
 }
 
+// @ts-ignore
 export function selectLayoutEngine(nodes: GraphLayoutNode[], edges: GraphLayoutEdge[], root: string): LayoutEngine {
     // select only radial for now
     return engines['radial']()

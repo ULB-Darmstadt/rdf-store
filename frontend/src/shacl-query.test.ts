@@ -30,6 +30,7 @@ import { SolrQueryFacetProvider, queryFieldPaths } from './shacl-query'
 const UNIT_PREDICATE = 'http://example.org/hasUnit'
 const KIND_PREDICATE = 'http://example.org/hasKindOfQuantity'
 const VALUE_PREDICATE = 'http://example.org/hasNumericalValue'
+const DELTA_PREDICATE = 'http://qudt.org/schema/qudt#isDeltaQuantity'
 
 function field(id: string, path: QueryField['path'], shapePath?: QueryField['shapePath']): QueryField {
     return { id, path, shapePath } as QueryField
@@ -71,8 +72,17 @@ function kindCriterion(kindURI: string): QueryCriterion {
     }
 }
 
+function deltaCriterion(value: string): QueryCriterion {
+    return {
+        field: field('delta', ['part', DELTA_PREDICATE]),
+        operator: 'equals',
+        value: DataFactory.literal(value)
+    }
+}
+
 function mockQuantityFetch(conversions: Record<string, { multiplier: number, offset: number } | null>) {
     vi.stubGlobal('fetch', vi.fn(async(_url: string, init?: RequestInit) => ({
+        ok: true,
         json: async() => JSON.parse(String(init?.body)).map((quantity: { unitURI: string }) => ({
             ...quantity,
             conversion: conversions[quantity.unitURI] ?? null
@@ -170,7 +180,18 @@ describe('quantity conversion', () => {
         expect(filters).toContainEqual(expect.stringContaining('valueNumber:["0" TO "100"]'))
     })
 
-    it('leaves range bounds untouched for unknown units', async() => {
+    it('keeps unit criteria as filters when the quantity group is incomplete', async() => {
+        mockQuantityFetch({ [unit('t4')]: { multiplier: 1, offset: 273.15 } })
+        const provider = new SolrQueryFacetProvider(quantityConfig())
+        const filters = await buildFilters(provider, [
+            rangeCriterion('0', '100'),
+            unitCriterion(unit('t4'))
+        ])
+        expect(filters).toContainEqual(expect.stringContaining('valueNumber:["0" TO "100"]'))
+        expect(filters).toContainEqual(expect.stringContaining(unit('t4')))
+    })
+
+    it('keeps unit criteria as filters for unknown units', async() => {
         mockQuantityFetch({ [unit('t3')]: null })
         const provider = new SolrQueryFacetProvider(quantityConfig())
         const filters = await buildFilters(provider, [
@@ -179,17 +200,39 @@ describe('quantity conversion', () => {
             kindCriterion(kind('t3'))
         ])
         expect(filters).toContainEqual(expect.stringContaining('valueNumber:["0" TO "100"]'))
+        expect(filters).toContainEqual(expect.stringContaining(unit('t3')))
     })
 
-    it('ignores incomplete quantity groups', async() => {
-        mockQuantityFetch({ [unit('t4')]: { multiplier: 1, offset: 273.15 } })
+    it('degrades to unconverted filtering when the backend fails', async() => {
+        vi.stubGlobal('fetch', vi.fn(async() => ({ ok: false, status: 500, json: async() => ({}) })))
         const provider = new SolrQueryFacetProvider(quantityConfig())
         const filters = await buildFilters(provider, [
             rangeCriterion('0', '100'),
-            unitCriterion(unit('t4'))
+            unitCriterion(unit('t11')),
+            kindCriterion(kind('t11'))
         ])
         expect(filters).toContainEqual(expect.stringContaining('valueNumber:["0" TO "100"]'))
-        expect(filters).not.toContainEqual(expect.stringContaining(unit('t4')))
+    })
+
+    it('converts delta quantities without offsets', async() => {
+        vi.stubGlobal('fetch', vi.fn(async(_url: string, init?: RequestInit) => ({
+            ok: true,
+            json: async() => JSON.parse(String(init?.body)).map((quantity: { unitURI: string, isDelta?: boolean }) => ({
+                ...quantity,
+                conversion: quantity.isDelta
+                    ? { multiplier: 1, offset: 0 }
+                    : { multiplier: 1, offset: 273.15 }
+            }))
+        })))
+        const provider = new SolrQueryFacetProvider(quantityConfig())
+        const filters = await buildFilters(provider, [
+            rangeCriterion('0', '100'),
+            unitCriterion(unit('d1')),
+            kindCriterion(kind('d1')),
+            deltaCriterion('true')
+        ])
+        // a difference of 0..100 °C is a difference of 0..100 K
+        expect(filters).toContainEqual(expect.stringContaining('valueNumber:["0" TO "100"]'))
     })
 
     it('does not convert when conversion is disabled by config', async() => {

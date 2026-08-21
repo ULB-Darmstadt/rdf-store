@@ -17,6 +17,7 @@ func init() {
 type QuantityUnitConversion struct {
 	UnitURI         string         `json:"unitURI"`
 	QuantityKindURI string         `json:"quantityKindURI"`
+	IsDelta         bool           `json:"isDelta,omitempty"`
 	Conversion      *qudt.UnitInfo `json:"conversion"`
 }
 
@@ -34,7 +35,24 @@ func handleQuantities(c *gin.Context) {
 		return
 	}
 	for i := range quantities {
-		quantities[i].Conversion = qudt.Unit(quantities[i].UnitURI)
+		quantities[i].Conversion = quantityConversion(&quantities[i])
 	}
 	c.JSON(http.StatusOK, quantities)
+}
+
+// quantityConversion resolves the conversion factors applied when the value of
+// a measurement node was indexed, mirroring qudt.Convert: no conversion is
+// reported unless a dimensionally compatible canonical unit exists for the
+// quantity kind, and delta quantities convert without offsets.
+func quantityConversion(quantity *QuantityUnitConversion) *qudt.UnitInfo {
+	info := qudt.Unit(quantity.UnitURI)
+	if info == nil || qudt.CanonicalUnitURI(quantity.UnitURI, quantity.QuantityKindURI) == "" {
+		return nil
+	}
+	if !quantity.IsDelta {
+		return info
+	}
+	delta := *info
+	delta.Offset = 0
+	return &delta
 }

@@ -3,6 +3,8 @@ import type { Term } from '@rdfjs/types'
 import { DataFactory } from 'n3'
 import { BACKEND_URL } from './constants'
 
+const QUDT_IS_DELTA_QUANTITY = 'http://qudt.org/schema/qudt#isDeltaQuantity'
+
 export type QuantityUnitConversion = {
     multiplier: number
     offset: number
@@ -16,14 +18,15 @@ export type QuantitySelection = {
 type Quantity = {
     unitURI: string
     quantityKindURI: string
+    isDelta?: boolean
     conversion: QuantityUnitConversion | null | undefined
 }
 
-type QuantityGroup = {
-    valueField: QueryField
-    unitURI: string
-    quantityKindURI: string
-    conversion: QuantityUnitConversion | null | undefined
+type SubjectGroup = {
+    values: QueryField[]
+    units: QueryField[]
+    kinds: QueryField[]
+    deltas: QueryField[]
 }
 
 type ConversionConfig = {
@@ -116,29 +119,62 @@ export class UnitConversionResolver {
         // criteria still identify the selected unit and quantity kind
         const scanned = new Map<string, QueryField>(fields.map(field => [field.id, field]))
         criteria.forEach(criterion => scanned.set(criterion.field.id, criterion.field))
-        const { groups, unitFields } = this.scanForQuantities(Array.from(scanned.values()), criteria)
-        selection.unitFields = unitFields
-        const missing = new Map<string, QuantityGroup>()
-        for (const group of groups.values()) {
-            const key = this.quantityKey(group)
+        const selected = this.selectedValues(criteria)
+        const subjects = this.scanForQuantities(Array.from(scanned.values()))
+        const pending = new Map<string, { quantity: Quantity, valueFields: QueryField[], unitFields: QueryField[] }>()
+        const missing = new Map<string, Quantity>()
+        for (const [subject, group] of subjects.entries()) {
+            const unitURI = group.units.map(field => selected.get(field.id)).find(Boolean)
+            const quantityKindURI = group.kinds.map(field => selected.get(field.id)).find(Boolean)
+                ?? this.autoQuantityKinds.get(subject)
+            if (!unitURI || !quantityKindURI) {
+                continue
+            }
+            const quantity: Quantity = {
+                unitURI,
+                quantityKindURI,
+                isDelta: group.deltas.some(field => {
+                    const value = selected.get(field.id)
+                    return value === 'true' || value === '1'
+                }),
+                conversion: undefined
+            }
+            const key = this.quantityKey(quantity)
+            pending.set(key, { quantity, valueFields: group.values, unitFields: group.units })
             if (!this.quantityCache.has(key)) {
-                missing.set(key, group)
+                missing.set(key, quantity)
             }
         }
         await this.fetchQuantities(Array.from(missing.values()))
-        for (const group of groups.values()) {
-            const cached = this.quantityCache.get(this.quantityKey(group))
-            if (cached?.conversion) {
-                selection.conversions.set(group.valueField.id, cached.conversion)
+        for (const [key, entry] of pending.entries()) {
+            const cached = this.quantityCache.get(key)
+            if (!cached?.conversion) {
+                continue
             }
+            const conversion = cached.conversion
+            entry.valueFields.forEach(field => selection.conversions.set(field.id, conversion))
+            // the unit selection is metadata that drove this conversion; only
+            // then must its criterion not restrict results
+            entry.unitFields.forEach(field => selection.unitFields.add(field.id))
         }
         return selection
     }
 
-    private scanForQuantities(fields: QueryField[], criteria: QueryCriterion[]): { groups: Map<string, QuantityGroup>, unitFields: Set<string> } {
-        type SubjectGroup = { values: QueryField[], units: QueryField[], kinds: QueryField[] }
+    private selectedValues(criteria: QueryCriterion[]): Map<string, string> {
+        const selected = new Map<string, string>()
+        criteria.forEach(criterion => {
+            if (criterion.operator === 'equals') {
+                const iri = selectedIri(criterion.value)
+                if (iri !== undefined) {
+                    selected.set(criterion.field.id, iri)
+                }
+            }
+        })
+        return selected
+    }
+
+    private scanForQuantities(fields: QueryField[]): Map<string, SubjectGroup> {
         const subjects = new Map<string, SubjectGroup>()
-        const unitFields = new Set<string>()
         fields.forEach(field => {
             this.expandPaths(field).forEach(path => {
                 const predicate = path[path.length - 1]
@@ -149,50 +185,43 @@ export class UnitConversionResolver {
                     role = 'units'
                 } else if (predicate === this.conversionQuantity) {
                     role = 'kinds'
+                } else if (predicate === QUDT_IS_DELTA_QUANTITY) {
+                    role = 'deltas'
                 }
                 if (!role) {
                     return
                 }
-                if (role === 'units') {
-                    unitFields.add(field.id)
-                }
                 const subject = path.slice(0, -1).join('\0')
-                const group = subjects.get(subject) ?? { values: [], units: [], kinds: [] }
+                const group = subjects.get(subject) ?? { values: [], units: [], kinds: [], deltas: [] }
                 subjects.set(subject, group)
                 if (!group[role].includes(field)) {
                     group[role].push(field)
                 }
             })
         })
-        const selected = new Map<string, string>()
-        criteria.forEach(criterion => {
-            if (criterion.operator === 'equals') {
-                const iri = selectedIri(criterion.value)
-                if (iri) {
-                    selected.set(criterion.field.id, iri)
-                }
-            }
-        })
-        const groups = new Map<string, QuantityGroup>()
-        for (const [subject, group] of subjects.entries()) {
-            const unitURI = group.units.map(field => selected.get(field.id)).find(Boolean)
-            const quantityKindURI = group.kinds.map(field => selected.get(field.id)).find(Boolean)
-                ?? this.autoQuantityKinds.get(subject)
-            if (!unitURI || !quantityKindURI) {
-                continue
-            }
-            for (const valueField of group.values) {
-                groups.set(valueField.id, { valueField, unitURI, quantityKindURI, conversion: undefined })
-            }
-        }
-        return { groups, unitFields }
+        return subjects
     }
 
     private async fetchQuantities(quantities: Quantity[]) {
         if (quantities.length === 0) {
             return
         }
-        const resp: Quantity[] = await fetch(`${BACKEND_URL}/quantities`, { method: 'POST', body: JSON.stringify(quantities) }).then(r => r.json())
+        let resp: Quantity[]
+        try {
+            const response = await fetch(`${BACKEND_URL}/quantities`, { method: 'POST', body: JSON.stringify(quantities) })
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`)
+            }
+            resp = await response.json()
+        } catch (err) {
+            // degrade gracefully: values stay unconverted instead of failing the query;
+            // nothing is cached so a later request retries
+            console.warn('failed resolving quantity conversions', err)
+            return
+        }
+        if (!Array.isArray(resp)) {
+            return
+        }
         for (const quantity of resp) {
             // if no conversion possible, then mark and cache this
             if (quantity.conversion === undefined) {
@@ -203,6 +232,6 @@ export class UnitConversionResolver {
     }
 
     private quantityKey(quantity: Quantity) {
-        return `${quantity.quantityKindURI}\u0000${quantity.unitURI}`
+        return `${quantity.quantityKindURI}\u0000${quantity.unitURI}\u0000${quantity.isDelta ? '1' : '0'}`
     }
 }

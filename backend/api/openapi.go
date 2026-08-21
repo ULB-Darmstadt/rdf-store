@@ -62,6 +62,8 @@ func newApiSpec() *openapi3.T {
 		},
 		Tags: openapi3.Tags{
 			&openapi3.Tag{Name: TAG_RDF},
+			&openapi3.Tag{Name: TAG_SOLR},
+			&openapi3.Tag{Name: TAG_MISC},
 		},
 		Components: &openapi3.Components{
 			// SecuritySchemes: openapi3.SecuritySchemes{
@@ -108,7 +110,10 @@ func addSchemas(spec *openapi3.T) {
 		WithProperty("authUser", openapi3.NewStringSchema()).
 		WithProperty("authEmail", openapi3.NewStringSchema()).
 		WithProperty("contactEmail", openapi3.NewStringSchema()).
-		WithProperty("rdfNamespace", openapi3.NewStringSchema()))
+		WithProperty("rdfNamespace", openapi3.NewStringSchema()).
+		WithProperty("conversionUnit", openapi3.NewStringSchema()).
+		WithProperty("conversionQuantity", openapi3.NewStringSchema()).
+		WithProperty("conversionValue", openapi3.NewStringSchema()))
 	spec.Components.Schemas["LabelsResponse"] = openapi3.NewSchemaRef("", openapi3.NewSchema().
 		WithAdditionalProperties(openapi3.NewStringSchema()))
 	spec.Components.Schemas["ShapeInstancesResponse"] = openapi3.NewSchemaRef("", openapi3.NewSchema().
@@ -125,6 +130,27 @@ func addSchemas(spec *openapi3.T) {
 		WithProperty("hasMore", openapi3.NewBoolSchema()).
 		WithProperty("nextOffset", openapi3.NewIntegerSchema().WithMin(0)).
 		WithRequired([]string{"quads", "localSubjects", "offset", "limit", "returned", "hasMore", "nextOffset"}))
+	quantitiesRequestItems := openapi3.NewObjectSchema().
+		WithProperty("unitURI", openapi3.NewStringSchema()).
+		WithProperty("quantityKindURI", openapi3.NewStringSchema()).
+		WithProperty("isDelta", openapi3.NewBoolSchema()).
+		WithRequired([]string{"unitURI", "quantityKindURI"})
+	quantitiesRequest := openapi3.NewArraySchema()
+	quantitiesRequest.Items = quantitiesRequestItems.NewRef()
+	spec.Components.Schemas["QuantitiesRequest"] = openapi3.NewSchemaRef("", quantitiesRequest)
+	conversionProperty := openapi3.NewObjectSchema().
+		WithProperty("multiplier", openapi3.NewFloat64Schema()).
+		WithProperty("offset", openapi3.NewFloat64Schema()).
+		WithProperty("dimensionVector", openapi3.NewStringSchema()).
+		WithNullable()
+	quantitiesResponseItems := openapi3.NewObjectSchema().
+		WithProperty("unitURI", openapi3.NewStringSchema()).
+		WithProperty("quantityKindURI", openapi3.NewStringSchema()).
+		WithProperty("isDelta", openapi3.NewBoolSchema()).
+		WithProperty("conversion", conversionProperty)
+	quantitiesResponse := openapi3.NewArraySchema()
+	quantitiesResponse.Items = quantitiesResponseItems.NewRef()
+	spec.Components.Schemas["QuantitiesResponse"] = openapi3.NewSchemaRef("", quantitiesResponse)
 	spec.Components.Schemas["Error"] = openapi3.NewSchemaRef("", openapi3.NewSchema().
 		WithProperty("error", openapi3.NewStringSchema()))
 }
@@ -136,6 +162,19 @@ func addPaths(spec *openapi3.T) {
 		OperationID: "getConfig",
 		Responses: responses(map[string]*openapi3.Response{
 			"200": jsonSchemaResponse(openapi3.NewSchemaRef("#/components/schemas/AuthenticatedConfig", nil), "OK"),
+			"500": errorResponse(),
+		}),
+		Tags: []string{TAG_MISC},
+	}})
+
+	spec.Paths.Set("/quantities", &openapi3.PathItem{Post: &openapi3.Operation{
+		Summary:     "Resolve SI unit conversions for quantities",
+		Description: "Accepts unit and quantity kind pairs and returns each pair enriched with its SI conversion factors, or null when no conversion exists.",
+		OperationID: "resolveQuantities",
+		RequestBody: &openapi3.RequestBodyRef{Value: jsonRequestBody(openapi3.NewSchemaRef("#/components/schemas/QuantitiesRequest", nil))},
+		Responses: responses(map[string]*openapi3.Response{
+			"200": jsonSchemaResponse(openapi3.NewSchemaRef("#/components/schemas/QuantitiesResponse", nil), "OK"),
+			"400": errorResponse(),
 			"500": errorResponse(),
 		}),
 		Tags: []string{TAG_MISC},
@@ -172,7 +211,7 @@ func addPaths(spec *openapi3.T) {
 			Parameters: openapi3.Parameters{
 				pathParam("id"),
 				&openapi3.ParameterRef{
-					Value: openapi3.NewQueryParameter("includeLinked").WithDescription("If present, fetch requested resource including all linked resources. The result will be quads instead of triples."),
+					Value: openapi3.NewQueryParameter("includeLinked").WithDescription("If present, fetch requested resource including all linked resources. The result will be quads instead of triples.").WithSchema(openapi3.NewBoolSchema()),
 				},
 				rdfProxyAcceptHeaderParam(),
 			},
@@ -249,7 +288,7 @@ func addPaths(spec *openapi3.T) {
 		Summary:     "List resource IDs that conform to a given SHACL shape",
 		OperationID: "listConformingResources",
 		Parameters: openapi3.Parameters{&openapi3.ParameterRef{
-			Value: openapi3.NewQueryParameter("shape").WithRequired(true),
+			Value: openapi3.NewQueryParameter("shape").WithRequired(true).WithSchema(openapi3.NewStringSchema()),
 		}},
 		Responses: responses(map[string]*openapi3.Response{
 			"200": jsonSchemaResponse(openapi3.NewSchemaRef("#/components/schemas/ShapeInstancesResponse", nil), "OK"),
@@ -264,7 +303,7 @@ func addPaths(spec *openapi3.T) {
 		Description: "Returns a deterministic page of direct outgoing or incoming statements as N-Quads in a JSON envelope. Local named subjects adjacent to the page are classified for traversal. A one-row lookahead determines whether another page exists.",
 		OperationID: "getGraphNeighborhood",
 		Parameters: openapi3.Parameters{
-			&openapi3.ParameterRef{Value: openapi3.NewQueryParameter("subject").WithRequired(true).WithDescription("Entity IRI")},
+			&openapi3.ParameterRef{Value: openapi3.NewQueryParameter("subject").WithRequired(true).WithDescription("Entity IRI").WithSchema(openapi3.NewStringSchema())},
 			&openapi3.ParameterRef{Value: openapi3.NewQueryParameter("direction").WithRequired(true).WithSchema(openapi3.NewStringSchema().WithEnum("outgoing", "incoming"))},
 			&openapi3.ParameterRef{Value: openapi3.NewQueryParameter("offset").WithDescription("Statement offset; defaults to 0").WithSchema(openapi3.NewIntegerSchema().WithMin(0))},
 			&openapi3.ParameterRef{Value: openapi3.NewQueryParameter("limit").WithDescription("Statement page size; defaults to 25 and must be between 1 and 100").WithSchema(openapi3.NewIntegerSchema().WithMin(1).WithMax(100))},
@@ -282,7 +321,7 @@ func addPaths(spec *openapi3.T) {
 			Summary:     "SPARQL GET queries on RDF resources dataset",
 			OperationID: "sparqlQueryGet",
 			Parameters: openapi3.Parameters{&openapi3.ParameterRef{
-				Value: openapi3.NewQueryParameter("query").WithRequired(true),
+				Value: openapi3.NewQueryParameter("query").WithRequired(true).WithSchema(openapi3.NewStringSchema()),
 			}},
 			Responses: responses(map[string]*openapi3.Response{
 				"200": openapi3.NewResponse().WithDescription("SPARQL response"),
@@ -305,7 +344,7 @@ func addPaths(spec *openapi3.T) {
 		OperationID: "rdfProxy",
 		Parameters: openapi3.Parameters{
 			&openapi3.ParameterRef{
-				Value: openapi3.NewQueryParameter("url").WithRequired(true),
+				Value: openapi3.NewQueryParameter("url").WithRequired(true).WithSchema(openapi3.NewStringSchema()),
 			},
 			rdfProxyAcceptHeaderParam(),
 		},
@@ -344,7 +383,7 @@ func addPaths(spec *openapi3.T) {
 			Summary:     "Proxy Solr query request",
 			OperationID: "solrQueryGet",
 			Parameters: openapi3.Parameters{&openapi3.ParameterRef{
-				Value: openapi3.NewQueryParameter("query").WithRequired(true),
+				Value: openapi3.NewQueryParameter("query").WithRequired(true).WithSchema(openapi3.NewStringSchema()),
 			}, pathParam("collection")},
 			Responses: responses(map[string]*openapi3.Response{
 				"200": openapi3.NewResponse().WithDescription("Solr query response"),
@@ -364,6 +403,14 @@ func addPaths(spec *openapi3.T) {
 			Tags: []string{TAG_SOLR},
 		},
 	})
+}
+
+// jsonRequestBody builds a JSON request body schema for the given schema reference.
+// It returns the OpenAPI request body definition.
+func jsonRequestBody(schema *openapi3.SchemaRef) *openapi3.RequestBody {
+	return openapi3.NewRequestBody().
+		WithRequired(true).
+		WithContent(openapi3.NewContentWithSchemaRef(schema, []string{"application/json"}))
 }
 
 // formRequestBody builds a form-encoded request body schema for the given fields.
@@ -416,7 +463,7 @@ func responses(items map[string]*openapi3.Response) *openapi3.Responses {
 // It returns a parameter reference suitable for path definitions.
 func pathParam(name string) *openapi3.ParameterRef {
 	return &openapi3.ParameterRef{
-		Value: openapi3.NewPathParameter(name).WithRequired(true),
+		Value: openapi3.NewPathParameter(name).WithRequired(true).WithSchema(openapi3.NewStringSchema()),
 	}
 }
 

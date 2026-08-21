@@ -33,7 +33,6 @@ type QuantityContext struct {
 	UnitURI               string
 	QuantityKindURI       string
 	IsDelta               bool
-	unitPredicateURI      string
 	numericalPredicateURI string
 }
 
@@ -111,7 +110,6 @@ func (config PredicateConfig) ScanConversionContext(node rdf2go.Term, resource *
 		UnitURI:               unitURI,
 		QuantityKindURI:       quantityKindURI,
 		IsDelta:               isDelta,
-		unitPredicateURI:      config.hasUnit,
 		numericalPredicateURI: config.hasNumericalValue,
 	}
 }
@@ -120,12 +118,6 @@ func (config PredicateConfig) ScanConversionContext(node rdf2go.Term, resource *
 // numerical values governed by this quantity context.
 func (q *QuantityContext) ConvertsNumericPredicate(predicateURI string) bool {
 	return q != nil && predicateURI == q.numericalPredicateURI
-}
-
-// CanonicalizesUnitPredicate reports whether values of predicateURI identify
-// the unit governed by this quantity context.
-func (q *QuantityContext) CanonicalizesUnitPredicate(predicateURI string) bool {
-	return q != nil && predicateURI == q.unitPredicateURI
 }
 
 // Unit returns the UnitInfo for the given unit URI, or nil if unknown.
