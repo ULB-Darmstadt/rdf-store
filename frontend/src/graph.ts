@@ -6,11 +6,13 @@ import { Parser, Quad } from 'n3'
 import { BACKEND_URL, RDF_TYPE } from './constants'
 import { fetchLabels, i18n } from './i18n'
 import {
-    collectGraphNodeIds, countRouteCrossings, edgePath, mergeQuads, nodeId, quadKey,
+    collectGraphNodeIds, computeFlowDirections, countRouteCrossings, edgePath, mergeQuads, nodeId, quadKey,
     reserveRequestWave, routeGraphEdges, serializeNQuads, stableGraphSeed, selectLayoutEngine,
     type EdgeRoute, type GraphLayoutEdge
 } from './graph-layout'
 import './graph-layout-radial'
+import './graph-layout-hybrid'
+import './graph-layout-hierarchical'
 import { globalStyles } from './styles'
 import { removeSnackbarMessages, RokitSnackbar, showSnackbarMessage } from '@ro-kit/ui-widgets'
 
@@ -205,6 +207,8 @@ export class RdfGraph extends LitElement {
         }
         const { nodes, links, routes, crossings } = this.lastLayout
         const nodeMap = new Map(nodes.map(n => [n.id, n]))
+        const positionMap = new Map(nodes.map(n => [n.id, { x: n.x ?? 0, y: n.y ?? 0 }]))
+        const flowDirections = computeFlowDirections(positionMap, links.map(l => ({ id: l.id, source: l.sourceId, target: l.targetId })))
         const debugNodes = nodes.map(n => ({
             id: n.id,
             label: n.label?.replace(/<[^>]*>/g, '') ?? n.id,
@@ -215,14 +219,48 @@ export class RdfGraph extends LitElement {
             const route = routes.get(l.id)
             const src = nodeMap.get(l.sourceId)
             const tgt = nodeMap.get(l.targetId)
+            const srcPos = positionMap.get(l.sourceId)
+            const tgtPos = positionMap.get(l.targetId)
+            const srcFlow = flowDirections.get(l.sourceId)
+            const tgtFlow = flowDirections.get(l.targetId)
+            const bend = route?.bend ?? 0
+            let cp1: { x: number, y: number } | undefined
+            let cp2: { x: number, y: number } | undefined
+            let srcTangentAngle: number | undefined
+            let tgtTangentAngle: number | undefined
+            if (srcPos && tgtPos && srcFlow && tgtFlow && l.sourceId !== l.targetId && Math.abs(bend) > 0.001) {
+                const dx = tgtPos.x - srcPos.x
+                const dy = tgtPos.y - srcPos.y
+                const dist = Math.hypot(dx, dy)
+                const scale = dist / 3
+                const srcAngle = route?.srcTangentAngle ?? Math.atan2(dy / 2 + (dx / dist) * bend, dx / 2 + (-dy / dist) * bend)
+                const tgtAngle = route?.tgtTangentAngle ?? Math.atan2(-dy / 2 + (dx / dist) * bend, -dx / 2 + (-dy / dist) * bend)
+                cp1 = {
+                    x: Math.round((srcPos.x + Math.cos(srcAngle) * scale) * 100) / 100,
+                    y: Math.round((srcPos.y + Math.sin(srcAngle) * scale) * 100) / 100
+                }
+                cp2 = {
+                    x: Math.round((tgtPos.x + Math.cos(tgtAngle) * scale) * 100) / 100,
+                    y: Math.round((tgtPos.y + Math.sin(tgtAngle) * scale) * 100) / 100
+                }
+                srcTangentAngle = Math.round(Math.atan2(cp1.y - srcPos.y, cp1.x - srcPos.x) * 1000) / 1000
+                tgtTangentAngle = Math.round(Math.atan2(tgtPos.y - cp2.y, tgtPos.x - cp2.x) * 1000) / 1000
+            }
             return {
                 id: l.id,
                 source: l.sourceId,
                 target: l.targetId,
                 type: l.type,
-                bend: route?.bend ?? 0,
+                bend,
                 srcAngle: src ? Math.atan2(src.y ?? 0, src.x ?? 0) : undefined,
-                tgtAngle: tgt ? Math.atan2(tgt.y ?? 0, tgt.x ?? 0) : undefined
+                tgtAngle: tgt ? Math.atan2(tgt.y ?? 0, tgt.x ?? 0) : undefined,
+                curve: l.sourceId === l.targetId ? 'self-loop' : (cp1 && cp2 ? 'cubic' : 'quadratic'),
+                srcFlowAngle: srcFlow ? Math.round(Math.atan2(srcFlow.y, srcFlow.x) * 1000) / 1000 : undefined,
+                tgtFlowAngle: tgtFlow ? Math.round(Math.atan2(tgtFlow.y, tgtFlow.x) * 1000) / 1000 : undefined,
+                srcTangentAngle,
+                tgtTangentAngle,
+                cp1,
+                cp2
             }
         })
         const output = {
@@ -802,7 +840,7 @@ export class RdfGraph extends LitElement {
         }
         const updatePositions = () => {
             const positions = currentPositions()
-            link.attr('d', edge => edgePath(graphLayoutEdge(edge), edge.route, positions))
+            link.attr('d', edge => edgePath(graphLayoutEdge(edge), edge.route, positions, false))
             labelGuide.attr('d', edge => edgePath(graphLayoutEdge(edge), edge.route, positions, true))
             node.attr('transform', item => {
                 this.positions.set(item.id, { x: item.x ?? 0, y: item.y ?? 0 })

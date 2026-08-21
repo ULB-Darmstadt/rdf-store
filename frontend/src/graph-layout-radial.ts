@@ -90,6 +90,7 @@ export function buildNeighborMap(edges: GraphLayoutEdge[]): Map<string, string[]
 
 export class RadialLayoutEngine implements LayoutEngine {
     compute(nodes: GraphLayoutNode[], edges: GraphLayoutEdge[], root: string, seed: number): RadialResult {
+        console.log('--- radial')
         const nodeIds = nodes.map(node => node.id)
         const depths = graphDepths(nodeIds, edges, root)
         const phase = seed * Math.PI * 2

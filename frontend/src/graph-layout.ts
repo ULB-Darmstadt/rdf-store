@@ -4,7 +4,7 @@ export type GraphPoint = { x: number, y: number }
 export type GraphLayoutNode = { id: string, label?: string }
 export type PositionedNode = GraphLayoutNode & GraphPoint
 export type GraphLayoutEdge = { id: string, source: string, target: string, label?: string }
-export type EdgeRoute = { bend: number, loopRadius?: number, loopSide?: -1 | 1 }
+export type EdgeRoute = { bend: number, loopRadius?: number, loopSide?: -1 | 1, srcTangentAngle?: number, tgtTangentAngle?: number }
 
 export type LayoutPosition = GraphPoint
 
@@ -50,9 +50,77 @@ export function registerLayoutEngine(type: string, factory: () => LayoutEngine) 
     engines[type] = factory
 }
 
-export function selectLayoutEngine(_nodes: GraphLayoutNode[], _edges: GraphLayoutEdge[], _root: string): LayoutEngine {
-    // TODO: analyze graph metrics (edge density, type distribution, tree-ness)
-    // and select the most suitable engine.
+export function computeHierarchyScore(
+    nodeIds: string[],
+    edges: Pick<GraphLayoutEdge, 'source' | 'target'>[],
+    root: string
+): number {
+    const parents = new Map<string, string[]>()
+    for (const id of nodeIds) {
+        parents.set(id, [])
+    }
+    for (const edge of edges) {
+        if (edge.source === edge.target) {
+            continue
+        }
+        parents.get(edge.target)?.push(edge.source)
+    }
+
+    const layers = new Map<string, number>()
+    for (const id of nodeIds) {
+        layers.set(id, 0)
+    }
+    layers.set(root, 0)
+
+    let changed = true
+    while (changed) {
+        changed = false
+        for (const id of nodeIds) {
+            if (id === root) {
+                continue
+            }
+            const parentLayers = (parents.get(id) ?? []).map(p => layers.get(p) ?? 0)
+            const best = parentLayers.length > 0 ? Math.max(...parentLayers) + 1 : 0
+            if (best > (layers.get(id) ?? 0)) {
+                layers.set(id, best)
+                changed = true
+            }
+        }
+    }
+
+    let downward = 0
+    let total = 0
+    for (const edge of edges) {
+        if (edge.source === edge.target) {
+            continue
+        }
+        const srcLayer = layers.get(edge.source) ?? 0
+        const tgtLayer = layers.get(edge.target) ?? 0
+        if (srcLayer < tgtLayer) {
+            downward++
+        }
+        total++
+    }
+
+    return total > 0 ? downward / total : 0
+}
+
+export function selectLayoutEngine(nodes: GraphLayoutNode[], edges: GraphLayoutEdge[], root: string): LayoutEngine {
+    const nodeCount = nodes.length
+    if (nodeCount < 20) {
+        return engines['radial']()
+    }
+    const nodeIds = nodes.map(n => n.id)
+    const nonSelfEdges = edges.filter(e => e.source !== e.target)
+    const hierarchyScore = computeHierarchyScore(nodeIds, nonSelfEdges, root)
+    if (hierarchyScore > 0.6 && engines['hierarchical']) {
+        return engines['hierarchical']()
+    }
+    const { core } = computeKCore(nodeIds, nonSelfEdges)
+    const coreRatio = core.size / nodeCount
+    if (coreRatio > 0.3 && engines['hybrid']) {
+        return engines['hybrid']()
+    }
     return engines['radial']()
 }
 
@@ -110,6 +178,57 @@ export function reserveRequestWave<T>(queue: T[], capacity: number, pageSize: nu
         remaining -= limit
     }
     return requests
+}
+
+export function computeKCore(nodeIds: string[], edges: Pick<GraphLayoutEdge, 'source' | 'target'>[]): { core: Set<string>, k: number } {
+    const degree = new Map<string, number>()
+    const adjacency = new Map<string, Set<string>>()
+    for (const id of nodeIds) {
+        degree.set(id, 0)
+        adjacency.set(id, new Set())
+    }
+    for (const edge of edges) {
+        if (edge.source === edge.target) {
+            continue
+        }
+        if (!adjacency.has(edge.source)) {
+            adjacency.set(edge.source, new Set())
+        }
+        if (!adjacency.has(edge.target)) {
+            adjacency.set(edge.target, new Set())
+        }
+        adjacency.get(edge.source)!.add(edge.target)
+        adjacency.get(edge.target)!.add(edge.source)
+        degree.set(edge.source, (degree.get(edge.source) ?? 0) + 1)
+        degree.set(edge.target, (degree.get(edge.target) ?? 0) + 1)
+    }
+    const k = Math.max(2, Math.floor(edges.length / Math.max(1, nodeIds.length)))
+    const removed = new Set<string>()
+    const queue: string[] = []
+    for (const [id, deg] of degree) {
+        if (deg < k) {
+            queue.push(id)
+        }
+    }
+    while (queue.length > 0) {
+        const current = queue.pop()!
+        if (removed.has(current)) {
+            continue
+        }
+        removed.add(current)
+        for (const neighbor of adjacency.get(current) ?? []) {
+            if (removed.has(neighbor)) {
+                continue
+            }
+            const newDeg = (degree.get(neighbor) ?? 1) - 1
+            degree.set(neighbor, newDeg)
+            if (newDeg < k) {
+                queue.push(neighbor)
+            }
+        }
+    }
+    const core = new Set(nodeIds.filter(id => !removed.has(id)))
+    return { core, k }
 }
 
 export function graphDepths(nodeIds: Iterable<string>, edges: Iterable<Pick<GraphLayoutEdge, 'source' | 'target'>>, root: string) {
@@ -182,6 +301,7 @@ export function stableGraphSeed(root: string, nodeIds: Iterable<string>, edgeIds
     return (hash >>> 0) / 4294967296
 }
 
+
 export function routeGraphEdges(nodes: Iterable<PositionedNode>, edges: GraphLayoutEdge[]) {
     const positions = new Map(Array.from(nodes, node => [node.id, node]))
     const routes = new Map<string, EdgeRoute>()
@@ -220,9 +340,9 @@ export function routeGraphEdges(nodes: Iterable<PositionedNode>, edges: GraphLay
         routes.set(edge.id, bestRoute(edge, candidates, positions, sortedEdges, routes, straightEdges))
     }
 
-    // Three deterministic improvement passes reduce the ordering bias of the
+    // Five deterministic improvement passes reduce the ordering bias of the
     // initial greedy assignment without introducing an expensive global solver.
-    for (let pass =0; pass < 3; pass++) {
+    for (let pass = 0; pass < 5; pass++) {
         for (const edge of sortedEdges) {
             if (edge.source === edge.target) {
                 continue
@@ -232,7 +352,69 @@ export function routeGraphEdges(nodes: Iterable<PositionedNode>, edges: GraphLay
             routes.set(edge.id, bestRoute(edge, candidates, positions, sortedEdges, routes, straightEdges))
         }
     }
+    smoothTangentAngles(sortedEdges, routes, positions)
     return routes
+}
+
+function smoothTangentAngles(edges: GraphLayoutEdge[], routes: Map<string, EdgeRoute>, positions: Map<string, GraphPoint>) {
+    const incoming = new Map<string, { edgeId: string, angle: number }[]>()
+    const outgoing = new Map<string, { edgeId: string, angle: number }[]>()
+    for (const edge of edges) {
+        if (edge.source === edge.target) {
+            continue
+        }
+        const route = routes.get(edge.id)
+        if (!route || Math.abs(route.bend) < 0.001) {
+            continue
+        }
+        const source = positions.get(edge.source)
+        const target = positions.get(edge.target)
+        if (!source || !target) {
+            continue
+        }
+        const dx = target.x - source.x
+        const dy = target.y - source.y
+        const len = Math.hypot(dx, dy)
+        if (len < 1) {
+            continue
+        }
+        const px = dx / len
+        const py = -dy / len
+        const srcAngle = route.srcTangentAngle ?? Math.atan2(dy / 2 + px * route.bend, dx / 2 + py * route.bend)
+        const tgtAngle = route.tgtTangentAngle ?? Math.atan2(-dy / 2 + px * route.bend, -dx / 2 + py * route.bend)
+        if (!outgoing.has(edge.source)) {
+            outgoing.set(edge.source, [])
+        }
+        outgoing.get(edge.source)!.push({ edgeId: edge.id, angle: srcAngle })
+        if (!incoming.has(edge.target)) {
+            incoming.set(edge.target, [])
+        }
+        incoming.get(edge.target)!.push({ edgeId: edge.id, angle: tgtAngle })
+    }
+    for (const [nodeId, inEdges] of incoming) {
+        const outEdges = outgoing.get(nodeId)
+        if (!outEdges || inEdges.length !== 1 || outEdges.length !== 1) {
+            continue
+        }
+        const inGeom = inEdges[0].angle + Math.PI
+        const outGeom = outEdges[0].angle
+        const diff = Math.atan2(Math.sin(outGeom - inGeom), Math.cos(outGeom - inGeom))
+        if (Math.abs(diff) > Math.PI / 2) {
+            continue
+        }
+        const avg = inGeom + diff / 2
+        const pull = 0.3
+        const inRoute = routes.get(inEdges[0].edgeId)
+        const outRoute = routes.get(outEdges[0].edgeId)
+        const pullIn = Math.atan2(Math.sin(avg - inGeom), Math.cos(avg - inGeom)) * pull
+        const pullOut = Math.atan2(Math.sin(avg - outGeom), Math.cos(avg - outGeom)) * pull
+        if (inRoute) {
+            inRoute.tgtTangentAngle = inGeom + pullIn - Math.PI
+        }
+        if (outRoute) {
+            outRoute.srcTangentAngle = outGeom + pullOut
+        }
+    }
 }
 
 export function edgePath(edge: GraphLayoutEdge, route: EdgeRoute, nodes: Map<string, GraphPoint>, forLabel = false) {
@@ -247,14 +429,25 @@ export function edgePath(edge: GraphLayoutEdge, route: EdgeRoute, nodes: Map<str
         const nodeRadius = 7
         return `M${source.x - nodeRadius},${source.y} C${source.x - radius},${source.y + side * radius} ${source.x + radius},${source.y + side * radius} ${source.x + nodeRadius},${source.y}`
     }
-    const control = edgeControlPoint(source, target, route.bend)
     const reverse = forLabel && target.x < source.x
     const start = reverse ? target : source
     const end = reverse ? source : target
     if (Math.abs(route.bend) < 0.001) {
         return `M${start.x},${start.y} L${end.x},${end.y}`
     }
-    return `M${start.x},${start.y} Q${control.x},${control.y} ${end.x},${end.y}`
+    const dx = target.x - source.x
+    const dy = target.y - source.y
+    const dist = Math.hypot(dx, dy)
+    const scale = dist / 3
+    const srcAngle = route.srcTangentAngle ?? Math.atan2(dy / 2 + (dx / dist) * route.bend, dx / 2 + (-dy / dist) * route.bend)
+    const tgtAngle = route.tgtTangentAngle ?? Math.atan2(-dy / 2 + (dx / dist) * route.bend, -dx / 2 + (-dy / dist) * route.bend)
+    const srcCx = source.x + Math.cos(srcAngle) * scale
+    const srcCy = source.y + Math.sin(srcAngle) * scale
+    const tgtCx = target.x + Math.cos(tgtAngle) * scale
+    const tgtCy = target.y + Math.sin(tgtAngle) * scale
+    const cp1 = reverse ? { x: tgtCx, y: tgtCy } : { x: srcCx, y: srcCy }
+    const cp2 = reverse ? { x: srcCx, y: srcCy } : { x: tgtCx, y: tgtCy }
+    return `M${start.x},${start.y} C${cp1.x},${cp1.y} ${cp2.x},${cp2.y} ${end.x},${end.y}`
 }
 
 export function countRouteCrossings(nodes: Iterable<PositionedNode>, edges: GraphLayoutEdge[], routes: Map<string, EdgeRoute>) {
@@ -298,7 +491,7 @@ function bestRoute(edge: GraphLayoutEdge, candidates: EdgeRoute[], positions: Ma
         if (preferPositive !== undefined && Math.abs(candidate.bend) > 0.001) {
             const wrongDirection = preferPositive ? candidate.bend < 0 : candidate.bend > 0
             if (wrongDirection) {
-                score += 0.5
+                score += 0.8
             }
         }
         for (const [nodeId, node] of positions) {
@@ -354,33 +547,29 @@ function routeCandidates(edge: GraphLayoutEdge, positions: Map<string, GraphPoin
 }
 
 function preferredBendSign(source: GraphPoint, target: GraphPoint): boolean | undefined {
-    if (Math.abs(source.x) < 0.001 && Math.abs(source.y) < 0.001) {
+    const dx = target.x - source.x
+    const dy = target.y - source.y
+    const len = Math.hypot(dx, dy)
+    if (len < 1) {
         return undefined
     }
-    if (Math.abs(target.x) < 0.001 && Math.abs(target.y) < 0.001) {
+    const distFromOrigin = Math.hypot(source.x, source.y)
+    if (distFromOrigin < 10) {
+        const angleFromHorizontal = Math.abs(Math.atan2(Math.abs(dy), Math.abs(dx)))
+        if (angleFromHorizontal < 35 * Math.PI / 180) {
+            return false
+        }
+        return true
+    }
+    const cross = dx * (-source.y) - dy * (-source.x)
+    if (Math.abs(cross) < 0.5) {
         return undefined
     }
-    const srcAngle = Math.atan2(source.y, source.x)
-    const tgtAngle = Math.atan2(target.y, target.x)
-    const ccw = ((tgtAngle - srcAngle) % (Math.PI * 2) + Math.PI * 3) % (Math.PI * 2) - Math.PI
-    if (Math.abs(ccw) < 0.01) {
-        return undefined
-    }
-    return ccw > 0
+    return cross < 0
 }
 
 function edgePairKey(edge: Pick<GraphLayoutEdge, 'source' | 'target'>) {
     return edge.source < edge.target ? `${edge.source}\u0000${edge.target}` : `${edge.target}\u0000${edge.source}`
-}
-
-function edgeControlPoint(source: GraphPoint, target: GraphPoint, bend: number) {
-    const dx = target.x - source.x
-    const dy = target.y - source.y
-    const length = Math.max(Math.hypot(dx, dy), 1)
-    return {
-        x: (source.x + target.x) / 2 - dy / length * bend,
-        y: (source.y + target.y) / 2 + dx / length * bend
-    }
 }
 
 function routePoints(edge: GraphLayoutEdge, route: EdgeRoute, positions: Map<string, GraphPoint>) {
@@ -398,8 +587,18 @@ function routePoints(edge: GraphLayoutEdge, route: EdgeRoute, positions: Map<str
         const end = { x: source.x + 7, y: source.y }
         return Array.from({ length: 25 }, (_, index) => cubicPoint(start, control1, control2, end, index / 24))
     }
-    const control = edgeControlPoint(source, target, route.bend)
-    return Array.from({ length: 25 }, (_, index) => quadraticPoint(source, control, target, index / 24))
+    if (Math.abs(route.bend) > 0.001) {
+        const dx = target.x - source.x
+        const dy = target.y - source.y
+        const dist = Math.hypot(dx, dy)
+        const scale = dist / 3
+        const srcAngle = route.srcTangentAngle ?? Math.atan2(dy / 2 + (dx / dist) * route.bend, dx / 2 + (-dy / dist) * route.bend)
+        const tgtAngle = route.tgtTangentAngle ?? Math.atan2(-dy / 2 + (dx / dist) * route.bend, -dx / 2 + (-dy / dist) * route.bend)
+        const cp1 = { x: source.x + Math.cos(srcAngle) * scale, y: source.y + Math.sin(srcAngle) * scale }
+        const cp2 = { x: target.x + Math.cos(tgtAngle) * scale, y: target.y + Math.sin(tgtAngle) * scale }
+        return Array.from({ length: 25 }, (_, index) => cubicPoint(source, cp1, cp2, target, index / 24))
+    }
+    return Array.from({ length: 25 }, (_, index) => quadraticPoint(source, { x: (source.x + target.x) / 2, y: (source.y + target.y) / 2 }, target, index / 24))
 }
 
 function quadraticPoint(start: GraphPoint, control: GraphPoint, end: GraphPoint, time: number) {
@@ -436,6 +635,40 @@ function distanceToSegment(point: GraphPoint, start: GraphPoint, end: GraphPoint
 
 function pointDistance(left: GraphPoint, right: GraphPoint) {
     return Math.hypot(right.x - left.x, right.y - left.y)
+}
+
+export function computeFlowDirections(positions: Map<string, GraphPoint>, edges: GraphLayoutEdge[]): Map<string, GraphPoint> {
+    const neighborSums = new Map<string, { x: number, y: number }>()
+    for (const edge of edges) {
+        if (edge.source === edge.target) {
+            continue
+        }
+        const src = positions.get(edge.source)
+        const tgt = positions.get(edge.target)
+        if (!src || !tgt) {
+            continue
+        }
+        const srcDx = tgt.x - src.x
+        const srcDy = tgt.y - src.y
+        const srcLen = Math.hypot(srcDx, srcDy) || 1
+        const srcSum = neighborSums.get(edge.source) ?? { x: 0, y: 0 }
+        srcSum.x += srcDx / srcLen
+        srcSum.y += srcDy / srcLen
+        neighborSums.set(edge.source, srcSum)
+        const tgtDx = src.x - tgt.x
+        const tgtDy = src.y - tgt.y
+        const tgtLen = Math.hypot(tgtDx, tgtDy) || 1
+        const tgtSum = neighborSums.get(edge.target) ?? { x: 0, y: 0 }
+        tgtSum.x += tgtDx / tgtLen
+        tgtSum.y += tgtDy / tgtLen
+        neighborSums.set(edge.target, tgtSum)
+    }
+    const flows = new Map<string, GraphPoint>()
+    for (const [id, sum] of neighborSums) {
+        const len = Math.hypot(sum.x, sum.y) || 1
+        flows.set(id, { x: sum.x / len, y: sum.y / len })
+    }
+    return flows
 }
 
 function polylinesCross(left: GraphPoint[], right: GraphPoint[]) {

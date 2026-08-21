@@ -12,7 +12,7 @@
   "dependencies": {
     "@fontsource/material-icons": "^5.3.0",
     "@fontsource/roboto": "^5.3.0",
-    "@ro-kit/ui-widgets": "^1.0.58",
+    "@ro-kit/ui-widgets": "^1.0.60",
     "@ulb-darmstadt/shacl-form": "^3.4.2",
     "d3": "^7.9.0",
     "leaflet": "^1.9.4",
@@ -36,5 +36,8 @@
     "typescript": "npm:@typescript/typescript6@^6.0.2",
     "vite": "^8.1.5",
     "vitest": "^3.2.7"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true
   }
 }
