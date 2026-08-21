@@ -106,6 +106,9 @@ export function computeHierarchyScore(
 }
 
 export function selectLayoutEngine(nodes: GraphLayoutNode[], edges: GraphLayoutEdge[], root: string): LayoutEngine {
+    // select only radial for now
+    return engines['radial']()
+    /*
     const nodeCount = nodes.length
     if (nodeCount < 20) {
         return engines['radial']()
@@ -122,6 +125,7 @@ export function selectLayoutEngine(nodes: GraphLayoutNode[], edges: GraphLayoutE
         return engines['hybrid']()
     }
     return engines['radial']()
+    */
 }
 
 export function termKey(term: Quad['subject'] | Quad['predicate'] | Quad['object'] | Quad['graph']) {

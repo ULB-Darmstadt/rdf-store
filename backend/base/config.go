@@ -16,6 +16,9 @@ type Config struct {
 	AuthEnabled         bool     `json:"authEnabled"`
 	ContactEmail        string   `json:"contactEmail,omitempty"`
 	RdfNamespace        string   `json:"rdfNamespace"`
+	ConversionUnit      string   `json:"conversionUnit"`
+	ConversionQuantity  string   `json:"conversionQuantity"`
+	ConversionValue     string   `json:"conversionValue"`
 }
 
 type AuthenticatedConfig struct {
@@ -34,6 +37,9 @@ var Configuration = Config{
 	AuthEnabled:         len(EnvVar("DISABLE_OAUTH", "dummy")) == 0,
 	ContactEmail:        EnvVar("CONTACT_EMAIL", ""),
 	RdfNamespace:        EnvVar("RDF_NAMESPACE", "http://example.org/"),
+	ConversionUnit:      EnvVar("CONVERSION_UNIT", ""),
+	ConversionQuantity:  EnvVar("CONVERSION_QUANTITY", ""),
+	ConversionValue:     EnvVar("CONVERSION_VALUE", ""),
 }
 
 var ExposeFusekiFrontend = EnvVarAsBool("EXPOSE_FUSEKI_FRONTEND", false)

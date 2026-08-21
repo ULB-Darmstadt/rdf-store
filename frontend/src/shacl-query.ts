@@ -11,6 +11,8 @@ import type { Term } from '@rdfjs/types'
 import { DataFactory } from 'n3'
 import { executeSolrRequest, SearchRequest, AggregationFacet } from './solr'
 import { fetchLabels, i18n } from './i18n'
+import { Config } from '.'
+import { convertTermToSi, statFromSi, UnitConversionResolver, QuantitySelection } from './unit-conversion'
 
 const XSD = 'http://www.w3.org/2001/XMLSchema#'
 const DATE_TYPES = new Set([`${XSD}date`, `${XSD}dateTime`])
@@ -102,12 +104,28 @@ function termFromSolr(value: string | number | boolean, field: QueryField): Term
 
 export class SolrQueryFacetProvider implements QueryFacetProvider {
     private baseFilters: string[] = []
+    private readonly unitConversion: UnitConversionResolver
+    private loadingCount = 0
+    onLoadingChange?: (loading: boolean) => void
 
     constructor(
-        private readonly index: string,
-        private readonly bucketLimit = 100,
-        private readonly geoDataType = ''
-    ) {}
+        private readonly config: Config
+    ) {
+        this.unitConversion = new UnitConversionResolver(config, queryFieldPaths)
+    }
+
+    private async trackLoading<T>(task: Promise<T>): Promise<T> {
+        if (++this.loadingCount === 1) {
+            this.onLoadingChange?.(true)
+        }
+        try {
+            return await task
+        } finally {
+            if (--this.loadingCount === 0) {
+                this.onLoadingChange?.(false)
+            }
+        }
+    }
 
     setBaseFilters(filters: string[]) {
         this.baseFilters = [...filters]
@@ -124,15 +142,30 @@ export class SolrQueryFacetProvider implements QueryFacetProvider {
         this.setBaseFilters(filters)
     }
 
-    async buildFilters(query: Query): Promise<string[]> {
+    buildFilters(query: Query, quantities?: QuantitySelection): Promise<string[]> {
+        return this.trackLoading(this.buildFiltersTask(query, quantities))
+    }
+
+    private async buildFiltersTask(query: Query, quantities?: QuantitySelection): Promise<string[]> {
+        const selection = quantities
+            ?? await this.unitConversion.resolveSelection(query.criteria.map(criterion => criterion.field), query.criteria)
         const filters = [this.conformanceFilter(query), ...this.baseFilters].filter(Boolean)
-        const criteria = await Promise.all(query.criteria.map(criterion => this.criterionFilter(criterion)))
+        const criteria = await Promise.all(query.criteria.map(criterion => this.criterionFilter(criterion, selection)))
         filters.push(...criteria.filter((filter): filter is string => !!filter))
         return filters
     }
 
-    async getFacets(request: QueryFacetRequest): Promise<ShaclQueryFacet[]> {
-        const filters = ['docType:entity', ...await this.buildFilters(request.query)]
+    getFacets(request: QueryFacetRequest): Promise<ShaclQueryFacet[]> {
+        return this.trackLoading(this.getFacetsTask(request))
+    }
+
+    private async getFacetsTask(request: QueryFacetRequest): Promise<ShaclQueryFacet[]> {
+        if (!request.fields.length) {
+            return []
+        }
+
+        let quantitySelection = await this.unitConversion.resolveSelection(request.fields, request.query.criteria)
+        const filters = ['docType:entity', ...await this.buildFilters(request.query, quantitySelection)]
         const facet: Record<string, unknown> = {}
         const paths = await Promise.all(request.fields.map(field => this.pathFilter(field)))
 
@@ -152,21 +185,41 @@ export class SolrQueryFacetProvider implements QueryFacetProvider {
                 facet[`f${index}_heatmap`] = { type: 'heatmap', field: valueField, geom: WORLD_BOUNDS, domain }
             } else {
                 facet[`f${index}_buckets`] = {
-                    type: 'terms', field: valueField, limit: this.bucketLimit, domain,
+                    type: 'terms', field: valueField, limit: this.config.solrMaxAggregations, domain,
                     facet: { entities: 'uniqueBlock(_root_)' }
                 }
             }
         })
 
-        if (!request.fields.length) {
-            return []
-        }
         const query: SearchRequest = { query: '*', filter: filters, facet, limit: 0, offset: 0 }
-        const response = await executeSolrRequest(this.index, query, request.signal)
+        const response = await executeSolrRequest(this.config.index, query, request.signal)
         if (response.error) {
             throw new Error(response.error.msg || response.error.trace || 'Solr facet request failed')
         }
         const aggregations = (response.facets || {}) as Record<string, unknown>
+
+        // a kind facet with exactly one bucket identifies the quantity kind unambiguously
+        let autoKindDetected = false
+        request.fields.forEach((field, index) => {
+            queryFieldPaths(field).forEach(path => {
+                if (path[path.length - 1] !== this.config.conversionQuantity) {
+                    return
+                }
+                const buckets = (aggregations[`f${index}_buckets`] as SolrFacetResult | undefined)?.buckets || []
+                if (buckets.length !== 1) {
+                    return
+                }
+                const term = termFromSolr(buckets[0].val, field)
+                const subject = path.slice(0, -1).join('\0')
+                if (term.termType === 'NamedNode' && this.unitConversion.learnAutoKind(subject, term.value)) {
+                    autoKindDetected = true
+                }
+            })
+        })
+        if (autoKindDetected) {
+            // re-resolve so the current response's stats are converted as well
+            quantitySelection = await this.unitConversion.resolveSelection(request.fields, request.query.criteria)
+        }
 
         const labelIds = new Set<string>()
         request.fields.forEach((field, index) => {
@@ -183,16 +236,17 @@ export class SolrQueryFacetProvider implements QueryFacetProvider {
         })
         await fetchLabels(Array.from(labelIds), true)
 
-        return request.fields.map((field, index) => {
+        const result = request.fields.map((field, index) => {
             const countResult = aggregations[`f${index}_count`] as SolrFacetResult | undefined
             const queryFacet: ShaclQueryFacet = { fieldId: field.id, count: countResult?.entities || 0 }
             if (isRangeQueryField(field)) {
                 const stats = aggregations[`f${index}_stats`] as SolrFacetResult | undefined
+                const conversion = quantitySelection.conversions.get(field.id)
                 if (stats?.min !== undefined) {
-                    queryFacet.min = termFromSolr(stats.min, field)
+                    queryFacet.min = termFromSolr(statFromSi(stats.min, conversion), field)
                 }
                 if (stats?.max !== undefined) {
-                    queryFacet.max = termFromSolr(stats.max, field)
+                    queryFacet.max = termFromSolr(statFromSi(stats.max, conversion), field)
                 }
             } else if (this.isSpatialField(field)) {
                 const heatmap = aggregations[`f${index}_heatmap`] as AggregationFacet | undefined
@@ -212,6 +266,7 @@ export class SolrQueryFacetProvider implements QueryFacetProvider {
             }
             return queryFacet
         })
+        return result
     }
 
     private conformanceFilter(query: Query): string {
@@ -257,10 +312,14 @@ export class SolrQueryFacetProvider implements QueryFacetProvider {
     }
 
     private isSpatialField(field: QueryField): boolean {
-        return !!this.geoDataType && field.datatype === this.geoDataType
+        return !!this.config.geoDataType && field.datatype === this.config.geoDataType
     }
 
-    private async criterionFilter(criterion: QueryCriterion): Promise<string | undefined> {
+    private async criterionFilter(criterion: QueryCriterion, quantities?: QuantitySelection): Promise<string | undefined> {
+        // the unit selection is pure metadata: it drives value conversion only and must not restrict results
+        if (quantities?.unitFields.has(criterion.field.id)) {
+            return undefined
+        }
         const path = await this.pathFilter(criterion.field)
         let valueFilter: string | undefined
         if (criterion.operator === 'contains' && criterion.value) {
@@ -276,8 +335,9 @@ export class SolrQueryFacetProvider implements QueryFacetProvider {
             }
             valueFilter ||= `${valueField}:${quote(storedValue(criterion.value, criterion.field))}`
         } else if (criterion.operator === 'range') {
-            const min = criterion.min ? quote(storedValue(criterion.min, criterion.field)) : '*'
-            const max = criterion.max ? quote(storedValue(criterion.max, criterion.field)) : '*'
+            const conversion = quantities?.conversions.get(criterion.field.id)
+            const min = criterion.min ? quote(storedValue(convertTermToSi(criterion.min, conversion), criterion.field)) : '*'
+            const max = criterion.max ? quote(storedValue(convertTermToSi(criterion.max, conversion), criterion.field)) : '*'
             if (min !== '*' || max !== '*') {
                 valueFilter = `${this.valueField(criterion.field)}:[${min} TO ${max}]`
             }

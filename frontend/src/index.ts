@@ -29,6 +29,9 @@ export type Config = {
     authEmail: string
     contactEmail: string
     rdfNamespace: string
+    conversionUnit: string
+    conversionQuantity: string
+    conversionValue: string
 }
 
 @customElement('rdf-store')
@@ -62,6 +65,7 @@ export class App extends LitElement {
     queryFormLoadingObserver?: MutationObserver
     observedQueryForm?: ShaclForm
     searchLoading = false
+    queryFacetLoading = false
     queryFormLoading = false
     viewerLoading = false
 
@@ -131,11 +135,11 @@ export class App extends LitElement {
                 rootShapeId: this.selectedQueryProfile,
                 criteria: []
             } : undefined
-            this.queryFacetProvider = new SolrQueryFacetProvider(
-                this.config.index,
-                this.config.solrMaxAggregations,
-                this.config.geoDataType
-            )
+            this.queryFacetProvider = new SolrQueryFacetProvider(this.config)
+            this.queryFacetProvider.onLoadingChange = loading => {
+                this.queryFacetLoading = loading
+                this.updateMainLoading()
+            }
             if (this.config.geoDataType) {
                 registerPlugin(new LeafletPlugin({ datatype: this.config.geoDataType }))
             }
@@ -181,7 +185,7 @@ export class App extends LitElement {
     }
 
     updateMainLoading() {
-        this.shadowRoot?.querySelector('#main')?.classList.toggle('loading', this.searchLoading || this.queryFormLoading || this.viewerLoading)
+        this.shadowRoot?.querySelector('#main')?.classList.toggle('loading', this.searchLoading || this.queryFacetLoading || this.queryFormLoading || this.viewerLoading)
     }
 
     private viewerLoadingChanged(event: CustomEvent<{ loading: boolean }>) {

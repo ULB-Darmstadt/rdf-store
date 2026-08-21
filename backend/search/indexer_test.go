@@ -785,15 +785,15 @@ func TestBuildQueryDocConvertsQuantityValueToCanonical(t *testing.T) {
 	if values[0] != "373.15" {
 		t.Fatalf("expected canonical value 373.15 K, got %v", values[0])
 	}
-	// The hasUnit valueString should carry the canonical unit URI, not the original.
+	// The hasUnit valueString carries the original unit URI (not canonicalized)
+	// so that the unit facet shows the actual unit used in the data.
 	unitPath := []string{hasMeasurementPath, hasUnitPath}
 	unitValues := valueChildren(measurementDoc, unitPath, "valueString")
 	if len(unitValues) != 1 {
 		t.Fatalf("expected exactly one unit value, got %#v", unitValues)
 	}
-	const kelvinURI = "http://qudt.org/vocab/unit/K"
-	if unitValues[0] != rdf2go.NewResource(kelvinURI).String() {
-		t.Fatalf("expected canonical unit %s, got %v", kelvinURI, unitValues[0])
+	if unitValues[0] != rdf2go.NewResource(celsiusUnit).String() {
+		t.Fatalf("expected original unit %s, got %v", celsiusUnit, unitValues[0])
 	}
 	// Other numeric properties on the quantity node are not governed by its unit.
 	if countValues := valueChildren(measurementDoc, []string{hasMeasurementPath, sampleCountPath}, "valueNumber"); len(countValues) != 1 || countValues[0] != "2" {
@@ -911,8 +911,7 @@ func TestBuildQueryDocConvertsDeltaQuantityWithoutOffset(t *testing.T) {
 	if len(unitValues) != 1 {
 		t.Fatalf("expected exactly one unit value, got %#v", unitValues)
 	}
-	const kelvinURI = "http://qudt.org/vocab/unit/K"
-	if unitValues[0] != rdf2go.NewResource(kelvinURI).String() {
-		t.Fatalf("expected canonical unit %s, got %v", kelvinURI, unitValues[0])
+	if unitValues[0] != rdf2go.NewResource(celsiusUnit).String() {
+		t.Fatalf("expected original unit %s, got %v", celsiusUnit, unitValues[0])
 	}
 }

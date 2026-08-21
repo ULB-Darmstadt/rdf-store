@@ -21,9 +21,9 @@ import (
 )
 
 var defaultConversionPredicates = qudt.NewPredicateConfig(
-	base.EnvVar("CONVERSION_UNIT", ""),
-	base.EnvVar("CONVERSION_QUANTITY", ""),
-	base.EnvVar("CONVERSION_VALUE", ""),
+	base.Configuration.ConversionUnit,
+	base.Configuration.ConversionQuantity,
+	base.Configuration.ConversionValue,
 )
 
 // Init prepares the Solr collection and schema for indexing.
@@ -695,17 +695,6 @@ func (indexer *queryIndexer) appendValue(value queryIndexValue) {
 		default:
 			field = "valueText"
 			storedValue = literal.RawValue()
-		}
-	}
-	// Replace the original unit URI with its canonical form when a quantity
-	// context is available and the value is the source unit resource.
-	if value.quantity.CanonicalizesUnitPredicate(value.predicateURI) {
-		if res, ok := value.term.(*rdf2go.Resource); ok && res.RawValue() == value.quantity.UnitURI {
-			if canonical := qudt.CanonicalUnitURI(value.quantity.UnitURI, value.quantity.QuantityKindURI); canonical != "" && value.quantity.UnitURI != canonical {
-				// Resource-valued facets use RDF term syntax (for example <...>) so
-				// converted and already-canonical units land in the same Solr bucket.
-				storedValue = rdf2go.NewResource(canonical).String()
-			}
 		}
 	}
 	child[field] = storedValue
