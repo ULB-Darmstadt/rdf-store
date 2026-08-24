@@ -4,7 +4,8 @@ import type {
     QueryFacetRequest,
     QueryField,
     QueryFacetProvider,
-    Query
+    Query,
+    QueryChange
 } from '@ulb-darmstadt/shacl-form'
 import { isRangeQueryField } from '@ulb-darmstadt/shacl-form'
 import type { Term } from '@rdfjs/types'
@@ -105,6 +106,7 @@ function termFromSolr(value: string | number | boolean, field: QueryField): Term
 export class SolrQueryFacetProvider implements QueryFacetProvider {
     private baseFilters: string[] = []
     private readonly unitConversion: UnitConversionResolver
+    private readonly initialUnitFacets = new Map<string, ShaclQueryFacet>()
     private loadingCount = 0
     onLoadingChange?: (loading: boolean) => void
 
@@ -140,6 +142,14 @@ export class SolrQueryFacetProvider implements QueryFacetProvider {
             filters.push(`_text_:*${term.replace(LUCENE_SPECIAL_RE, '\\$1')}*`)
         }
         this.setBaseFilters(filters)
+    }
+
+    invalidatedFields(change: QueryChange): string[] {
+        return this.unitConversion.invalidatedValueFields(
+            change.fields,
+            change.previousQuery.criteria,
+            change.query.criteria
+        )
     }
 
     buildFilters(query: Query, quantities?: QuantitySelection): Promise<string[]> {
@@ -265,6 +275,15 @@ export class SolrQueryFacetProvider implements QueryFacetProvider {
                     return { value, label: i18n[value.value] || value.value, count: bucket.entities || 0 }
                 })
             }
+            if (!this.isQuantityUnitField(field)) {
+                return queryFacet
+            }
+
+            const initial = this.initialUnitFacets.get(field.id)
+            if (initial) {
+                return this.cloneFacet(initial)
+            }
+            this.initialUnitFacets.set(field.id, this.cloneFacet(queryFacet))
             return queryFacet
         })
         return result
@@ -310,6 +329,19 @@ export class SolrQueryFacetProvider implements QueryFacetProvider {
 
     private facetValueField(field: QueryField): string {
         return this.valueField(field)
+    }
+
+    private isQuantityUnitField(field: QueryField): boolean {
+        return !!this.config.conversionUnit && queryFieldPaths(field).some(path =>
+            path[path.length - 1] === this.config.conversionUnit
+        )
+    }
+
+    private cloneFacet(facet: ShaclQueryFacet): ShaclQueryFacet {
+        return {
+            ...facet,
+            buckets: facet.buckets?.map(bucket => ({ ...bucket }))
+        }
     }
 
     private isSpatialField(field: QueryField): boolean {

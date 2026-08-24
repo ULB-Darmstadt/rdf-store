@@ -110,6 +110,26 @@ export class UnitConversionResolver {
         return true
     }
 
+    invalidatedValueFields(
+        fields: QueryField[],
+        previousCriteria: QueryCriterion[],
+        criteria: QueryCriterion[]
+    ): string[] {
+        if (!this.enabled) {
+            return []
+        }
+        const previous = this.selectedValues(previousCriteria)
+        const selected = this.selectedValues(criteria)
+        const invalidated = new Set<string>()
+        for (const group of this.scanForQuantities(fields).values()) {
+            const unitChanged = group.units.some(field => previous.get(field.id) !== selected.get(field.id))
+            if (unitChanged) {
+                group.values.forEach(field => invalidated.add(field.id))
+            }
+        }
+        return Array.from(invalidated)
+    }
+
     async resolveSelection(fields: QueryField[], criteria: QueryCriterion[]): Promise<QuantitySelection> {
         const selection: QuantitySelection = { conversions: new Map(), unitFields: new Set() }
         if (!this.enabled) {

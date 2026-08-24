@@ -157,6 +157,30 @@ describe('quantity conversion', () => {
         expect(filters.filter(filter => filter.includes('docType:value'))).toHaveLength(2)
     })
 
+    it('invalidates the related value range when the selected unit changes', () => {
+        const provider = new SolrQueryFacetProvider(quantityConfig())
+        const value = field('value', ['part', VALUE_PREDICATE])
+        const unitField = field('unit', ['part', UNIT_PREDICATE])
+        const previousUnit = unitCriterion(unit('old'))
+        const selectedUnit = unitCriterion(unit('new'))
+
+        expect(provider.invalidatedFields({
+            previousQuery: { rootShapeId: 'urn:shape:root', criteria: [previousUnit] },
+            query: { rootShapeId: 'urn:shape:root', criteria: [selectedUnit] },
+            fields: [value, unitField]
+        })).toEqual(['value'])
+        expect(provider.invalidatedFields({
+            previousQuery: { rootShapeId: 'urn:shape:root', criteria: [] },
+            query: { rootShapeId: 'urn:shape:root', criteria: [selectedUnit] },
+            fields: [value, unitField]
+        })).toEqual(['value'])
+        expect(provider.invalidatedFields({
+            previousQuery: { rootShapeId: 'urn:shape:root', criteria: [selectedUnit] },
+            query: { rootShapeId: 'urn:shape:root', criteria: [selectedUnit] },
+            fields: [value, unitField]
+        })).toEqual([])
+    })
+
     it('accepts unit selections stored as bracketed IRI literals', async() => {
         mockQuantityFetch({ [unit('t8')]: { multiplier: 1, offset: 273.15 } })
         const provider = new SolrQueryFacetProvider(quantityConfig())
@@ -345,6 +369,47 @@ describe('quantity conversion', () => {
             unitCriterion(unit('t10'))
         ])
         expect(filters).toContainEqual(expect.stringContaining('valueNumber:["0" TO "100"]'))
+    })
+
+    it('keeps quantity unit facets stable after the first facet request', async() => {
+        mockQuantityFetch({})
+        vi.mocked(executeSolrRequest)
+            .mockResolvedValueOnce({
+                facets: {
+                    f0_count: { entities: 5 },
+                    f0_buckets: { buckets: [
+                        { val: `<${unit('facet-a')}>`, count: 3, entities: 3 },
+                        { val: `<${unit('facet-b')}>`, count: 2, entities: 2 }
+                    ] }
+                }
+            } as unknown as SearchResponse)
+            .mockResolvedValueOnce({
+                facets: {
+                    f0_count: { entities: 1 },
+                    f0_buckets: { buckets: [
+                        { val: `<${unit('facet-a')}>`, count: 1, entities: 1 }
+                    ] }
+                }
+            } as unknown as SearchResponse)
+        const provider = new SolrQueryFacetProvider(quantityConfig())
+        const request: QueryFacetRequest = {
+            query: { rootShapeId: 'urn:shape:root', criteria: [] },
+            fields: [field('unit', ['part', UNIT_PREDICATE])],
+            signal: new AbortController().signal
+        }
+
+        const initial = await provider.getFacets(request)
+        const refreshed = await provider.getFacets({
+            ...request,
+            query: { ...request.query, criteria: [kindCriterion(kind('facet'))] }
+        })
+
+        expect(initial[0].count).toBe(5)
+        expect(refreshed[0]).toEqual(initial[0])
+        expect(refreshed[0].buckets?.map(bucket => bucket.value.value)).toEqual([
+            unit('facet-a'),
+            unit('facet-b')
+        ])
     })
 })
 

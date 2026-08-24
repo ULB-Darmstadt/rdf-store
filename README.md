@@ -29,6 +29,10 @@ git pull
 docker compose up -d --build --force-recreate
 ```
 
+The project follows a rolling deployment model rather than versioned releases.
+See the [changelog](./CHANGELOG.md) for notable changes on `main`; Git history is
+the authoritative record for a specific deployment.
+
 ## SHACL shapes (aka application profiles)
 RDF store supports loading SHACL shapes locally from the directory `rdf-store/backend/local/profiles/` or remotely from the [NFDI4Ing metadata profiles service](https://profiles.nfdi4ing.de). See the [.env.example](./.env.example) file on how to enable/disable/configure these sources.
 
