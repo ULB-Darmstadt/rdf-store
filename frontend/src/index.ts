@@ -324,6 +324,7 @@ export class App extends LitElement {
                                     id="query-form"
                                     class="p-1"
                                     data-mode="query"
+                                    data-ignore-owl-imports
                                     data-loading="${i18n['loading_filters']}"
                                     data-shape-subject="${this.selectedQueryProfile}"
                                     data-shapes-url="${this.selectedQueryProfile}"
