@@ -1,7 +1,6 @@
 package search
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -48,70 +47,125 @@ func Init(forceRecreate bool) error {
 }
 
 // Reindex rebuilds the Solr index from all known resources.
-func Reindex() {
+func Reindex() error {
 	slog.Info("reindexing...")
 	start := time.Now()
-	if err := Init(true); err != nil {
-		slog.Error("reindexing failed.", "error", err)
-		return
-	}
 	resourceIds, err := rdf.GetAllResourceIds()
 	if err != nil {
-		slog.Error("reindexing failed.", "error", err)
-		return
+		return fmt.Errorf("listing resources for reindex: %w", err)
 	}
+	loader := rdf.NewResourceIndexLoader()
+	var documents []*document
 	resourceCount := 0
 	for _, id := range resourceIds {
-		data, metadata, err := rdf.GetResource(id, false)
+		docs, err := buildStoredResourceDocuments(id, loader)
 		if err != nil {
-			slog.Error("failed loading resource", "id", id, "error", err)
-		} else {
-			graph, err := base.ParseGraph(bytes.NewReader(data))
-			if err != nil {
-				slog.Error(err.Error())
-			} else {
-				if err = IndexResource(graph, metadata); err != nil {
-					slog.Error("failed indexing resource", "id", id, "error", err)
-				} else {
-					resourceCount = resourceCount + 1
-				}
-			}
+			return fmt.Errorf("preparing resource %s before replacing collection: %w", id, err)
+		}
+		documents = append(documents, docs...)
+		resourceCount = resourceCount + 1
+	}
+	if err := Init(true); err != nil {
+		return fmt.Errorf("recreating search collection: %w", err)
+	}
+	if len(documents) > 0 {
+		if err := updateDocsInBatches(documents, 100); err != nil {
+			return fmt.Errorf("submitting reindexed documents: %w", err)
 		}
 	}
 	slog.Info("reindexing finished", "resources", resourceCount, "duration", time.Since(start))
+	return nil
 }
 
-// IndexResource builds and submits search documents for a resource.
-// Every entity conforming to a SHACL shape becomes its own search document.
-// It returns an error when indexing or deindexing fails.
-func IndexResource(resource *rdf2go.Graph, metadata *rdf.ResourceMetadata) error {
+func updateDocsInBatches(documents []*document, batchSize int) error {
+	if batchSize <= 0 {
+		return fmt.Errorf("invalid document batch size %d", batchSize)
+	}
+	for start := 0; start < len(documents); start += batchSize {
+		end := min(start+batchSize, len(documents))
+		if err := updateDocsWithCommit(documents[start:end], end == len(documents)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// IndexStoredResource expands recursively linked local resources and indexes
+// their nested query values onto the requested resource's search documents.
+func IndexStoredResource(id string) error {
+	return IndexStoredResources([]string{id})
+}
+
+// IndexStoredResources rebuilds several resources with a shared linked-graph
+// cache and a single final Solr commit.
+func IndexStoredResources(ids []string) error {
+	ids = sortedUniqueStrings(ids)
+	if len(ids) == 0 {
+		return nil
+	}
+	loader := rdf.NewResourceIndexLoader()
+	var documents []*document
+	for _, id := range ids {
+		docs, err := buildStoredResourceDocuments(id, loader)
+		if err != nil {
+			return err
+		}
+		documents = append(documents, docs...)
+	}
+	if err := deleteByResourceIds(ids, len(documents) == 0); err != nil {
+		return err
+	}
+	if len(documents) == 0 {
+		return nil
+	}
+	return updateDocsInBatches(documents, 100)
+}
+
+func sortedUniqueStrings(values []string) []string {
+	unique := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		unique[value] = struct{}{}
+	}
+	result := make([]string, 0, len(unique))
+	for value := range unique {
+		result = append(result, value)
+	}
+	sort.Strings(result)
+	return result
+}
+
+func buildStoredResourceDocuments(id string, loader *rdf.ResourceIndexLoader) ([]*document, error) {
+	resource, metadata, queryConformance, err := loader.Get(id)
+	if err != nil {
+		return nil, err
+	}
+	return buildDocuments(resource, metadata, queryConformance)
+}
+
+func buildDocuments(resource *rdf2go.Graph, metadata *rdf.ResourceMetadata, queryConformance map[string][]string) ([]*document, error) {
 	labelIDs := make([]string, 0, len(metadata.Conformance))
 	for subjectID := range metadata.Conformance {
 		labelIDs = append(labelIDs, rdf2go.NewResource(subjectID).String())
 	}
 	labels, err := rdf.GetDefaultLabels(labelIDs)
 	if err != nil {
-		return fmt.Errorf("loading extracted resource labels: %w", err)
-	}
-	if err := DeindexResource(metadata.Id.RawValue()); err != nil {
-		return err
+		return nil, fmt.Errorf("loading extracted resource labels: %w", err)
 	}
 	docs, err := buildResourceDocuments(resource, metadata, resourceIndexOptions{
 		conversionPredicates: defaultConversionPredicates,
 		extractedLabels:      labels,
+		queryConformance:     queryConformance,
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if len(docs) == 0 {
-		return nil
-	}
-	return updateDocs(docs)
+	return docs, nil
 }
 
 type resourceIndexOptions struct {
 	conversionPredicates qudt.PredicateConfig
 	extractedLabels      map[string]string
+	queryConformance     map[string][]string
 }
 
 // buildResourceDocuments creates one Solr document for every entity in the
@@ -164,17 +218,23 @@ func buildResourceDocuments(resource *rdf2go.Graph, metadata *rdf.ResourceMetada
 		docs = append(docs, doc)
 	}
 
+	queryMetadata := metadata
+	if options.queryConformance != nil {
+		copy := *metadata
+		copy.Conformance = options.queryConformance
+		queryMetadata = &copy
+	}
 	rootProfileChain := collectRootProfileChain(profile)
 	rootDoc := docsBySubject[metadata.Id.RawValue()]
-	valueKeys := make(map[string]map[string]bool, len(docsBySubject))
+	valueDocuments := make(map[string]map[string]*document, len(docsBySubject))
 	for _, targetShape := range rootProfileChain {
 		traversal := &queryTraversalState{
-			active:    make(map[string]bool),
-			visited:   make(map[string]bool),
-			entities:  docsBySubject,
-			valueKeys: valueKeys,
+			active:         make(map[string]bool),
+			visited:        make(map[string]bool),
+			entities:       docsBySubject,
+			valueDocuments: valueDocuments,
 		}
-		newQueryIndexer(resource, metadata, targetShape, traversal, options.conversionPredicates).index(metadata.Id, profile, rootDoc)
+		newQueryIndexer(resource, queryMetadata, targetShape, traversal, options.conversionPredicates).index(metadata.Id, profile, rootDoc)
 	}
 	// Every entity is additionally traversed from its own most specific
 	// shape so its leaf values are also indexed under paths relative to the
@@ -194,10 +254,10 @@ func buildResourceDocuments(resource *rdf2go.Graph, metadata *rdf.ResourceMetada
 			continue
 		}
 		traversal := &queryTraversalState{
-			active:    make(map[string]bool),
-			visited:   make(map[string]bool),
-			entities:  docsBySubject,
-			valueKeys: valueKeys,
+			active:         make(map[string]bool),
+			visited:        make(map[string]bool),
+			entities:       docsBySubject,
+			valueDocuments: valueDocuments,
 		}
 		newQueryIndexer(resource, metadata, topShapeID, traversal, options.conversionPredicates).index(rdf2go.NewResource(subjectID), topShape, entityDoc)
 	}
@@ -418,10 +478,10 @@ func buildDocRecursive(subject rdf2go.Term, profile *shacl.NodeShape, resource *
 // (e.g. owner.firstName) matches the conforming ancestor rather than only the
 // nested entity itself.
 type queryTraversalState struct {
-	active    map[string]bool
-	visited   map[string]bool
-	entities  map[string]*document
-	valueKeys map[string]map[string]bool
+	active         map[string]bool
+	visited        map[string]bool
+	entities       map[string]*document
+	valueDocuments map[string]map[string]*document
 }
 
 // queryIndexer owns the dependencies and mutable state shared by one query
@@ -455,9 +515,9 @@ type queryIndexValue struct {
 
 func newQueryTraversalState() *queryTraversalState {
 	return &queryTraversalState{
-		active:    make(map[string]bool),
-		visited:   make(map[string]bool),
-		valueKeys: make(map[string]map[string]bool),
+		active:         make(map[string]bool),
+		visited:        make(map[string]bool),
+		valueDocuments: make(map[string]map[string]*document),
 	}
 }
 
@@ -647,19 +707,14 @@ func (indexer *queryIndexer) appendValue(value queryIndexValue) {
 	path := queryPathID(value.shapePath)
 	field := "valueString"
 	storedValue := value.term.String()
-	child := document{
-		"docType":    "value",
-		"resourceId": (*value.document)["resourceId"],
-		"path":       path,
-	}
+	var datatype string
+	var language string
 	if literal, ok := value.term.(*rdf2go.Literal); ok {
-		datatype := ""
 		if literal.Datatype != nil {
 			datatype = literal.Datatype.RawValue()
-			child["datatype"] = datatype
 		}
 		if literal.Language != "" {
-			child["language"] = literal.Language
+			language = literal.Language
 		}
 		suffix := datatypeMappings[datatype]
 		switch suffix {
@@ -697,33 +752,37 @@ func (indexer *queryIndexer) appendValue(value queryIndexValue) {
 			storedValue = literal.RawValue()
 		}
 	}
-	child[field] = storedValue
-	// Text literals need analyzed search and exact-value faceting. Keeping both
-	// representations in the same value document avoids another schema field or
-	// a second child document for the same RDF value.
-	if field == "valueText" {
-		child["valueString"] = storedValue
-	}
-
 	parentID := fmt.Sprint((*value.document)["id"])
-	key := path + "\x00" + field + "\x00" + storedValue
 	ownerKey := parentID
 	if ownerKey == "<nil>" || ownerKey == "" {
 		ownerKey = fmt.Sprintf("%p", value.document)
 	}
-	parentKeys := indexer.traversal.valueKeys[ownerKey]
-	if parentKeys == nil {
-		parentKeys = make(map[string]bool)
-		indexer.traversal.valueKeys[ownerKey] = parentKeys
+	parentDocuments := indexer.traversal.valueDocuments[ownerKey]
+	if parentDocuments == nil {
+		parentDocuments = make(map[string]*document)
+		indexer.traversal.valueDocuments[ownerKey] = parentDocuments
 	}
-	if parentKeys[key] {
-		return
+	child := parentDocuments[path]
+	if child == nil {
+		digest := sha256.Sum256([]byte(parentID + "\x00" + path))
+		valueDocument := document{
+			"id":         parentID + "|value|" + hex.EncodeToString(digest[:16]),
+			"docType":    "value",
+			"resourceId": (*value.document)["resourceId"],
+			"path":       path,
+		}
+		child = &valueDocument
+		parentDocuments[path] = child
+		children, _ := (*value.document)["_childDocuments_"].([]any)
+		(*value.document)["_childDocuments_"] = append(children, valueDocument)
 	}
-	parentKeys[key] = true
-	digest := sha256.Sum256([]byte(parentID + "\x00" + key))
-	child["id"] = parentID + "|value|" + hex.EncodeToString(digest[:16])
-	children, _ := (*value.document)["_childDocuments_"].([]any)
-	(*value.document)["_childDocuments_"] = append(children, child)
+	child.appendValue(field, storedValue)
+	if datatype != "" {
+		child.appendValue("datatype", datatype)
+	}
+	if language != "" {
+		child.appendValue("language", language)
+	}
 }
 
 func hasTimezoneOffset(value string) bool {

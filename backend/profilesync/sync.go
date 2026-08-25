@@ -39,25 +39,12 @@ func Synchronize() {
 			_, err := rdf.ParseAllProfiles()
 			if err != nil {
 				slog.Error("failed parsing profiles", "error", err)
+			} else if err := rdf.RebuildAllResourceConformance(); err != nil {
+				slog.Error("failed rebuilding resource metadata after profile synchronization", "error", err)
+			} else if err := search.Reindex(); err != nil {
+				slog.Error("failed rebuilding search index after profile synchronization", "error", err)
 			} else {
-				for _, profileId := range changedOrDeletedProfiles {
-					resourcesToUpdate, err := rdf.FindConformingResources(profileId)
-					if err != nil {
-						slog.Error("failed getting conforming resources for changed profile", "id", profileId, "error", err)
-					} else {
-						for _, resourceId := range resourcesToUpdate {
-							slog.Debug("updating metadata and search index for resource", "id", resourceId)
-							metadata, graph, err := rdf.RebuildResourceConformance(resourceId)
-							if err != nil {
-								slog.Error("failed updating resource metadata", "id", resourceId, "error", err)
-							} else {
-								if err := search.IndexResource(graph, metadata); err != nil {
-									slog.Error("failed updating search index for resource", "id", resourceId, "error", err)
-								}
-							}
-						}
-					}
-				}
+				slog.Info("rebuilt resource metadata and search index after profile synchronization")
 			}
 		}
 	} else {

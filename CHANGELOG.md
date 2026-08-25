@@ -15,6 +15,23 @@ significant changes rather than documenting every commit.
 - Keep quantity-unit facet choices stable while other query criteria change.
 - Clear a related quantity range when its selected unit changes, preventing a
   range entered for one unit from being interpreted as another.
+- Include recursively linked local resources when indexing nested query paths,
+  so filters reflect values stored in linked RDF graphs.
+- Reindex direct and transitive referring resources when a linked resource is
+  updated, preventing denormalized linked fields from becoming stale; failed
+  dependent refreshes restore the prior RDF, metadata, and search documents.
+- Cache shared linked-graph lookups and submit rebuilt search documents in
+  batches with a single final commit, substantially reducing full-reindex time.
+- Group all values for the same entity and SHACL path into one multivalued Solr
+  child document, reducing nested-document overhead without changing filters or
+  facets.
+- Persist contextual linked-resource conformance during metadata validation so
+  subsequent full reindexes do not repeat SHACL validation.
+- Abort a reindex before replacing the Solr collection when resource metadata
+  has not yet been migrated with `rdf-store-cli rebuild`.
+- Rebuild all resource metadata and perform one batched reindex after profile
+  changes, keeping contextual linked conformance synchronized.
+- Return nonzero CLI exit codes when metadata rebuilding or reindexing fails.
 - Update `@ulb-darmstadt/shacl-form` to 3.5.0 and `@ro-kit/ui-widgets` to 1.0.61.
 
 ## 2026-08

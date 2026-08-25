@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"regexp"
 	"slices"
+	"strings"
 
 	"github.com/stevenferrer/solr-go"
 )
@@ -127,9 +128,7 @@ func patchLocationField() error {
 	return nil
 }
 
-// updateDocs submits document updates and commits them in Solr.
-// It returns an error if the update or commit fails.
-func updateDocs(docs []*document) error {
+func updateDocsWithCommit(docs []*document, commit bool) error {
 	commands := make([]any, 0, len(docs))
 	for _, doc := range docs {
 		// Documents are sent unwrapped. The {"doc": {...}} element form is
@@ -138,7 +137,7 @@ func updateDocs(docs []*document) error {
 		// still defines the block-join _root_/_nest_path_ fields).
 		commands = append(commands, doc)
 	}
-	return solrUpdateBody(map[string]any{"add": commands}, true)
+	return solrUpdateBody(map[string]any{"add": commands}, commit)
 }
 
 var luceneSpecialCharacters = regexp.MustCompile(`[+\-&|!(){}\[\]^"~*?:\\/]`)
@@ -155,8 +154,16 @@ func escapeQueryValue(value string) string {
 // The id clause keeps compatibility with documents indexed by older versions.
 // It returns an error if the delete or commit fails.
 func deleteByResourceId(resourceId string) error {
-	escaped := escapeQueryValue(resourceId)
-	return solrUpdateBody(map[string]any{"delete": map[string]any{"query": fmt.Sprintf("id:%s OR resourceId:%s", escaped, escaped)}}, true)
+	return deleteByResourceIds([]string{resourceId}, true)
+}
+
+func deleteByResourceIds(resourceIds []string, commit bool) error {
+	clauses := make([]string, 0, len(resourceIds))
+	for _, resourceID := range resourceIds {
+		escaped := escapeQueryValue(resourceID)
+		clauses = append(clauses, fmt.Sprintf("(id:%s OR resourceId:%s)", escaped, escaped))
+	}
+	return solrUpdateBody(map[string]any{"delete": map[string]any{"query": strings.Join(clauses, " OR ")}}, commit)
 }
 
 // solrUpdateBody posts an update payload to the collection's /update handler

@@ -125,8 +125,8 @@ func importLocalResources() {
 			if !file.IsDir() && strings.HasSuffix(file.Name(), ".ttl") {
 				slog.Info("importing resource graph", "file", file.Name())
 				if data, err := os.ReadFile(path.Join(baseDir, file.Name())); err == nil {
-					if resource, metadata, err := rdf.CreateResource(data, ""); err == nil {
-						err = search.IndexResource(resource, metadata)
+					if metadata, err := rdf.CreateResource(data, ""); err == nil {
+						err = search.IndexStoredResource(metadata.Id.RawValue())
 					}
 				}
 				if err != nil {

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"log/slog"
 	"rdf-store-backend/base"
 	"rdf-store-backend/shacl"
 	"slices"
@@ -27,38 +28,46 @@ type ResourceMetadata struct {
 	LastModified time.Time
 	// Conformance maps resource identifiers to their conforming SHACL shape identifiers.
 	Conformance map[string][]string
+	// QueryConformance additionally includes linked subjects in the validation
+	// context of this resource. It is used to index nested linked query paths.
+	QueryConformance map[string][]string
 }
 
-// FindConformingResources returns IDs of resources that conform to a profile.
-// It returns the slice of matching resource IDs and any error encountered.
-func FindConformingResources(profileId string) ([]string, error) {
-	bindings, err := queryDataset(resourceMetaDataset, fmt.Sprintf(`SELECT ?g WHERE { GRAPH ?g { ?s <`+shacl.DCTERMS_CONFORMS_TO.RawValue()+`> <%s> } }`, profileId))
-	if err != nil {
-		return nil, err
-	}
-	res, err := sparql.ParseJSON(bytes.NewReader(bindings))
-	if err != nil {
-		return nil, err
-	}
-	var conformingResources []string
-	for _, row := range res.Solutions() {
-		g, okG := row["g"]
-		if !okG {
-			return nil, fmt.Errorf("invalid binding: %v", row)
-		}
-		conformingResources = append(conformingResources, g.String())
-	}
-	return conformingResources, nil
-}
+const queryConformsTo = "urn:rdf-store:queryConformsTo"
 
 // RebuildResourceConformance rebuilds metadata for a resource.
-// It returns the updated metadata, parsed graph, and any error encountered.
-func RebuildResourceConformance(id string) (metadata *ResourceMetadata, graph *rdf2go.Graph, err error) {
+// It returns the updated metadata and any error encountered.
+func RebuildResourceConformance(id string) (metadata *ResourceMetadata, err error) {
 	resource, metadata, err := GetResource(id, false)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	return updateResourceMetadata(rdf2go.NewResource(id), resource, true)
+	metadata, _, err = updateResourceMetadata(rdf2go.NewResource(id), resource, true)
+	return metadata, err
+}
+
+// RebuildAllResourceConformance refreshes metadata for every stored resource.
+// It attempts every resource and joins any errors so callers can fail reliably.
+func RebuildAllResourceConformance() error {
+	resourceIDs, err := GetAllResourceIds()
+	if err != nil {
+		return err
+	}
+	return rebuildResourceConformanceSet(resourceIDs, func(resourceID string) error {
+		_, err := RebuildResourceConformance(resourceID)
+		return err
+	})
+}
+
+func rebuildResourceConformanceSet(resourceIDs []string, rebuild func(string) error) error {
+	var rebuildErrors []error
+	for _, resourceID := range resourceIDs {
+		slog.Info("rebuilding resource metadata", "resource", resourceID)
+		if err := rebuild(resourceID); err != nil {
+			rebuildErrors = append(rebuildErrors, fmt.Errorf("rebuilding metadata for %s: %w", resourceID, err))
+		}
+	}
+	return errors.Join(rebuildErrors...)
 }
 
 // metadataUpdateTemplate renders the RDF triples persisted to the metadata dataset.
@@ -75,6 +84,11 @@ var metadataUpdateTemplate = template.Must(template.New("").Funcs(template.FuncM
 	{{range $key, $values := .Conformance}}
 	{{- range $values}}
 	<{{$key}}> <` + shacl.DCTERMS_CONFORMS_TO.RawValue() + `> <{{.}}> .
+	{{- end}}
+	{{- end}}
+	{{range $key, $values := .QueryConformance}}
+	{{- range $values}}
+	<{{$key}}> <` + queryConformsTo + `> <{{.}}> .
 	{{- end}}
 	{{- end}}
 `))
@@ -120,6 +134,11 @@ func loadResourceMetadata(id string) (metadata *ResourceMetadata, err error) {
 			}
 		case shacl.DCTERMS_CONFORMS_TO.RawValue():
 			metadata.Conformance[s.String()] = append(metadata.Conformance[s.String()], o.String())
+		case queryConformsTo:
+			if metadata.QueryConformance == nil {
+				metadata.QueryConformance = make(map[string][]string)
+			}
+			metadata.QueryConformance[s.String()] = append(metadata.QueryConformance[s.String()], o.String())
 		}
 	}
 	return
@@ -136,11 +155,7 @@ func createResourceMetadata(resource []byte, creator string) (metadata *Resource
 	metadata.Creator = creator
 	metadata.Created = time.Now().UTC()
 	metadata.LastModified = metadata.Created
-	var buf bytes.Buffer
-	if err = metadataUpdateTemplate.Execute(&buf, metadata); err != nil {
-		return
-	}
-	err = uploadGraph(resourceMetaDataset, metadata.Id.RawValue(), buf.Bytes(), nil)
+	err = storeResourceMetadata(metadata)
 	return
 }
 
@@ -166,15 +181,25 @@ func updateResourceMetadata(id rdf2go.Term, resource []byte, preserveLastModifie
 		metadata.LastModified = time.Now().UTC()
 	}
 	metadata.Conformance = updatedMetadata.Conformance
-	if err = deleteResourceMetadata(id.RawValue()); err != nil {
-		return
-	}
-	var buf bytes.Buffer
-	if err = metadataUpdateTemplate.Execute(&buf, metadata); err != nil {
-		return
-	}
-	err = uploadGraph(resourceMetaDataset, metadata.Id.RawValue(), buf.Bytes(), nil)
+	metadata.QueryConformance = updatedMetadata.QueryConformance
+	err = storeResourceMetadata(metadata)
 	return
+}
+
+// RestoreResourceMetadata replaces persisted metadata with a prior snapshot.
+func RestoreResourceMetadata(metadata *ResourceMetadata) error {
+	if metadata == nil || metadata.Id == nil || !isValidIRI(metadata.Id.RawValue()) {
+		return fmt.Errorf("invalid resource metadata snapshot")
+	}
+	return storeResourceMetadata(metadata)
+}
+
+func storeResourceMetadata(metadata *ResourceMetadata) error {
+	var buf bytes.Buffer
+	if err := metadataUpdateTemplate.Execute(&buf, metadata); err != nil {
+		return err
+	}
+	return uploadGraph(resourceMetaDataset, metadata.Id.RawValue(), buf.Bytes(), nil)
 }
 
 // deleteResourceMetadata removes the named graph of the resource metadata.
@@ -227,6 +252,7 @@ func buildResourceConformance(id rdf2go.Term, resource []byte) (metadata *Resour
 	if err != nil {
 		return nil, nil, err
 	}
+	queryConformance := cloneConformance(conformance)
 	// filter out shape conformance for linked resources.
 	// we assume that if an ID is not a subject in the original resource graph, then it is a linked resource that has been pulled in by the SPARQL query above.
 	for resourceID := range conformance {
@@ -235,10 +261,19 @@ func buildResourceConformance(id rdf2go.Term, resource []byte) (metadata *Resour
 		}
 	}
 	metadata = &ResourceMetadata{
-		Id:          validID,
-		Conformance: conformance,
+		Id:               validID,
+		Conformance:      conformance,
+		QueryConformance: queryConformance,
 	}
 	return
+}
+
+func cloneConformance(source map[string][]string) map[string][]string {
+	clone := make(map[string][]string, len(source))
+	for subject, shapes := range source {
+		clone[subject] = append([]string(nil), shapes...)
+	}
+	return clone
 }
 
 // FindResourceProfile identifies the profile matching a resource graph.

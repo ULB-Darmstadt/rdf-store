@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"rdf-store-backend/base"
 	"rdf-store-backend/shacl"
@@ -39,10 +40,75 @@ func GetResource(id string, includeLinked bool) (resource []byte, metadata *Reso
 	return
 }
 
+// ResourceIndexLoader caches linked graph lookups while loading multiple
+// resources from an unchanged dataset, such as during a full reindex.
+type ResourceIndexLoader struct {
+	links *linkResolver
+}
+
+// NewResourceIndexLoader creates a loader scoped to one indexing operation.
+func NewResourceIndexLoader() *ResourceIndexLoader {
+	return &ResourceIndexLoader{
+		links: newLinkResolver(),
+	}
+}
+
+// Get loads one resource with recursively linked data and contextual
+// conformance, reusing linked graph and local-subject lookups.
+func (loader *ResourceIndexLoader) Get(id string) (graph *rdf2go.Graph, metadata *ResourceMetadata, queryConformance map[string][]string, err error) {
+	resource, metadata, err := GetResource(id, false)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	graph, err = base.ParseGraph(bytes.NewReader(resource))
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	expanded, linkedResources, err := loader.links.resolve(graph, resource)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if len(linkedResources) == 0 {
+		return graph, metadata, metadata.Conformance, nil
+	}
+	if err = appendNQuadsToGraph(graph, expanded[len(resource):]); err != nil {
+		return nil, nil, nil, fmt.Errorf("parsing linked resources for indexing: %w", err)
+	}
+	if metadata.QueryConformance == nil {
+		return nil, nil, nil, fmt.Errorf("resource metadata for %s has no linked query conformance; run rdf-store-cli rebuild", metadata.Id.RawValue())
+	}
+	return graph, metadata, metadata.QueryConformance, nil
+}
+
+func appendNQuadsToGraph(graph *rdf2go.Graph, data []byte) error {
+	if len(data) == 0 {
+		return nil
+	}
+	decoder := rdf.NewQuadDecoder(bytes.NewReader(data), rdf.NQuads)
+	var triples bytes.Buffer
+	encoder := rdf.NewTripleEncoder(&triples, rdf.NTriples)
+	for {
+		quad, err := decoder.Decode()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+		if err := encoder.Encode(quad.Triple); err != nil {
+			return err
+		}
+	}
+	if err := encoder.Close(); err != nil {
+		return err
+	}
+	return graph.Parse(bytes.NewReader(triples.Bytes()), "text/turtle")
+}
+
 // CreateResource stores a new resource graph and updates its metadata record.
-// It returns the parsed graph, metadata, and any error encountered.
-func CreateResource(resource []byte, creator string) (graph *rdf2go.Graph, metadata *ResourceMetadata, err error) {
-	metadata, graph, err = createResourceMetadata(resource, creator)
+// It returns the metadata and any error encountered.
+func CreateResource(resource []byte, creator string) (metadata *ResourceMetadata, err error) {
+	metadata, _, err = createResourceMetadata(resource, creator)
 	if err != nil {
 		return
 	}
@@ -54,19 +120,48 @@ func CreateResource(resource []byte, creator string) (graph *rdf2go.Graph, metad
 }
 
 // UpdateResource validates permissions, updates the graph, and refreshes metadata.
-// It returns the updated graph, metadata, and any error encountered.
-func UpdateResource(id string, resource []byte, creator string) (graph *rdf2go.Graph, metadata *ResourceMetadata, err error) {
+// It returns the metadata and any error encountered.
+func UpdateResource(id string, resource []byte, creator string) (metadata *ResourceMetadata, err error) {
 	if err = validateCreator(id, creator); err != nil {
 		return
 	}
-	metadata, graph, err = updateResourceMetadata(rdf2go.NewResource(id), resource, false)
+	previousResource, previousMetadata, err := GetResource(id, false)
+	if err != nil {
+		return nil, err
+	}
+	metadata, _, err = updateResourceMetadata(rdf2go.NewResource(id), resource, false)
 	if err != nil {
 		return
 	}
 	if err = uploadGraph(ResourceDataset, id, resource, nil); err != nil {
-		deleteResourceMetadata(id)
+		if restoreErr := RestoreResourceSnapshot(previousResource, previousMetadata); restoreErr != nil {
+			err = errors.Join(err, fmt.Errorf("restoring resource after failed update: %w", restoreErr))
+		}
 	}
 	return
+}
+
+// RestoreResourceSnapshot replaces a resource graph and its metadata with a
+// previously loaded snapshot. It is used to compensate failed linked updates.
+func RestoreResourceSnapshot(resource []byte, metadata *ResourceMetadata) error {
+	if metadata == nil || metadata.Id == nil || !isValidIRI(metadata.Id.RawValue()) {
+		return fmt.Errorf("invalid resource snapshot")
+	}
+	graph, err := base.ParseGraph(bytes.NewReader(resource))
+	if err != nil {
+		return err
+	}
+	resourceID, _, err := FindResourceProfile(graph, metadata.Id)
+	if err != nil {
+		return err
+	}
+	if !resourceID.Equal(metadata.Id) {
+		return fmt.Errorf("resource snapshot id mismatch")
+	}
+	if err := uploadGraph(ResourceDataset, metadata.Id.RawValue(), resource, graph); err != nil {
+		return err
+	}
+	return RestoreResourceMetadata(metadata)
 }
 
 // DeleteResource removes a resource graph and its metadata after checking for incoming links.

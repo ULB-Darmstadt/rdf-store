@@ -1,6 +1,7 @@
 package search
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/deiu/rdf2go"
@@ -31,10 +32,26 @@ func valueChildren(doc document, path []string, field string) []any {
 			continue
 		}
 		if value, ok := child[field]; ok {
-			values = append(values, value)
+			if list, ok := value.([]any); ok {
+				values = append(values, list...)
+			} else {
+				values = append(values, value)
+			}
 		}
 	}
 	return values
+}
+
+func valueChildCount(doc document, path []string) int {
+	pathID := queryPathID(path)
+	children, _ := doc["_childDocuments_"].([]any)
+	count := 0
+	for _, raw := range children {
+		if child, ok := raw.(document); ok && child["path"] == pathID {
+			count++
+		}
+	}
+	return count
 }
 
 func TestDocumentAppendValueDeduplicatesValues(t *testing.T) {
@@ -389,6 +406,46 @@ func TestBuildResourceDocumentsCreatesEntityDocuments(t *testing.T) {
 	}
 }
 
+func TestBuildResourceDocumentsIndexesLinkedValuesWithoutDuplicateEntities(t *testing.T) {
+	fx := newMeasurementFixture(t)
+	rootOnlyMetadata := &rdf.ResourceMetadata{
+		Id:      fx.metadata.Id,
+		Creator: fx.metadata.Creator,
+		Conformance: map[string][]string{
+			fx.resourceID: {fx.rootID},
+		},
+	}
+	queryConformance := map[string][]string{
+		fx.resourceID: {fx.rootID},
+		fx.childID:    {"http://example.org/Measurement"},
+	}
+
+	docs, err := buildResourceDocuments(fx.graph, rootOnlyMetadata, resourceIndexOptions{
+		queryConformance: queryConformance,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(docs) != 1 {
+		t.Fatalf("expected only the owning resource document, got %d", len(docs))
+	}
+	if (*docs[0])["subject"] != fx.resourceID {
+		t.Fatalf("expected root resource document, got %#v", (*docs[0])["subject"])
+	}
+	deepPath := []string{fx.childPath, fx.valuePath}
+	if values := valueChildren(*docs[0], deepPath, "valueNumber"); len(values) != 1 || values[0] != "12.5" {
+		t.Fatalf("expected linked value on referring resource document, got %#v", values)
+	}
+}
+
+func TestSortedUniqueStrings(t *testing.T) {
+	actual := sortedUniqueStrings([]string{"c", "a", "b", "a", "c"})
+	expected := []string{"a", "b", "c"}
+	if !reflect.DeepEqual(actual, expected) {
+		t.Fatalf("expected sorted unique values %#v, got %#v", expected, actual)
+	}
+}
+
 func TestBuildResourceDocumentsIndexesEmbeddedEntityQueryFields(t *testing.T) {
 	fx := newMeasurementFixture(t)
 
@@ -505,6 +562,65 @@ func TestAppendQueryValueDeduplicatesValues(t *testing.T) {
 	values := valueChildren(doc, path, "valueText")
 	if len(values) != 1 || values[0] != "duplicate" {
 		t.Fatalf("expected one unique value document, got %#v", values)
+	}
+}
+
+func TestAppendQueryValueGroupsValuesByPath(t *testing.T) {
+	doc := document{"id": "resource|subject", "resourceId": "resource"}
+	path := []string{"http://example.org/name"}
+	indexer := &queryIndexer{traversal: newQueryTraversalState()}
+
+	for _, value := range []rdf2go.Term{
+		rdf2go.NewLiteralWithLanguage("Name", "en"),
+		rdf2go.NewLiteralWithLanguage("Name", "de"),
+		rdf2go.NewLiteral("Other name"),
+	} {
+		indexer.appendValue(queryIndexValue{document: &doc, shapePath: path, term: value})
+	}
+
+	if count := valueChildCount(doc, path); count != 1 {
+		t.Fatalf("expected one value document for the path, got %d", count)
+	}
+	if values := valueChildren(doc, path, "valueText"); !reflect.DeepEqual(values, []any{"Name", "Other name"}) {
+		t.Fatalf("expected unique grouped text values, got %#v", values)
+	}
+	if languages := valueChildren(doc, path, "language"); !reflect.DeepEqual(languages, []any{"en", "de"}) {
+		t.Fatalf("expected grouped languages, got %#v", languages)
+	}
+	children := doc["_childDocuments_"].([]any)
+	child := children[0].(document)
+	if id := child["id"]; id != "resource|subject|value|029b6ad7608dcb4c7a3325ce55a691d4" {
+		t.Fatalf("expected path-stable child id, got %#v", id)
+	}
+}
+
+func TestAppendQueryValueGroupsDifferentValueTypesByPath(t *testing.T) {
+	doc := document{"id": "resource|subject", "resourceId": "resource"}
+	path := []string{"http://example.org/mixed"}
+	indexer := &queryIndexer{traversal: newQueryTraversalState()}
+	values := []rdf2go.Term{
+		rdf2go.NewLiteral("text"),
+		rdf2go.NewLiteralWithDatatype("12.5", rdf2go.NewResource("http://www.w3.org/2001/XMLSchema#decimal")),
+		rdf2go.NewResource("http://example.org/value"),
+	}
+	for _, value := range values {
+		indexer.appendValue(queryIndexValue{document: &doc, shapePath: path, term: value})
+	}
+
+	if count := valueChildCount(doc, path); count != 1 {
+		t.Fatalf("expected one value document for mixed values, got %d", count)
+	}
+	if values := valueChildren(doc, path, "valueText"); !reflect.DeepEqual(values, []any{"text"}) {
+		t.Fatalf("expected grouped text value, got %#v", values)
+	}
+	if values := valueChildren(doc, path, "valueNumber"); !reflect.DeepEqual(values, []any{"12.5"}) {
+		t.Fatalf("expected grouped numeric value, got %#v", values)
+	}
+	if values := valueChildren(doc, path, "valueString"); !reflect.DeepEqual(values, []any{"<http://example.org/value>"}) {
+		t.Fatalf("expected grouped resource value, got %#v", values)
+	}
+	if datatypes := valueChildren(doc, path, "datatype"); !reflect.DeepEqual(datatypes, []any{"http://www.w3.org/2001/XMLSchema#decimal"}) {
+		t.Fatalf("expected grouped datatype, got %#v", datatypes)
 	}
 }
 

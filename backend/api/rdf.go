@@ -12,12 +12,14 @@ import (
 	"rdf-store-backend/search"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/gin-gonic/gin"
 )
 
 var fusekiProxy *httputil.ReverseProxy
 var fusekiProxyTarget *url.URL
+var resourceUpdateLock sync.Mutex
 
 // init configures the Fuseki proxy and registers RDF API routes.
 func init() {
@@ -144,7 +146,7 @@ func handleAddResource(c *gin.Context) {
 		return
 	}
 
-	resource, metadata, err := rdf.CreateResource(data, user)
+	metadata, err := rdf.CreateResource(data, user)
 	if err != nil {
 		slog.Error("failed creating resource", "error", err)
 		if errors.Is(err, rdf.ErrNotFound) {
@@ -154,7 +156,7 @@ func handleAddResource(c *gin.Context) {
 		}
 		return
 	}
-	if err = search.IndexResource(resource, metadata); err != nil {
+	if err = search.IndexStoredResource(metadata.Id.RawValue()); err != nil {
 		slog.Error("failed indexing resource", "id", metadata.Id.RawValue(), "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -185,8 +187,26 @@ func handleUpdateResource(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	resourceUpdateLock.Lock()
+	defer resourceUpdateLock.Unlock()
+	previousData, previousMetadata, err := rdf.GetResource(did, false)
+	if err != nil {
+		slog.Error("failed loading resource snapshot before update", "id", did, "error", err)
+		if errors.Is(err, rdf.ErrNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		}
+		return
+	}
+	referrersBefore, err := rdf.GetReferringResourceIds(did)
+	if err != nil {
+		slog.Error("failed finding resources affected by update", "id", did, "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 
-	resource, metadata, err := rdf.UpdateResource(did, data, user)
+	metadata, err := rdf.UpdateResource(did, data, user)
 	if err != nil {
 		slog.Error("failed updating resource", "id", did, "error", err)
 		if errors.Is(err, rdf.ErrNotFound) {
@@ -196,12 +216,87 @@ func handleUpdateResource(c *gin.Context) {
 		}
 		return
 	}
-	if err = search.IndexResource(resource, metadata); err != nil {
-		slog.Error("failed indexing resource", "id", did, "error", err)
+	referrersAfter, err := rdf.GetReferringResourceIds(metadata.Id.RawValue())
+	if err != nil {
+		err = rollbackLinkedResourceUpdate(previousData, previousMetadata, nil, []string{did}, err)
+		slog.Error("failed finding resources affected by update", "id", did, "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	affected := map[string]struct{}{metadata.Id.RawValue(): {}}
+	for _, id := range append(referrersBefore, referrersAfter...) {
+		affected[id] = struct{}{}
+	}
+	affectedIDs := make([]string, 0, len(affected))
+	for id := range affected {
+		affectedIDs = append(affectedIDs, id)
+	}
+	sort.Strings(affectedIDs)
+	metadataSnapshots := make(map[string]*rdf.ResourceMetadata, len(affectedIDs)-1)
+	for _, id := range affectedIDs {
+		if id == metadata.Id.RawValue() {
+			continue
+		}
+		_, snapshot, snapshotErr := rdf.GetResource(id, false)
+		if snapshotErr != nil {
+			err = rollbackLinkedResourceUpdate(previousData, previousMetadata, nil, affectedIDs, snapshotErr)
+			slog.Error("failed snapshotting metadata affected by linked update", "updated_id", did, "id", id, "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		metadataSnapshots[id] = snapshot
+	}
+	for _, id := range affectedIDs {
+		if id == metadata.Id.RawValue() {
+			continue
+		}
+		if _, err = rdf.RebuildResourceConformance(id); err != nil {
+			err = rollbackLinkedResourceUpdate(previousData, previousMetadata, metadataSnapshots, affectedIDs, err)
+			slog.Error("failed rebuilding metadata affected by linked update", "updated_id", did, "id", id, "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+	}
+	if err = search.IndexStoredResources(affectedIDs); err != nil {
+		err = rollbackLinkedResourceUpdate(previousData, previousMetadata, metadataSnapshots, affectedIDs, err)
+		slog.Error("failed indexing resources affected by update", "updated_id", did, "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	c.String(http.StatusNoContent, "")
+}
+
+func rollbackLinkedResourceUpdate(previousData []byte, previousMetadata *rdf.ResourceMetadata, metadataSnapshots map[string]*rdf.ResourceMetadata, affectedIDs []string, updateErr error) error {
+	return rollbackLinkedResourceUpdateWith(previousData, previousMetadata, metadataSnapshots, affectedIDs, updateErr,
+		rdf.RestoreResourceSnapshot, rdf.RestoreResourceMetadata, search.IndexStoredResources)
+}
+
+func rollbackLinkedResourceUpdateWith(
+	previousData []byte,
+	previousMetadata *rdf.ResourceMetadata,
+	metadataSnapshots map[string]*rdf.ResourceMetadata,
+	affectedIDs []string,
+	updateErr error,
+	restoreResource func([]byte, *rdf.ResourceMetadata) error,
+	restoreMetadata func(*rdf.ResourceMetadata) error,
+	indexResources func([]string) error,
+) error {
+	var rollbackErrors []error
+	if err := restoreResource(previousData, previousMetadata); err != nil {
+		rollbackErrors = append(rollbackErrors, fmt.Errorf("restoring updated resource: %w", err))
+	}
+	for id, snapshot := range metadataSnapshots {
+		if err := restoreMetadata(snapshot); err != nil {
+			rollbackErrors = append(rollbackErrors, fmt.Errorf("restoring metadata for %s: %w", id, err))
+		}
+	}
+	if err := indexResources(affectedIDs); err != nil {
+		rollbackErrors = append(rollbackErrors, fmt.Errorf("restoring search index: %w", err))
+	}
+	if rollbackErr := errors.Join(rollbackErrors...); rollbackErr != nil {
+		return errors.Join(updateErr, fmt.Errorf("rolling back linked update: %w", rollbackErr))
+	}
+	return updateErr
 }
 
 // handleDeleteResource deletes a resource and updates the search index.

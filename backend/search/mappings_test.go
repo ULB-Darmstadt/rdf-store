@@ -28,3 +28,25 @@ func TestCollectionSchemaUsesFixedValueFields(t *testing.T) {
 		}
 	}
 }
+
+func TestCollectionSchemaMakesGroupedValueFieldsMultiValued(t *testing.T) {
+	want := map[string]bool{
+		"valueString": false, "valueText": false, "valueNumber": false,
+		"valueDate": false, "valueBoolean": false, "valueGeo": false,
+		"datatype": false, "language": false,
+	}
+	for _, field := range createCollectionSchema() {
+		if _, ok := want[field.Name]; !ok {
+			continue
+		}
+		want[field.Name] = true
+		if !field.MultiValued {
+			t.Errorf("expected grouped field %q to be multivalued", field.Name)
+		}
+	}
+	for name, found := range want {
+		if !found {
+			t.Errorf("missing grouped field %q", name)
+		}
+	}
+}

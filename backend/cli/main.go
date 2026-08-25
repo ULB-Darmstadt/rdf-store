@@ -26,10 +26,15 @@ func main() {
 	}
 	switch os.Args[1] {
 	case commands[0]:
-		search.Reindex()
+		if err := search.Reindex(); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
 	case commands[1]:
-		rebuildResourceMeta()
-		search.Reindex()
+		if err := rebuildAndReindex(rdf.RebuildAllResourceConformance, search.Reindex); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
 	case commands[2]:
 		profilesync.Synchronize()
 	case commands[3]:
@@ -40,19 +45,14 @@ func main() {
 	}
 }
 
-func rebuildResourceMeta() {
-	resourceIds, err := rdf.GetAllResourceIds()
-	if err != nil {
-		fmt.Println(err)
-		return
+func rebuildAndReindex(rebuild, reindex func() error) error {
+	if err := rebuild(); err != nil {
+		return fmt.Errorf("rebuilding resource metadata: %w", err)
 	}
-	for _, resourceId := range resourceIds {
-		fmt.Println("update resource meta for", resourceId)
-		_, _, err := rdf.RebuildResourceConformance(resourceId)
-		if err != nil {
-			fmt.Println(err)
-		}
+	if err := reindex(); err != nil {
+		return fmt.Errorf("reindexing resources: %w", err)
 	}
+	return nil
 }
 
 func reextractLabels() {
