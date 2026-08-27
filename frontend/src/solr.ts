@@ -96,7 +96,7 @@ export async function search(index: string, params?: SearchOptions): Promise<Sea
     if (params?.term) {
         query.filter = query.filter || []
         // escape characters that would break the SOLR query
-        query.filter.push(`_text_:*${params.term.replace(/([+\-!(){}[\]^"~*?:\\/]|&&|\|\|)/g, '\\$1')}`)
+        query.filter.push(`_text_:*${params.term.replace(/([+\-!(){}[\]^"~*?:\\/]|&&|\|\|)/g, '\\$1')}*`)
     }
     if (params?.filters?.length) {
         query.filter = [...(query.filter || []), ...params.filters]
