@@ -310,6 +310,76 @@ describe('quantity conversion', () => {
         expect(facets[0].max?.value).toBe('373.15')
     })
 
+    it('hides quantity metadata without a usable range in the same group', async() => {
+        mockQuantityFetch({})
+        vi.mocked(executeSolrRequest)
+            .mockResolvedValueOnce({
+                facets: {
+                    f0_count: { entities: 3 },
+                    f0_stats: { min: 42, max: 42 },
+                    f1_count: { entities: 3 },
+                    f1_buckets: { buckets: [] },
+                    f2_count: { entities: 3 },
+                    f2_buckets: { buckets: [{ val: `<${unit('collapsed')}>`, count: 3, entities: 3 }] },
+                    f3_count: { entities: 3 },
+                    f3_buckets: { buckets: [] },
+                    f4_count: { entities: 3 },
+                    f4_buckets: { buckets: [{ val: `<${unit('input')}>`, count: 3, entities: 3 }] }
+                }
+            } as unknown as SearchResponse)
+            .mockResolvedValueOnce({
+                facets: {
+                    f0_count: { entities: 0 },
+                    f1_count: { entities: 0 },
+                    f1_buckets: { buckets: [] },
+                    f2_count: { entities: 0 },
+                    f2_buckets: { buckets: [] },
+                    f3_count: { entities: 0 },
+                    f3_buckets: { buckets: [] },
+                    f4_count: { entities: 0 },
+                    f4_buckets: { buckets: [] }
+                }
+            } as unknown as SearchResponse)
+            .mockResolvedValueOnce({
+                facets: {
+                    f0_count: { entities: 3 },
+                    f0_stats: { min: 41, max: 43 },
+                    f1_count: { entities: 3 },
+                    f1_buckets: { buckets: [] },
+                    f2_count: { entities: 3 },
+                    f2_buckets: { buckets: [{ val: `<${unit('collapsed')}>`, count: 3, entities: 3 }] },
+                    f3_count: { entities: 3 },
+                    f3_buckets: { buckets: [] },
+                    f4_count: { entities: 3 },
+                    f4_buckets: { buckets: [{ val: `<${unit('input')}>`, count: 3, entities: 3 }] }
+                }
+            } as unknown as SearchResponse)
+        const provider = new SolrQueryFacetProvider(quantityConfig())
+        const request: QueryFacetRequest = {
+            query: { rootShapeId: 'urn:shape:root', criteria: [] },
+            fields: [
+                field('value', ['part', VALUE_PREDICATE]),
+                field('kind', ['part', KIND_PREDICATE]),
+                field('unit', ['part', UNIT_PREDICATE]),
+                field('input-kind', ['part', 'input', KIND_PREDICATE]),
+                field('input-unit', ['part', 'input', UNIT_PREDICATE])
+            ],
+            signal: new AbortController().signal
+        }
+
+        const collapsed = await provider.getFacets(request)
+        expect(collapsed.map(facet => facet.count)).toEqual([3, 0, 0, 3, 3])
+        expect(collapsed.map(facet => facet.unavailable)).toEqual([undefined, true, true, undefined, undefined])
+
+        const missing = await provider.getFacets(request)
+        expect(missing.map(facet => facet.count)).toEqual([0, 0, 0, 0, 3])
+        expect(missing.map(facet => facet.unavailable)).toEqual([undefined, true, true, undefined, undefined])
+
+        const available = await provider.getFacets(request)
+        expect(available.map(facet => facet.count)).toEqual([3, 3, 3, 3, 3])
+        expect(available.map(facet => facet.unavailable)).toEqual([undefined, undefined, undefined, undefined, undefined])
+    })
+
     it('uses a single quantity kind bucket automatically', async() => {
         mockQuantityFetch({ [unit('t9')]: { multiplier: 1, offset: 273.15 } })
         vi.mocked(executeSolrRequest).mockResolvedValue({

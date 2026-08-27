@@ -286,7 +286,50 @@ export class SolrQueryFacetProvider implements QueryFacetProvider {
             this.initialUnitFacets.set(field.id, this.cloneFacet(queryFacet))
             return queryFacet
         })
+        this.hideUnavailableQuantityMetadata(request.fields, result)
         return result
+    }
+
+    private hideUnavailableQuantityMetadata(fields: QueryField[], facets: ShaclQueryFacet[]): void {
+        if (!this.unitConversion.enabled) {
+            return
+        }
+        const facetsByField = new Map(facets.map(facet => [facet.fieldId, facet]))
+        const unavailableBySubject = new Map<string, boolean>()
+        for (const field of fields) {
+            if (!isRangeQueryField(field)) {
+                continue
+            }
+            const facet = facetsByField.get(field.id)
+            const min = facet?.min ? Number(facet.min.value) : NaN
+            const max = facet?.max ? Number(facet.max.value) : NaN
+            const unavailable = !Number.isFinite(min) || !Number.isFinite(max) || min >= max
+            for (const path of queryFieldPaths(field)) {
+                if (path[path.length - 1] !== this.config.conversionValue) {
+                    continue
+                }
+                const subject = path.slice(0, -1).join('\0')
+                unavailableBySubject.set(subject, (unavailableBySubject.get(subject) ?? true) && unavailable)
+            }
+        }
+        if (!unavailableBySubject.size) {
+            return
+        }
+        for (const field of fields) {
+            const subjects = queryFieldPaths(field).flatMap(path => {
+                const predicate = path[path.length - 1]
+                return predicate === this.config.conversionUnit || predicate === this.config.conversionQuantity
+                    ? [path.slice(0, -1).join('\0')]
+                    : []
+            })
+            if (subjects.length && subjects.every(subject => unavailableBySubject.get(subject) === true)) {
+                const facet = facetsByField.get(field.id)
+                if (facet) {
+                    facet.count = 0
+                    facet.unavailable = true
+                }
+            }
+        }
     }
 
     private conformanceFilter(query: Query): string {
