@@ -114,6 +114,12 @@ func TestCanonicalUnit(t *testing.T) {
 	}
 }
 
+func TestCanonicalUnitURIForKind(t *testing.T) {
+	if unit := CanonicalUnitURIForKind("http://qudt.org/vocab/quantitykind/Temperature"); unit != "http://qudt.org/vocab/unit/K" {
+		t.Fatalf("CanonicalUnitURIForKind(Temperature) = %q, want K", unit)
+	}
+}
+
 func TestCanonicalUnitRejectsNonSIQuantityKind(t *testing.T) {
 	const (
 		usd      = "http://qudt.org/vocab/unit/CCY_USD"

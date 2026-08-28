@@ -15,10 +15,11 @@ func init() {
 }
 
 type QuantityUnitConversion struct {
-	UnitURI         string         `json:"unitURI"`
-	QuantityKindURI string         `json:"quantityKindURI"`
-	IsDelta         bool           `json:"isDelta,omitempty"`
-	Conversion      *qudt.UnitInfo `json:"conversion"`
+	UnitURI          string         `json:"unitURI"`
+	QuantityKindURI  string         `json:"quantityKindURI"`
+	CanonicalUnitURI string         `json:"canonicalUnitURI,omitempty"`
+	IsDelta          bool           `json:"isDelta,omitempty"`
+	Conversion       *qudt.UnitInfo `json:"conversion"`
 }
 
 func handleQuantities(c *gin.Context) {
@@ -35,6 +36,7 @@ func handleQuantities(c *gin.Context) {
 		return
 	}
 	for i := range quantities {
+		quantities[i].CanonicalUnitURI = qudt.CanonicalUnitURIForKind(quantities[i].QuantityKindURI)
 		quantities[i].Conversion = quantityConversion(&quantities[i])
 	}
 	c.JSON(http.StatusOK, quantities)
@@ -46,7 +48,7 @@ func handleQuantities(c *gin.Context) {
 // quantity kind, and delta quantities convert without offsets.
 func quantityConversion(quantity *QuantityUnitConversion) *qudt.UnitInfo {
 	info := qudt.Unit(quantity.UnitURI)
-	if info == nil || qudt.CanonicalUnitURI(quantity.UnitURI, quantity.QuantityKindURI) == "" {
+	if info == nil || quantity.CanonicalUnitURI == "" || qudt.CanonicalUnitURI(quantity.UnitURI, quantity.QuantityKindURI) == "" {
 		return nil
 	}
 	if !quantity.IsDelta {

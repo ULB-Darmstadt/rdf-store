@@ -135,6 +135,12 @@ statistics:
   conversion.
 - **Facet statistics** (min/max) returned by Solr in SI are converted back with
   `value / multiplier − offset` for display.
+- When a quantity kind is selected, fixed by `sh:hasValue`, or inferred from a
+  single facet bucket, its canonical SI unit is inserted into the unit choices
+  and selected initially. A shape-fixed unit also selects its canonical target
+  when the backend confirms a conversion, including identity conversions such
+  as Volt to Volt. This covers canonical units absent from the indexed unit
+  buckets, which continue to represent the original units used by the data.
 - Unit and quantity-kind fields are pure metadata: once their selection produced a
   resolved conversion, their criteria never restrict search results. If no
   conversion could be resolved, unit criteria remain active as plain filters so a

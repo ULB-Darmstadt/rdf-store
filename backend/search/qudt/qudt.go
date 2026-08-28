@@ -141,6 +141,12 @@ func CanonicalUnitURI(unitURI, quantityKindURI string) string {
 	return canonicalURI
 }
 
+// CanonicalUnitURIForKind returns the preferred coherent unit URI for a
+// quantity kind without requiring a source unit.
+func CanonicalUnitURIForKind(quantityKindURI string) string {
+	return canonicalByQuantityKind[normalizeQuantityKindURI(quantityKindURI)]
+}
+
 // CanonicalUnit returns the UnitInfo for the preferred coherent unit of the
 // given quantity kind, or nil if no compatible target is known.
 func CanonicalUnit(unitURI, quantityKindURI string) *UnitInfo {

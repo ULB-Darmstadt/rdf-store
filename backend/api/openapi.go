@@ -146,6 +146,7 @@ func addSchemas(spec *openapi3.T) {
 	quantitiesResponseItems := openapi3.NewObjectSchema().
 		WithProperty("unitURI", openapi3.NewStringSchema()).
 		WithProperty("quantityKindURI", openapi3.NewStringSchema()).
+		WithProperty("canonicalUnitURI", openapi3.NewStringSchema()).
 		WithProperty("isDelta", openapi3.NewBoolSchema()).
 		WithProperty("conversion", conversionProperty)
 	quantitiesResponse := openapi3.NewArraySchema()
@@ -169,7 +170,7 @@ func addPaths(spec *openapi3.T) {
 
 	spec.Paths.Set("/quantities", &openapi3.PathItem{Post: &openapi3.Operation{
 		Summary:     "Resolve SI unit conversions for quantities",
-		Description: "Accepts unit and quantity kind pairs and returns each pair enriched with its SI conversion factors, or null when no conversion exists.",
+		Description: "Accepts unit and quantity kind pairs and returns each pair enriched with its canonical SI unit and conversion factors, or null factors when no conversion exists.",
 		OperationID: "resolveQuantities",
 		RequestBody: &openapi3.RequestBodyRef{Value: jsonRequestBody(openapi3.NewSchemaRef("#/components/schemas/QuantitiesRequest", nil))},
 		Responses: responses(map[string]*openapi3.Response{

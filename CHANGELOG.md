@@ -10,8 +10,17 @@ significant changes rather than documenting every commit.
 
 ## Unreleased
 
+### Added
+
+- Return each quantity kind's canonical SI unit from `/quantities`, including
+  kind-only requests that do not yet have a selected source unit.
+
 ### Changed
 
+- Pre-select canonical SI units in available quantity facets, injecting the
+  canonical unit when it is absent from Solr buckets and using quantity kinds
+  or convertible units fixed by `sh:hasValue`. Apply a shared canonical result
+  to every matching facet while retaining a single batched `/quantities` call.
 - Keep quantity-unit facet choices stable while other query criteria change.
 - Clear a related quantity range when its selected unit changes, preventing a
   range entered for one unit from being interpreted as another.
@@ -32,7 +41,8 @@ significant changes rather than documenting every commit.
 - Rebuild all resource metadata and perform one batched reindex after profile
   changes, keeping contextual linked conformance synchronized.
 - Return nonzero CLI exit codes when metadata rebuilding or reindexing fails.
-- Update `@ulb-darmstadt/shacl-form` to 3.5.0 and `@ro-kit/ui-widgets` to 1.0.61.
+- Update `@ulb-darmstadt/shacl-form` to 3.5.2 and resolve
+  `@ro-kit/ui-widgets` 1.0.62.
 
 ## 2026-08
 

@@ -245,6 +245,7 @@ export class SolrQueryFacetProvider implements QueryFacetProvider {
                 }
             }
         })
+        quantitySelection.defaultUnits.forEach(unitURI => labelIds.add(unitURI))
         await fetchLabels(Array.from(labelIds), true)
 
         const result = request.fields.map((field, index) => {
@@ -279,6 +280,19 @@ export class SolrQueryFacetProvider implements QueryFacetProvider {
                 return queryFacet
             }
 
+            const defaultUnitURI = quantitySelection.defaultUnits.get(field.id)
+            if (defaultUnitURI && queryFacet.buckets) {
+                const index = queryFacet.buckets.findIndex(bucket => bucket.value.value === defaultUnitURI)
+                const defaultBucket = index >= 0
+                    ? queryFacet.buckets.splice(index, 1)[0]
+                    : {
+                        value: DataFactory.namedNode(defaultUnitURI),
+                        label: i18n[defaultUnitURI] || defaultUnitURI,
+                        count: queryFacet.count
+                    }
+                queryFacet.buckets.unshift(defaultBucket)
+            }
+
             const initial = this.initialUnitFacets.get(field.id)
             if (initial) {
                 return this.cloneFacet(initial)
@@ -287,6 +301,12 @@ export class SolrQueryFacetProvider implements QueryFacetProvider {
             return queryFacet
         })
         this.hideUnavailableQuantityMetadata(request.fields, result)
+        quantitySelection.defaultUnits.forEach((unitURI, fieldId) => {
+            const facet = result.find(facet => facet.fieldId === fieldId)
+            if (facet && !facet.unavailable && facet.count > 0) {
+                facet.initialValue = DataFactory.namedNode(unitURI)
+            }
+        })
         return result
     }
 

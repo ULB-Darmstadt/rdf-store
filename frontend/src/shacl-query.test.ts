@@ -80,11 +80,15 @@ function deltaCriterion(value: string): QueryCriterion {
     }
 }
 
-function mockQuantityFetch(conversions: Record<string, { multiplier: number, offset: number } | null>) {
+function mockQuantityFetch(
+    conversions: Record<string, { multiplier: number, offset: number } | null>,
+    canonicalUnits: Record<string, string> = {}
+) {
     vi.stubGlobal('fetch', vi.fn(async(_url: string, init?: RequestInit) => ({
         ok: true,
-        json: async() => JSON.parse(String(init?.body)).map((quantity: { unitURI: string }) => ({
+        json: async() => JSON.parse(String(init?.body)).map((quantity: { unitURI: string, quantityKindURI: string }) => ({
             ...quantity,
+            canonicalUnitURI: canonicalUnits[quantity.quantityKindURI],
             conversion: conversions[quantity.unitURI] ?? null
         }))
     })))
@@ -308,6 +312,163 @@ describe('quantity conversion', () => {
         const facets = await provider.getFacets(request)
         expect(facets[0].min?.value).toBe('300')
         expect(facets[0].max?.value).toBe('373.15')
+    })
+
+    it('injects and pre-selects a missing canonical SI unit', async() => {
+        const canonical = unit('si')
+        mockQuantityFetch({}, { [kind('default')]: canonical })
+        vi.mocked(executeSolrRequest).mockResolvedValue({
+            facets: {
+                f0_count: { entities: 3 },
+                f0_buckets: { buckets: [{ val: `<${unit('source')}>`, count: 3, entities: 3 }] },
+                f1_count: { entities: 3 },
+                f1_buckets: { buckets: [{ val: `<${kind('default')}>`, count: 3, entities: 3 }] }
+            }
+        } as unknown as SearchResponse)
+        const provider = new SolrQueryFacetProvider(quantityConfig())
+        const request: QueryFacetRequest = {
+            query: { rootShapeId: 'urn:shape:root', criteria: [] },
+            fields: [
+                field('unit', ['part', UNIT_PREDICATE]),
+                field('kind', ['part', KIND_PREDICATE])
+            ],
+            signal: new AbortController().signal
+        }
+
+        const callsBefore = vi.mocked(executeSolrRequest).mock.calls.length
+        const facets = await provider.getFacets(request)
+
+        expect(facets[0].buckets?.map(bucket => bucket.value.value)).toEqual([canonical, unit('source')])
+        expect(facets[0].buckets?.[0].count).toBe(3)
+        expect(vi.mocked(executeSolrRequest).mock.calls.length - callsBefore).toBe(2)
+        expect(facets[0].initialValue?.value).toBe(canonical)
+
+        const filters = await buildFilters(provider, [
+            rangeCriterion('0', '100'),
+            unitCriterion(canonical),
+            kindCriterion(kind('default'))
+        ])
+        expect(fetch).toHaveBeenCalledTimes(1)
+        expect(filters).toContainEqual(expect.stringContaining('valueNumber:["0" TO "100"]'))
+    })
+
+    it('uses a shape-fixed quantity kind to inject and pre-select the canonical SI unit', async() => {
+        const canonical = unit('fixed-si')
+        const fixedKind = kind('fixed')
+        mockQuantityFetch({}, { [fixedKind]: canonical })
+        vi.mocked(executeSolrRequest).mockResolvedValue({
+            facets: {
+                f0_count: { entities: 3 },
+                f0_buckets: { buckets: [] },
+                f1_count: { entities: 3 },
+                f1_buckets: { buckets: [] }
+            }
+        } as unknown as SearchResponse)
+        const kindField = field('kind', ['part', KIND_PREDICATE])
+        kindField.fixedValue = DataFactory.namedNode(fixedKind)
+        const provider = new SolrQueryFacetProvider(quantityConfig())
+
+        const callsBefore = vi.mocked(executeSolrRequest).mock.calls.length
+        const facets = await provider.getFacets({
+            query: { rootShapeId: 'urn:shape:root', criteria: [] },
+            fields: [field('unit', ['part', UNIT_PREDICATE]), kindField],
+            signal: new AbortController().signal
+        })
+
+        expect(facets[0].buckets?.map(bucket => bucket.value.value)).toEqual([canonical])
+        expect(facets[0].initialValue?.value).toBe(canonical)
+        expect(vi.mocked(executeSolrRequest).mock.calls.length - callsBefore).toBe(1)
+        expect(fetch).toHaveBeenCalledTimes(1)
+    })
+
+    it('pre-selects every unit facet that shares a fixed quantity kind', async() => {
+        const canonical = unit('shared-si')
+        const fixedKind = kind('shared')
+        mockQuantityFetch({}, { [fixedKind]: canonical })
+        vi.mocked(executeSolrRequest).mockResolvedValue({
+            facets: {
+                f0_count: { entities: 2 }, f0_buckets: { buckets: [] },
+                f1_count: { entities: 2 }, f1_buckets: { buckets: [] },
+                f2_count: { entities: 2 }, f2_buckets: { buckets: [] },
+                f3_count: { entities: 2 }, f3_buckets: { buckets: [] }
+            }
+        } as unknown as SearchResponse)
+        const fixedKindField = (id: string, subject: string) => {
+            const result = field(id, [subject, KIND_PREDICATE])
+            result.fixedValue = DataFactory.namedNode(fixedKind)
+            return result
+        }
+        const provider = new SolrQueryFacetProvider(quantityConfig())
+
+        const facets = await provider.getFacets({
+            query: { rootShapeId: 'urn:shape:root', criteria: [] },
+            fields: [
+                field('unit-a', ['part-a', UNIT_PREDICATE]), fixedKindField('kind-a', 'part-a'),
+                field('unit-b', ['part-b', UNIT_PREDICATE]), fixedKindField('kind-b', 'part-b')
+            ],
+            signal: new AbortController().signal
+        })
+
+        expect(facets[0].initialValue?.value).toBe(canonical)
+        expect(facets[2].initialValue?.value).toBe(canonical)
+        expect(fetch).toHaveBeenCalledTimes(1)
+    })
+
+    it('pre-selects a canonical unit fixed by the shape', async() => {
+        const volt = unit('fixed-volt')
+        const voltage = kind('voltage')
+        mockQuantityFetch({ [volt]: { multiplier: 1, offset: 0 } }, { [voltage]: volt })
+        vi.mocked(executeSolrRequest).mockResolvedValue({
+            facets: {
+                f0_count: { entities: 4 },
+                f0_buckets: { buckets: [{ val: `<${volt}>`, count: 4, entities: 4 }] },
+                f1_count: { entities: 4 },
+                f1_buckets: { buckets: [{ val: `<${voltage}>`, count: 4, entities: 4 }] }
+            }
+        } as unknown as SearchResponse)
+        const unitField = field('unit', ['part', UNIT_PREDICATE])
+        unitField.fixedValue = DataFactory.namedNode(volt)
+        const kindField = field('kind', ['part', KIND_PREDICATE])
+        kindField.fixedValue = DataFactory.namedNode(voltage)
+        const provider = new SolrQueryFacetProvider(quantityConfig())
+
+        const facets = await provider.getFacets({
+            query: { rootShapeId: 'urn:shape:root', criteria: [] },
+            fields: [unitField, kindField],
+            signal: new AbortController().signal
+        })
+
+        expect(facets[0].initialValue?.value).toBe(volt)
+        expect(fetch).toHaveBeenCalledTimes(1)
+    })
+
+    it('moves an existing canonical SI unit first without duplicating it', async() => {
+        const canonical = unit('si-existing')
+        mockQuantityFetch({}, { [kind('existing')]: canonical })
+        vi.mocked(executeSolrRequest).mockResolvedValue({
+            facets: {
+                f0_count: { entities: 5 },
+                f0_buckets: { buckets: [
+                    { val: `<${unit('source')}>`, count: 3, entities: 3 },
+                    { val: `<${canonical}>`, count: 2, entities: 2 }
+                ] },
+                f1_count: { entities: 5 },
+                f1_buckets: { buckets: [{ val: `<${kind('existing')}>`, count: 5, entities: 5 }] }
+            }
+        } as unknown as SearchResponse)
+        const provider = new SolrQueryFacetProvider(quantityConfig())
+
+        const facets = await provider.getFacets({
+            query: { rootShapeId: 'urn:shape:root', criteria: [kindCriterion(kind('existing'))] },
+            fields: [
+                field('unit', ['part', UNIT_PREDICATE]),
+                field('kind', ['part', KIND_PREDICATE])
+            ],
+            signal: new AbortController().signal
+        })
+
+        expect(facets[0].buckets?.map(bucket => bucket.value.value)).toEqual([canonical, unit('source')])
+        expect(facets[0].buckets?.[0].count).toBe(2)
     })
 
     it('hides quantity metadata without a usable range in the same group', async() => {

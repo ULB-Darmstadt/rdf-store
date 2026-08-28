@@ -13,11 +13,13 @@ export type QuantityUnitConversion = {
 export type QuantitySelection = {
     conversions: Map<string, QuantityUnitConversion>
     unitFields: Set<string>
+    defaultUnits: Map<string, string>
 }
 
 type Quantity = {
     unitURI: string
     quantityKindURI: string
+    canonicalUnitURI?: string
     isDelta?: boolean
     conversion: QuantityUnitConversion | null | undefined
 }
@@ -131,7 +133,7 @@ export class UnitConversionResolver {
     }
 
     async resolveSelection(fields: QueryField[], criteria: QueryCriterion[]): Promise<QuantitySelection> {
-        const selection: QuantitySelection = { conversions: new Map(), unitFields: new Set() }
+        const selection: QuantitySelection = { conversions: new Map(), unitFields: new Set(), defaultUnits: new Map() }
         if (!this.enabled) {
             return selection
         }
@@ -144,23 +146,38 @@ export class UnitConversionResolver {
         const pending = new Map<string, { quantity: Quantity, valueFields: QueryField[], unitFields: QueryField[] }>()
         const missing = new Map<string, Quantity>()
         for (const [subject, group] of subjects.entries()) {
-            const unitURI = group.units.map(field => selected.get(field.id)).find(Boolean)
+            const unitURI = group.units.map(field => selected.get(field.id) ?? selectedIri(field.fixedValue)).find(Boolean)
             const quantityKindURI = group.kinds.map(field => selected.get(field.id)).find(Boolean)
+                ?? group.kinds.map(field => selectedIri(field.fixedValue)).find(Boolean)
                 ?? this.autoQuantityKinds.get(subject)
-            if (!unitURI || !quantityKindURI) {
+            if (!quantityKindURI) {
                 continue
             }
             const quantity: Quantity = {
-                unitURI,
+                unitURI: unitURI ?? '',
                 quantityKindURI,
                 isDelta: group.deltas.some(field => {
-                    const value = selected.get(field.id)
+                    const value = selected.get(field.id) ?? selectedIri(field.fixedValue)
                     return value === 'true' || value === '1'
                 }),
                 conversion: undefined
             }
             const key = this.quantityKey(quantity)
-            pending.set(key, { quantity, valueFields: group.values, unitFields: group.units })
+            const existing = pending.get(key)
+            if (existing) {
+                group.values.forEach(field => {
+                    if (!existing.valueFields.includes(field)) {
+                        existing.valueFields.push(field)
+                    }
+                })
+                group.units.forEach(field => {
+                    if (!existing.unitFields.includes(field)) {
+                        existing.unitFields.push(field)
+                    }
+                })
+            } else {
+                pending.set(key, { quantity, valueFields: [...group.values], unitFields: [...group.units] })
+            }
             if (!this.quantityCache.has(key)) {
                 missing.set(key, quantity)
             }
@@ -168,6 +185,19 @@ export class UnitConversionResolver {
         await this.fetchQuantities(Array.from(missing.values()))
         for (const [key, entry] of pending.entries()) {
             const cached = this.quantityCache.get(key)
+            // An empty source asks for the kind's default. A shape-fixed source
+            // can also drive the default when the backend confirmed that it is
+            // convertible (including an identity conversion such as V -> V).
+            if (cached?.canonicalUnitURI && (!entry.quantity.unitURI || cached.conversion)) {
+                const canonicalUnitURI = cached.canonicalUnitURI
+                entry.unitFields.forEach(field => selection.defaultUnits.set(field.id, canonicalUnitURI))
+                const canonical = {
+                    ...cached,
+                    unitURI: canonicalUnitURI,
+                    conversion: { multiplier: 1, offset: 0 }
+                }
+                this.quantityCache.set(this.quantityKey(canonical), canonical)
+            }
             if (!cached?.conversion) {
                 continue
             }

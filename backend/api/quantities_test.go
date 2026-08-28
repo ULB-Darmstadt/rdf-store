@@ -13,6 +13,7 @@ import (
 func TestHandleQuantitiesResolvesConversions(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	body := `[` +
+		`{"unitURI":"","quantityKindURI":"http://qudt.org/vocab/quantitykind/Temperature"},` +
 		`{"unitURI":"http://qudt.org/vocab/unit/DEG_C","quantityKindURI":"http://qudt.org/vocab/quantitykind/Temperature"},` +
 		`{"unitURI":"http://qudt.org/vocab/unit/DEG_C","quantityKindURI":"http://qudt.org/vocab/quantitykind/Temperature","isDelta":true},` +
 		`{"unitURI":"http://qudt.org/vocab/unit/FT","quantityKindURI":"http://qudt.org/vocab/quantitykind/Length"},` +
@@ -31,26 +32,32 @@ func TestHandleQuantitiesResolvesConversions(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &results); err != nil {
 		t.Fatal(err)
 	}
-	if len(results) != 5 {
-		t.Fatalf("expected 5 results, got %d", len(results))
+	if len(results) != 6 {
+		t.Fatalf("expected 6 results, got %d", len(results))
 	}
-	celsius := results[0].Conversion
+	if results[0].CanonicalUnitURI != "http://qudt.org/vocab/unit/K" || results[0].Conversion != nil {
+		t.Fatalf("unexpected canonical-only result: %#v", results[0])
+	}
+	celsius := results[1].Conversion
 	if celsius == nil || celsius.Multiplier != 1 || celsius.Offset != 273.15 {
-		t.Fatalf("unexpected celsius conversion: %#v", results[0].Conversion)
+		t.Fatalf("unexpected celsius conversion: %#v", results[1].Conversion)
 	}
-	delta := results[1].Conversion
+	if results[1].CanonicalUnitURI != "http://qudt.org/vocab/unit/K" {
+		t.Fatalf("unexpected celsius canonical unit: %q", results[1].CanonicalUnitURI)
+	}
+	delta := results[2].Conversion
 	if delta == nil || delta.Offset != 0 || delta.Multiplier != 1 {
-		t.Fatalf("expected offset-free delta conversion, got %#v", results[1].Conversion)
+		t.Fatalf("expected offset-free delta conversion, got %#v", results[2].Conversion)
 	}
-	feet := results[2].Conversion
+	feet := results[3].Conversion
 	if feet == nil || feet.Multiplier != 0.3048 || feet.Offset != 0 {
-		t.Fatalf("unexpected feet conversion: %#v", results[2].Conversion)
-	}
-	if results[3].Conversion != nil {
-		t.Fatalf("expected no conversion for dimensionally incompatible kind, got %#v", results[3].Conversion)
+		t.Fatalf("unexpected feet conversion: %#v", results[3].Conversion)
 	}
 	if results[4].Conversion != nil {
-		t.Fatalf("expected no conversion for unknown unit, got %#v", results[4].Conversion)
+		t.Fatalf("expected no conversion for dimensionally incompatible kind, got %#v", results[4].Conversion)
+	}
+	if results[5].Conversion != nil {
+		t.Fatalf("expected no conversion for unknown unit, got %#v", results[5].Conversion)
 	}
 }
 
