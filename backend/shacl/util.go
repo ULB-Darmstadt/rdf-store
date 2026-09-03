@@ -129,7 +129,7 @@ func isRdfCollectionProperty(prop *Property, shapes map[string]*NodeShape) bool 
 	}
 	var hasNilBranch, hasRecursiveBranch bool
 	for branch := range rest.Or {
-		if branch.HasValue && branch.HasValueTerm != nil && branch.HasValueTerm.Equal(RDF_LIST_NIL) && len(branch.NodeShapes) == 0 && len(branch.Or) == 0 &&
+		if branch.HasValue && isRdfNil(branch.HasValueTerm, listShape.Graph) && len(branch.NodeShapes) == 0 && len(branch.Or) == 0 &&
 			hasOnlySupportedShapePredicates(listShape.Graph, branch.Id, SHACL_HAS_VALUE) {
 			hasNilBranch = true
 		} else if !branch.HasValue && len(branch.NodeShapes) == 1 && len(branch.Or) == 0 &&
@@ -142,6 +142,23 @@ func isRdfCollectionProperty(prop *Property, shapes map[string]*NodeShape) bool 
 		}
 	}
 	return hasNilBranch && hasRecursiveBranch
+}
+
+// isRdfNil also recognizes the empty list cell produced by rdf2go when a
+// Turtle serializer writes rdf:nil using the equivalent () shorthand. rdf2go
+// represents that shorthand as a blank node with only rdf:rest rdf:nil.
+func isRdfNil(term rdf2go.Term, graph *rdf2go.Graph) bool {
+	if term == nil {
+		return false
+	}
+	if term.Equal(RDF_LIST_NIL) {
+		return true
+	}
+	if _, blank := term.(*rdf2go.BlankNode); !blank {
+		return false
+	}
+	triples := graph.All(term, nil, nil)
+	return len(triples) == 1 && triples[0].Predicate.Equal(RDF_LIST_REST) && triples[0].Object.Equal(RDF_LIST_NIL)
 }
 
 func isSupportedRdfListNodeKind(nodeKind string) bool {

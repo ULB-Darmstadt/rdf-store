@@ -127,6 +127,42 @@ ex:ListShape a sh:NodeShape ;
 	}
 }
 
+func TestDetectRdfCollectionsAcceptsEmptyListShorthand(t *testing.T) {
+	turtle := `
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix ex: <http://example.org/> .
+
+ex:Root a sh:NodeShape ;
+  sh:property [ sh:path ex:hasValues ; sh:maxCount 1 ; sh:node ex:ListShape ] .
+ex:ListShape a sh:NodeShape ;
+  sh:property [ sh:path rdf:first ; sh:minCount 1 ; sh:maxCount 1 ] ;
+  sh:property [ sh:path rdf:rest ; sh:minCount 1 ; sh:maxCount 1 ;
+    sh:or ( [ sh:hasValue () ] [ sh:node ex:ListShape ] )
+  ] .
+`
+	parse := func(id string) *NodeShape {
+		graph := rdf2go.NewGraph("")
+		if err := graph.Parse(strings.NewReader(turtle), "text/turtle"); err != nil {
+			t.Fatal(err)
+		}
+		shape, err := (&NodeShape{Graph: graph}).Parse(rdf2go.NewResource(id), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return shape
+	}
+	root := parse("http://example.org/Root")
+	shapes := map[string]*NodeShape{
+		"http://example.org/Root":      root,
+		"http://example.org/ListShape": parse("http://example.org/ListShape"),
+	}
+	DetectRdfCollections(shapes)
+	if !root.Properties["http://example.org/hasValues"][0].IsRdfCollection {
+		t.Fatal("expected () terminator to be detected as rdf:nil")
+	}
+}
+
 func TestDetectRdfCollectionsRequiresSupportedPattern(t *testing.T) {
 	valid := `
 @prefix sh: <http://www.w3.org/ns/shacl#> .
