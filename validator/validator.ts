@@ -21,6 +21,7 @@ const shaclAnd = prefixSHACL + 'and'
 const shaclOr = prefixSHACL + 'or'
 const shaclXone = prefixSHACL + 'xone'
 const shaclQualifiedValueShape = prefixSHACL + 'qualifiedValueShape'
+const shaclHasValue = prefixSHACL + 'hasValue'
 const rdfFirst = prefixRDF + 'first'
 const rdfRest = prefixRDF + 'rest'
 const rdfNil = DataFactory.namedNode(prefixRDF + 'nil')
@@ -54,7 +55,14 @@ async function validateShape(resourceID: Term, shapeID: Term, subjectToShapeConf
             await validateShape(resourceID, extendedShape, subjectToShapeConformance, dataset, validator, visited)
         }
 
+        // The recursive rdf:rest constraint is already validated by
+        // shacl-engine. Do not follow it into rdf:nil, but still traverse
+        // rdf:first so conformance of node-shaped list members is recorded.
+        const rdfListShape = isRdfListShape(shapeID, dataset)
         for (const property of dataset.getObjects(shapeID, shaclProperty, shapesGraphName)) {
+            if (rdfListShape && dataset.getObjects(property, shaclPath, shapesGraphName).some(path => path.value === rdfRest)) {
+                continue
+            }
             const paths = dataset.getObjects(property, shaclPath, shapesGraphName)
             const propertyShapes = getValueNodeShapes(property, dataset)
             if (paths.length === 0 || propertyShapes.length === 0) {
@@ -302,6 +310,49 @@ function getValueNodeShapes(subject: Term, dataset: Store) {
         }
     }
     return shapes
+}
+
+function isRdfListShape(shapeID: Term, dataset: Store): boolean {
+    const properties = dataset.getObjects(shapeID, shaclProperty, shapesGraphName)
+    if (properties.length !== 2) {
+        return false
+    }
+    let firstProp: Term | undefined
+    let restProp: Term | undefined
+    for (const prop of properties) {
+        const paths = dataset.getObjects(prop, shaclPath, shapesGraphName)
+        if (paths.length !== 1) {
+            return false
+        }
+        if (paths[0].value === rdfFirst) {
+            firstProp = prop
+        } else if (paths[0].value === rdfRest) {
+            restProp = prop
+        }
+    }
+    if (!firstProp || !restProp) {
+        return false
+    }
+    const restOrLists = dataset.getQuads(restProp, shaclOr, null, shapesGraphName)
+    if (restOrLists.length !== 1) {
+        return false
+    }
+    const branches = readShapeList(restOrLists[0].object, dataset)
+    if (branches.length !== 2) {
+        return false
+    }
+    let hasNilBranch = false
+    let hasRecursiveBranch = false
+    for (const branch of branches) {
+        const hasValue = dataset.getObjects(branch, shaclHasValue, shapesGraphName)
+        const nodeShapes = dataset.getObjects(branch, shaclNode, shapesGraphName)
+        if (hasValue.length === 1 && hasValue[0].equals(rdfNil) && nodeShapes.length === 0) {
+            hasNilBranch = true
+        } else if (hasValue.length === 0 && nodeShapes.length === 1 && nodeShapes[0].equals(shapeID)) {
+            hasRecursiveBranch = true
+        }
+    }
+    return hasNilBranch && hasRecursiveBranch
 }
 
 function readShapeList(head: Term, dataset: Store): Term[] {

@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 
+	"rdf-store-backend/shacl"
+
 	"github.com/deiu/rdf2go"
 	"github.com/knakk/rdf"
 	"github.com/knakk/sparql"
@@ -74,6 +76,11 @@ func (resolver *linkResolver) resolve(graph *rdf2go.Graph, resource []byte) ([]b
 		for t := range g.IterTriples() {
 			linkCandidate, ok := t.Object.(*rdf2go.Resource)
 			if !ok {
+				continue
+			}
+			// Skip rdf:first/rdf:rest objects: they are part of RDF list
+			// structure and must not be resolved as linked resources.
+			if t.Predicate.Equal(shacl.RDF_LIST_FIRST) || t.Predicate.Equal(shacl.RDF_LIST_REST) {
 				continue
 			}
 			link := linkCandidate.RawValue()

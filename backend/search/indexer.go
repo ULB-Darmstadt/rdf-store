@@ -438,7 +438,41 @@ func buildDocRecursive(subject rdf2go.Term, profile *shacl.NodeShape, resource *
 		pathTerm := rdf2go.NewResource(path)
 		for _, property := range properties {
 			for _, value := range resource.All(subject, pathTerm, nil) {
-				if property.QualifiedValueShapeDenormalized != nil && conforms(value.Object.RawValue(), property.QualifiedValueShape, metadata) {
+				if property.IsRdfCollection {
+					for _, item := range shacl.WalkRdfCollection(value.Object, resource) {
+						current.appendValue("_text_", item.RawValue())
+						if literal, ok := item.(*rdf2go.Literal); ok {
+							datatype := ""
+							if literal.Datatype != nil {
+								datatype = literal.Datatype.RawValue()
+							}
+							field := "valueText"
+							storedValue := literal.RawValue()
+							if suffix := datatypeMappings[datatype]; suffix != "" {
+								switch suffix {
+								case "ds":
+									field = "valueNumber"
+								case "bs":
+									field = "valueBoolean"
+								case "srpt":
+									field = "valueGeo"
+								case "dts":
+									field = "valueDate"
+									if len(storedValue) == 10 {
+										storedValue += "T00:00:00Z"
+									} else if !strings.HasSuffix(storedValue, "Z") && !hasTimezoneOffset(storedValue) {
+										storedValue += "Z"
+									}
+								default:
+									field = "valueText"
+								}
+							}
+							current.appendValue(field, storedValue)
+						} else {
+							current.appendValue("valueString", item.RawValue())
+						}
+					}
+				} else if property.QualifiedValueShapeDenormalized != nil && conforms(value.Object.RawValue(), property.QualifiedValueShape, metadata) {
 					current.appendValue("_text_", rdf.FindLabels(value.Object, resource))
 					buildDocRecursive(value.Object, property.QualifiedValueShapeDenormalized, resource, metadata, current, active)
 				} else if len(property.NodeShapes) > 0 || len(property.AlternativeNodeShapes) > 0 {
@@ -609,6 +643,35 @@ func (indexer *queryIndexer) walk(node queryIndexNode) {
 				}
 				if property.QualifiedValueShape != "" {
 					childShapes[property.QualifiedValueShape] = true
+				}
+
+				if property.IsRdfCollection {
+					// List members are the rdf:first values inside the list node
+					// shape. shacl-form's query fields address them as
+					// "<property> rdf:first", so the query path must include the
+					// rdf:first segment for facets to match the indexed values.
+					itemShapePath := appendPath(nextShapePath, shacl.RDF_LIST_FIRST.RawValue())
+					for _, item := range shacl.WalkRdfCollection(value.Object, indexer.resource) {
+						if node.owner != nil {
+							indexer.appendValue(queryIndexValue{
+								document:     node.owner,
+								shapePath:    itemShapePath,
+								predicateURI: path,
+								term:         item,
+								quantity:     quantity,
+							})
+						}
+						if node.conforming != nil && node.conforming != node.owner {
+							indexer.appendValue(queryIndexValue{
+								document:     node.conforming,
+								shapePath:    itemShapePath,
+								predicateURI: path,
+								term:         item,
+								quantity:     quantity,
+							})
+						}
+					}
+					continue
 				}
 
 				recursed := false

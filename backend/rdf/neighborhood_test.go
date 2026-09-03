@@ -12,16 +12,17 @@ func TestBuildOutgoingNeighborhoodQuery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(query, "BIND(<https://example.org/entity/1> AS ?s) ?s ?p ?o") {
-		t.Fatalf("query does not select direct statements for the entity: %s", query)
-	}
-	for _, expected := range []string{"ORDER BY ?g ?s ?p ?o", "LIMIT 26", "OFFSET 7"} {
+	for _, expected := range []string{
+		"GRAPH ?g { <https://example.org/entity/1> ?pageP ?pageO }",
+		"<https://example.org/entity/1> ?pageP ?pageO",
+		"?pageO <http://www.w3.org/1999/02/22-rdf-syntax-ns#rest>* ?cellS",
+		"FILTER(isBlank(?pageO))", "FILTER(isBlank(?cellS))",
+		"BIND(COALESCE(?cellS, <https://example.org/entity/1>) AS ?s)",
+		"ORDER BY ?g ?pageP ?pageO", "LIMIT 26", "OFFSET 7",
+	} {
 		if !strings.Contains(query, expected) {
 			t.Fatalf("outgoing query is missing %q: %s", expected, query)
 		}
-	}
-	if strings.Contains(query, "*") || strings.Contains(query, "+") {
-		t.Fatalf("outgoing query must not recurse: %s", query)
 	}
 }
 
@@ -95,6 +96,26 @@ func TestParseNeighborhoodPageWithoutLookaheadIsComplete(t *testing.T) {
 	}
 	if returned != 1 || hasMore {
 		t.Fatalf("expected a complete one-row page, got returned=%d hasMore=%v", returned, hasMore)
+	}
+}
+
+func TestParseNeighborhoodPageGroupsCollectionClosureWithPagedStatement(t *testing.T) {
+	bindings := []byte(`{"head":{"vars":["s","p","o","g","pageP","pageO"]},"results":{"bindings":[
+        {"s":{"type":"uri","value":"https://example.org/root"},"p":{"type":"uri","value":"https://example.org/values"},"o":{"type":"bnode","value":"head"},"g":{"type":"uri","value":"https://example.org/g"},"pageP":{"type":"uri","value":"https://example.org/values"},"pageO":{"type":"bnode","value":"head"}},
+        {"s":{"type":"bnode","value":"head"},"p":{"type":"uri","value":"http://www.w3.org/1999/02/22-rdf-syntax-ns#first"},"o":{"type":"literal","value":"55.0"},"g":{"type":"uri","value":"https://example.org/g"},"pageP":{"type":"uri","value":"https://example.org/values"},"pageO":{"type":"bnode","value":"head"}},
+        {"s":{"type":"bnode","value":"head"},"p":{"type":"uri","value":"http://www.w3.org/1999/02/22-rdf-syntax-ns#rest"},"o":{"type":"uri","value":"http://www.w3.org/1999/02/22-rdf-syntax-ns#nil"},"g":{"type":"uri","value":"https://example.org/g"},"pageP":{"type":"uri","value":"https://example.org/values"},"pageO":{"type":"bnode","value":"head"}},
+        {"s":{"type":"uri","value":"https://example.org/root"},"p":{"type":"uri","value":"https://example.org/z"},"o":{"type":"literal","value":"lookahead"},"g":{"type":"uri","value":"https://example.org/g"},"pageP":{"type":"uri","value":"https://example.org/z"},"pageO":{"type":"literal","value":"lookahead"}}
+    ]}}`)
+	quads, _, _, returned, hasMore, err := parseNeighborhoodPage(bindings, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if returned != 1 || !hasMore {
+		t.Fatalf("expected one direct statement and a lookahead page, got returned=%d hasMore=%v", returned, hasMore)
+	}
+	serialized := string(quads)
+	if !strings.Contains(serialized, "rdf-syntax-ns#first") || !strings.Contains(serialized, "rdf-syntax-ns#rest") || strings.Contains(serialized, "lookahead") {
+		t.Fatalf("collection closure was not kept with its direct statement: %s", serialized)
 	}
 }
 

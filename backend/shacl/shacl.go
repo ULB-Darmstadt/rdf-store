@@ -149,12 +149,15 @@ type Property struct {
 	QualifiedValueShapeDenormalized *NodeShape
 	NodeShapesDenormalized          *NodeShape
 	QualifiedMinCount               int
+	MinCount                        int
 	MaxCount                        int
 	NodeShapes                      map[string]bool
 	AlternativeNodeShapes           map[string]bool
 	Or                              map[*Property]bool
 	NodeKind                        string
 	Facet                           *bool
+	HasValueTerm                    rdf2go.Term
+	IsRdfCollection                 bool
 }
 
 // Print logs a human-readable representation of the property.
@@ -205,6 +208,10 @@ func (prop *Property) Parse(id rdf2go.Term, parent *NodeShape, graph *rdf2go.Gra
 			if i, err := strconv.Atoi(triple.Object.RawValue()); err == nil {
 				prop.QualifiedMinCount = i
 			}
+		} else if triple.Predicate.Equal(SHACL_MIN_COUNT) {
+			if i, err := strconv.Atoi(triple.Object.RawValue()); err == nil {
+				prop.MinCount = i
+			}
 		} else if triple.Predicate.Equal(SHACL_MAX_COUNT) {
 			if i, err := strconv.Atoi(triple.Object.RawValue()); err == nil {
 				prop.MaxCount = i
@@ -215,6 +222,7 @@ func (prop *Property) Parse(id rdf2go.Term, parent *NodeShape, graph *rdf2go.Gra
 			prop.In = true
 		} else if triple.Predicate.Equal(SHACL_HAS_VALUE) {
 			prop.HasValue = true
+			prop.HasValueTerm = triple.Object
 		} else if triple.Predicate.Equal(SHACL_NODE_KIND) {
 			if spec, ok := triple.Object.(*rdf2go.Resource); ok {
 				prop.NodeKind = spec.RawValue()
@@ -246,7 +254,11 @@ func (prop *Property) Merge(other *Property) {
 	prop.In = prop.In || other.In
 	prop.Class = prop.Class || other.Class
 	prop.HasValue = prop.HasValue || other.HasValue
+	if other.HasValueTerm != nil {
+		prop.HasValueTerm = other.HasValueTerm
+	}
 	prop.QualifiedMinCount = max(prop.QualifiedMinCount, other.QualifiedMinCount)
+	prop.MinCount = max(prop.MinCount, other.MinCount)
 	if other.MaxCount > 0 && prop.MaxCount > 0 {
 		prop.MaxCount = min(prop.MaxCount, other.MaxCount)
 	} else {

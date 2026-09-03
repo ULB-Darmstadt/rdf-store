@@ -51,20 +51,19 @@ func SerializeProfileClosure(root *NodeShape, profiles map[string]*NodeShape) ([
 			// rdf2go can expand Turtle's `()` into a synthetic blank node that
 			// only has rdf:rest rdf:nil. References to that node are normalized
 			// below, so the malformed synthetic list node itself must be omitted.
-			if _, blank := triple.Subject.(*rdf2go.BlankNode); blank &&
-				triple.Predicate.Equal(RDF_LIST_REST) &&
-				profile.Graph.One(triple.Subject, RDF_LIST_FIRST, nil) == nil {
+			if isEmptyListArtifact(profile.Graph, triple.Subject) {
 				continue
 			}
 			copy := *triple
 			copy.Subject = scopeBlankNode(copy.Subject)
 			// rdf2go represents Turtle's empty list `()` as an orphan blank
-			// node when parsing some serialized Fuseki graphs. Once merged and
-			// renamed it is no longer serialized as `()`, so normalize the tail
+			// node when parsing some serialized Fuseki graphs. This applies to
+			// list tails and to any reference to the empty list (e.g. a
+			// sh:hasValue branch object), which are all rdf:nil. Once merged
+			// and renamed it is no longer serialized as `()`, so normalize any
+			// object that is an empty-list artifact
 			// explicitly to rdf:nil.
-			if _, blank := copy.Object.(*rdf2go.BlankNode); blank &&
-				copy.Predicate.Equal(RDF_LIST_REST) &&
-				profile.Graph.One(copy.Object, RDF_LIST_FIRST, nil) == nil {
+			if isEmptyListArtifact(profile.Graph, copy.Object) {
 				copy.Object = RDF_LIST_NIL
 			} else {
 				copy.Object = scopeBlankNode(copy.Object)
@@ -85,6 +84,18 @@ func SerializeProfileClosure(root *NodeShape, profiles map[string]*NodeShape) ([
 		return nil, err
 	}
 	return output.Bytes(), nil
+}
+
+// isEmptyListArtifact identifies rdf2go's representation of an empty Turtle
+// collection: a blank node with only rdf:rest rdf:nil. Merely lacking
+// rdf:first is not sufficient because ordinary SHACL property shapes are also
+// blank nodes without that predicate.
+func isEmptyListArtifact(graph *rdf2go.Graph, term rdf2go.Term) bool {
+	if _, blank := term.(*rdf2go.BlankNode); !blank {
+		return false
+	}
+	triples := graph.All(term, nil, nil)
+	return len(triples) == 1 && triples[0].Predicate.Equal(RDF_LIST_REST) && triples[0].Object.Equal(RDF_LIST_NIL)
 }
 
 // findProfile tolerates the common trailing-slash difference between an

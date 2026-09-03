@@ -1031,3 +1031,131 @@ func TestBuildQueryDocConvertsDeltaQuantityWithoutOffset(t *testing.T) {
 		t.Fatalf("expected original unit %s, got %v", celsiusUnit, unitValues[0])
 	}
 }
+
+func TestBuildQueryDocIndexesRdfCollectionValues(t *testing.T) {
+	const (
+		rootID           = "http://example.org/Variable"
+		listShapeID      = "http://example.org/DecimalListShape"
+		valuesPath       = "http://example.org/hasDiscreteValues"
+		valuesPropertyID = "urn:property:hasDiscreteValues"
+		decimalType      = "http://www.w3.org/2001/XMLSchema#decimal"
+	)
+
+	root := &shacl.NodeShape{
+		Id: rdf2go.NewResource(rootID), Parents: map[string]bool{}, Alternatives: map[string]bool{},
+		Properties: map[string][]*shacl.Property{valuesPath: {{
+			Id:              rdf2go.NewResource(valuesPropertyID),
+			NodeShapes:      map[string]bool{listShapeID: true},
+			IsRdfCollection: true,
+		}}},
+	}
+	listShape := &shacl.NodeShape{
+		Id: rdf2go.NewResource(listShapeID), Parents: map[string]bool{}, Alternatives: map[string]bool{},
+		Properties: map[string][]*shacl.Property{},
+	}
+
+	previousProfiles := rdf.Profiles
+	rdf.Profiles = map[string]*shacl.NodeShape{rootID: root, listShapeID: listShape}
+	t.Cleanup(func() { rdf.Profiles = previousProfiles })
+
+	subject := rdf2go.NewResource("http://example.org/variable/1")
+	head := rdf2go.NewBlankNode("head")
+	tail := rdf2go.NewBlankNode("tail")
+	graph := rdf2go.NewGraph("")
+	graph.AddTriple(subject, rdf2go.NewResource(valuesPath), head)
+	graph.AddTriple(head, shacl.RDF_LIST_FIRST, rdf2go.NewLiteralWithDatatype("1.5", rdf2go.NewResource(decimalType)))
+	graph.AddTriple(head, shacl.RDF_LIST_REST, tail)
+	graph.AddTriple(tail, shacl.RDF_LIST_FIRST, rdf2go.NewLiteralWithDatatype("2.75", rdf2go.NewResource(decimalType)))
+	graph.AddTriple(tail, shacl.RDF_LIST_REST, shacl.RDF_LIST_NIL)
+	metadata := &rdf.ResourceMetadata{Conformance: map[string][]string{
+		subject.RawValue(): {rootID},
+	}}
+
+	rootDoc := document{}
+	traversal := newQueryTraversalState()
+	traversal.entities = map[string]*document{subject.RawValue(): &rootDoc}
+
+	newQueryIndexer(graph, metadata, rootID, traversal, qudt.PredicateConfig{}).index(subject, root, &rootDoc)
+
+	// Collection items should be indexed as individual values under the list
+	// member path "<property> rdf:first", matching shacl-form query fields.
+	itemPath := []string{valuesPath, shacl.RDF_LIST_FIRST.RawValue()}
+	if values := valueChildren(rootDoc, itemPath, "valueNumber"); len(values) != 2 {
+		t.Fatalf("expected 2 collection items, got %d: %#v", len(values), values)
+	} else if values[0] != "1.5" || values[1] != "2.75" {
+		t.Fatalf("expected collection values [1.5, 2.75], got %#v", values)
+	}
+}
+
+func TestBuildDocRecursiveIndexesRdfCollectionAsText(t *testing.T) {
+	const (
+		rootID           = "http://example.org/Variable"
+		listShapeID      = "http://example.org/DecimalListShape"
+		valuesPath       = "http://example.org/hasDiscreteValues"
+		valuesPropertyID = "urn:property:hasDiscreteValues"
+		decimalType      = "http://www.w3.org/2001/XMLSchema#decimal"
+	)
+
+	root := &shacl.NodeShape{
+		Id: rdf2go.NewResource(rootID), Parents: map[string]bool{}, Alternatives: map[string]bool{},
+		Properties: map[string][]*shacl.Property{valuesPath: {{
+			Id:              rdf2go.NewResource(valuesPropertyID),
+			NodeShapes:      map[string]bool{listShapeID: true},
+			IsRdfCollection: true,
+		}}},
+	}
+	listShape := &shacl.NodeShape{
+		Id: rdf2go.NewResource(listShapeID), Parents: map[string]bool{}, Alternatives: map[string]bool{},
+		Properties: map[string][]*shacl.Property{},
+	}
+
+	previousProfiles := rdf.Profiles
+	rdf.Profiles = map[string]*shacl.NodeShape{rootID: root, listShapeID: listShape}
+	t.Cleanup(func() { rdf.Profiles = previousProfiles })
+
+	subject := rdf2go.NewResource("http://example.org/variable/1")
+	head := rdf2go.NewBlankNode("head")
+	tail := rdf2go.NewBlankNode("tail")
+	graph := rdf2go.NewGraph("")
+	graph.AddTriple(subject, rdf2go.NewResource(valuesPath), head)
+	graph.AddTriple(head, shacl.RDF_LIST_FIRST, rdf2go.NewLiteralWithDatatype("1.5", rdf2go.NewResource(decimalType)))
+	graph.AddTriple(head, shacl.RDF_LIST_REST, tail)
+	graph.AddTriple(tail, shacl.RDF_LIST_FIRST, rdf2go.NewLiteralWithDatatype("2.75", rdf2go.NewResource(decimalType)))
+	graph.AddTriple(tail, shacl.RDF_LIST_REST, shacl.RDF_LIST_NIL)
+	metadata := &rdf.ResourceMetadata{Conformance: map[string][]string{
+		subject.RawValue(): {rootID},
+	}}
+
+	doc := document{}
+	buildDocRecursive(subject, root, graph, metadata, &doc, make(map[string]bool))
+
+	textValues, ok := doc["_text_"].([]any)
+	if !ok {
+		t.Fatalf("expected _text_ field, got %#v", doc)
+	}
+	found15 := false
+	found275 := false
+	for _, v := range textValues {
+		if s, ok := v.(string); ok {
+			if s == "1.5" {
+				found15 = true
+			}
+			if s == "2.75" {
+				found275 = true
+			}
+		}
+	}
+	if !found15 || !found275 {
+		t.Fatalf("expected both collection items in _text_, got %#v", textValues)
+	}
+
+	// Decimal items must also appear in valueNumber for numeric faceting.
+	numberValues := doc["valueNumber"]
+	if numberValues == nil {
+		t.Fatal("expected valueNumber field on entity document")
+	}
+	list, ok := numberValues.([]any)
+	if !ok || len(list) != 2 {
+		t.Fatalf("expected 2 numeric values, got %#v", numberValues)
+	}
+}

@@ -101,3 +101,72 @@ ex:time ex:quantityKind ex:TimeKind .
     assert.deepEqual(result['http://example.org/temperature'], ['http://example.org/Temperature'])
     assert.deepEqual(result['http://example.org/time'], ['http://example.org/Time'])
 })
+
+test('validates RDF collection resources without false violations', async () => {
+    const listShapes = `
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix ex: <http://example.org/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+ex:VariableShape a sh:NodeShape ;
+  sh:property [
+    sh:path ex:hasDiscreteValues ;
+    sh:minCount 1 ;
+    sh:maxCount 1 ;
+    sh:node ex:DecimalListShape
+  ] .
+
+ex:DecimalListShape a sh:NodeShape ;
+  sh:property [
+    sh:path rdf:first ;
+    sh:minCount 1 ;
+    sh:maxCount 1 ;
+    sh:datatype xsd:decimal
+  ] ;
+  sh:property [
+    sh:path rdf:rest ;
+    sh:minCount 1 ;
+    sh:maxCount 1 ;
+    sh:or (
+      [ sh:hasValue rdf:nil ]
+      [ sh:node ex:DecimalListShape ]
+    )
+  ] .
+`
+    const listData = `
+@prefix ex: <http://example.org/> .
+<http://example.org/resource> ex:hasDiscreteValues ( 1.5 2.75 4.0 ) .
+`
+    const result = await validate(
+        listShapes,
+        'http://example.org/VariableShape',
+        listData,
+        'http://example.org/resource',
+    )
+    assert.ok(result['http://example.org/resource'].includes('http://example.org/VariableShape'))
+})
+
+test('records conformance for node-shaped RDF collection members', async () => {
+    const listShapes = `
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix ex: <http://example.org/> .
+ex:Root a sh:NodeShape ; sh:property [
+  sh:path ex:pets ; sh:maxCount 1 ; sh:node ex:PetList
+] .
+ex:PetList a sh:NodeShape ;
+  sh:property [ sh:path rdf:first ; sh:minCount 1 ; sh:maxCount 1 ; sh:node ex:Pet ] ;
+  sh:property [ sh:path rdf:rest ; sh:minCount 1 ; sh:maxCount 1 ;
+    sh:or ( [ sh:hasValue rdf:nil ] [ sh:node ex:PetList ] )
+  ] .
+ex:Pet a sh:NodeShape ; sh:property [ sh:path ex:name ; sh:minCount 1 ] .
+`
+    const listData = `
+@prefix ex: <http://example.org/> .
+ex:resource ex:pets ( ex:fido ) .
+ex:fido ex:name "Fido" .
+`
+    const result = await validate(listShapes, 'http://example.org/Root', listData, 'http://example.org/resource')
+    assert.ok(result['http://example.org/fido'].includes('http://example.org/Pet'))
+})

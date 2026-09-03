@@ -14,6 +14,8 @@ significant changes rather than documenting every commit.
 
 - Return each quantity kind's canonical SI unit from `/quantities`, including
   kind-only requests that do not yet have a selected source unit.
+- Support recursive RDF collections throughout profile detection, validation,
+  full-text indexing, and query-facet indexing.
 
 ### Changed
 
@@ -41,8 +43,13 @@ significant changes rather than documenting every commit.
 - Rebuild all resource metadata and perform one batched reindex after profile
   changes, keeping contextual linked conformance synchronized.
 - Return nonzero CLI exit codes when metadata rebuilding or reindexing fails.
-- Update `@ulb-darmstadt/shacl-form` to 3.5.2 and resolve
-  `@ro-kit/ui-widgets` 1.0.62.
+- Treat `rdf:first` and `rdf:rest` arcs as collection structure rather than
+  linked-resource references.
+- Show anonymous literal-only RDF collections as repeated values in the owning
+  resource's graph information pane, while retaining named, resource-valued,
+  mixed, and annotated collections as graph nodes.
+- Update `@ulb-darmstadt/shacl-form` to 3.7.1 and resolve
+  `@ro-kit/ui-widgets` 1.0.63.
 
 ## 2026-08
 

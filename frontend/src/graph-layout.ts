@@ -1,4 +1,4 @@
-import { Quad, Writer } from 'n3'
+import { DataFactory, Quad, Writer } from 'n3'
 
 export type GraphPoint = { x: number, y: number }
 export type GraphLayoutNode = { id: string, label?: string }
@@ -105,8 +105,7 @@ export function computeHierarchyScore(
     return total > 0 ? downward / total : 0
 }
 
-// @ts-expect-error unused variables
-export function selectLayoutEngine(nodes: GraphLayoutNode[], edges: GraphLayoutEdge[], root: string): LayoutEngine {
+export function selectLayoutEngine(_nodes: GraphLayoutNode[], _edges: GraphLayoutEdge[], _root: string): LayoutEngine {
     // select only radial for now
     return engines['radial']()
     /*
@@ -137,6 +136,74 @@ export function termKey(term: Quad['subject'] | Quad['predicate'] | Quad['object
 
 export function quadKey(quad: Quad) {
     return [termKey(quad.subject), termKey(quad.predicate), termKey(quad.object), termKey(quad.graph)].join('\u0001')
+}
+
+const rdfFirst = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#first'
+const rdfRest = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#rest'
+const rdfNil = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#nil'
+
+// Anonymous collections containing only literals are scalar values of the
+// owning property, not useful graph nodes. Preserve named list heads,
+// resource-valued or mixed collections, and annotated cells as graph data.
+export function flattenLiteralCollections(quads: Iterable<Quad>): Quad[] {
+    const values = Array.from(quads)
+    const outgoing = new Map<string, Quad[]>()
+    for (const quad of values) {
+        const key = nodeId(quad.subject, quad.graph.value)
+        const subjectQuads = outgoing.get(key) ?? []
+        subjectQuads.push(quad)
+        outgoing.set(key, subjectQuads)
+    }
+
+    const replacements = new Map<string, Quad[]>()
+    const structuralQuads = new Set<string>()
+    for (const reference of values) {
+        if (reference.object.termType !== 'BlankNode' || reference.predicate.value === rdfFirst || reference.predicate.value === rdfRest) {
+            continue
+        }
+        const collection = readLiteralCollection(reference.object, reference.graph.value, outgoing)
+        if (!collection) {
+            continue
+        }
+        replacements.set(quadKey(reference), collection.items.map(item =>
+            DataFactory.quad(reference.subject, reference.predicate, item, reference.graph)
+        ))
+        for (const quad of collection.structure) {
+            structuralQuads.add(quadKey(quad))
+        }
+    }
+
+    return values.flatMap(quad => replacements.get(quadKey(quad)) ?? (structuralQuads.has(quadKey(quad)) ? [] : [quad]))
+}
+
+function readLiteralCollection(head: Quad['object'], graph: string, outgoing: Map<string, Quad[]>) {
+    const items: Array<Extract<Quad['object'], { termType: 'Literal' }>> = []
+    const structure: Quad[] = []
+    const visited = new Set<string>()
+    let current = head
+    while (!(current.termType === 'NamedNode' && current.value === rdfNil)) {
+        if (current.termType !== 'BlankNode') {
+            return undefined
+        }
+        const key = nodeId(current, graph)
+        if (visited.has(key)) {
+            return undefined
+        }
+        visited.add(key)
+        const cell = outgoing.get(key) ?? []
+        if (cell.length !== 2) {
+            return undefined
+        }
+        const first = cell.filter(quad => quad.predicate.value === rdfFirst)
+        const rest = cell.filter(quad => quad.predicate.value === rdfRest)
+        if (first.length !== 1 || rest.length !== 1 || first[0].object.termType !== 'Literal') {
+            return undefined
+        }
+        items.push(first[0].object)
+        structure.push(first[0], rest[0])
+        current = rest[0].object
+    }
+    return { items, structure }
 }
 
 export function nodeId(term: Quad['subject'] | Quad['object'], graph: string) {

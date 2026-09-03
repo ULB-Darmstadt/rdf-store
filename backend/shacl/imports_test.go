@@ -29,6 +29,7 @@ _:shared rdf:first <http://example.org/MiddleChoice> ; rdf:rest () .
   owl:imports <http://example.org/root/> ;
   sh:or _:shared ;
   sh:property [ sh:path <http://example.org/value> ; sh:datatype xsd:double ] .
+<http://example.org/EmptyConstraint> sh:hasValue () .
 _:shared rdf:first <http://example.org/LeafChoice> ; rdf:rest rdf:nil .
 `)
 
@@ -44,8 +45,16 @@ _:shared rdf:first <http://example.org/LeafChoice> ; rdf:rest rdf:nil .
 	if err := graph.Parse(bytes.NewReader(serialized), "text/turtle"); err != nil {
 		t.Fatal(err)
 	}
-	if graph.One(rdf2go.NewResource("http://example.org/leaf/"), SHACL_PROPERTY, nil) == nil {
+	property := graph.One(rdf2go.NewResource("http://example.org/leaf/"), SHACL_PROPERTY, nil)
+	if property == nil {
 		t.Fatal("transitively imported leaf shape is missing")
+	}
+	if property.Object.Equal(RDF_LIST_NIL) || graph.One(property.Object, SHACL_PATH, rdf2go.NewResource("http://example.org/value")) == nil {
+		t.Fatalf("ordinary blank-node property shape was rewritten as an empty list: %v", property)
+	}
+	emptyValue := graph.One(rdf2go.NewResource("http://example.org/EmptyConstraint"), SHACL_HAS_VALUE, nil)
+	if emptyValue == nil || !emptyValue.Object.Equal(RDF_LIST_NIL) {
+		t.Fatalf("empty-list value was not normalized to rdf:nil: %v", emptyValue)
 	}
 	if imports := graph.All(nil, OWL_IMPORTS, nil); len(imports) != 0 {
 		t.Fatalf("locally resolved import directives remain: %v", imports)

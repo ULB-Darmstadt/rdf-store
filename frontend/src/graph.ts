@@ -6,7 +6,7 @@ import { Parser, Quad } from 'n3'
 import { BACKEND_URL, RDF_TYPE } from './constants'
 import { fetchLabels, i18n } from './i18n'
 import {
-    collectGraphNodeIds, computeFlowDirections, countRouteCrossings, edgePath, mergeQuads, nodeId, quadKey,
+    collectGraphNodeIds, computeFlowDirections, countRouteCrossings, edgePath, flattenLiteralCollections, mergeQuads, nodeId, quadKey,
     reserveRequestWave, routeGraphEdges, serializeNQuads, stableGraphSeed, selectLayoutEngine,
     type EdgeRoute, type GraphLayoutEdge
 } from './graph-layout'
@@ -369,11 +369,12 @@ export class RdfGraph extends LitElement {
     }
 
     private automaticCapacity() {
-        const nodes = collectGraphNodeIds(this.quads.values(), quad => this.isGraphNodeObject(quad))
+        const visibleQuads = flattenLiteralCollections(this.quads.values())
+        const nodes = collectGraphNodeIds(visibleQuads, quad => this.isGraphNodeObject(quad))
         if (this.activeSubject) {
             nodes.add(this.activeSubject)
         }
-        const edges = Array.from(this.quads.values()).filter(quad => this.isGraphNodeObject(quad)).length
+        const edges = visibleQuads.filter(quad => this.isGraphNodeObject(quad)).length
         return Math.min(automaticNodeLimit - nodes.size, automaticEdgeLimit - edges)
     }
 
@@ -476,8 +477,8 @@ export class RdfGraph extends LitElement {
                 return undefined
             }
             const quads = new Parser({ format: 'N-Quads' }).parse(page.quads)
-            if (quads.length !== page.returned) {
-                throw new Error('graph neighborhood row count does not match its payload')
+            if (quads.length < page.returned) {
+                throw new Error('graph neighborhood payload contains fewer quads than returned statements')
             }
             return { task, page, quads }
         } finally {
@@ -527,7 +528,8 @@ export class RdfGraph extends LitElement {
     }
 
     private mergeQuads(quads: Quad[]) {
-        this.newNodes = mergeQuads(this.quads, quads, values => collectGraphNodeIds(values, quad => this.isGraphNodeObject(quad)))
+        this.newNodes = mergeQuads(this.quads, quads, values =>
+            collectGraphNodeIds(flattenLiteralCollections(values), quad => this.isGraphNodeObject(quad)))
     }
 
     private showInfoPane(node: Node, pinned: boolean) {
@@ -642,6 +644,7 @@ export class RdfGraph extends LitElement {
         const labelsToFetch = new Set<string>()
         const nodes = new Map<string, Node>()
         const links: Edge[] = []
+        const visibleQuads = flattenLiteralCollections(this.quads.values())
 
         const ensureNode = (id: string, navigable: boolean) => {
             let node = nodes.get(id)
@@ -653,7 +656,7 @@ export class RdfGraph extends LitElement {
             return node
         }
 
-        for (const quad of this.quads.values()) {
+        for (const quad of visibleQuads) {
             const subjectId = nodeId(quad.subject, quad.graph.value)
             const subject = ensureNode(subjectId, quad.subject.termType === 'NamedNode')
             labelsToFetch.add(subject.id)
@@ -690,7 +693,7 @@ export class RdfGraph extends LitElement {
         await fetchLabels(Array.from(labelsToFetch), true)
 
         const nodeArray = Array.from(nodes.values())
-        const hydrated = new Set(Array.from(this.quads.values()).map(q => nodeId(q.subject, q.graph.value)))
+        const hydrated = new Set(visibleQuads.map(q => nodeId(q.subject, q.graph.value)))
         for (const node of nodeArray) {
             node.label = i18n[node.id]
             if (node.type) {

@@ -150,11 +150,31 @@ func buildNeighborhoodQuery(subject, direction string, offset, limit int) (strin
 
 	switch direction {
 	case NeighborhoodOutgoing:
-		return fmt.Sprintf(`SELECT ?s ?p ?o ?g WHERE {
-  GRAPH ?g { BIND(<%s> AS ?s) ?s ?p ?o }
-} ORDER BY ?g ?s ?p ?o
-LIMIT %d
-OFFSET %d`, subject, limit+1, offset), nil
+		return fmt.Sprintf(`SELECT ?s ?p ?o ?g ?pageP ?pageO WHERE {
+  {
+    SELECT ?pageP ?pageO ?g WHERE {
+      GRAPH ?g { <%s> ?pageP ?pageO }
+    }
+    ORDER BY ?g ?pageP ?pageO
+    LIMIT %d
+    OFFSET %d
+  }
+  GRAPH ?g {
+    {
+      <%s> ?pageP ?pageO
+    }
+    UNION
+    {
+      FILTER(isBlank(?pageO))
+      ?pageO <http://www.w3.org/1999/02/22-rdf-syntax-ns#rest>* ?cellS .
+      FILTER(isBlank(?cellS))
+      ?cellS ?cellP ?cellO
+    }
+  }
+  BIND(COALESCE(?cellS, <%s>) AS ?s)
+  BIND(COALESCE(?cellP, ?pageP) AS ?p)
+  BIND(COALESCE(?cellO, ?pageO) AS ?o)
+} ORDER BY ?g ?pageP ?pageO ?s ?p ?o`, subject, limit+1, offset, subject, subject), nil
 	case NeighborhoodIncoming:
 		return fmt.Sprintf(`SELECT ?s ?p (<%s> AS ?o) ?g WHERE {
   GRAPH ?g { ?s ?p <%s> }
@@ -173,9 +193,30 @@ func parseNeighborhoodPage(bindings []byte, limit int) ([]byte, []string, []stri
 		return nil, nil, nil, 0, false, err
 	}
 	solutions := result.Solutions()
-	hasMore := len(solutions) > limit
-	if hasMore {
+	returned := len(solutions)
+	hasMore := returned > limit
+	if len(solutions) > 0 && solutions[0]["pageP"] != nil && solutions[0]["pageO"] != nil {
+		pages := make([][]map[string]rdf.Term, 0)
+		pageKeys := make(map[string]int)
+		for _, row := range solutions {
+			key := fmt.Sprintf("%T:%v\x00%T:%v\x00%T:%v", row["g"], row["g"], row["pageP"], row["pageP"], row["pageO"], row["pageO"])
+			page, ok := pageKeys[key]
+			if !ok {
+				page = len(pages)
+				pageKeys[key] = page
+				pages = append(pages, nil)
+			}
+			pages[page] = append(pages[page], row)
+		}
+		returned = min(len(pages), limit)
+		hasMore = len(pages) > limit
+		solutions = nil
+		for _, page := range pages[:returned] {
+			solutions = append(solutions, page...)
+		}
+	} else if hasMore {
 		solutions = solutions[:limit]
+		returned = len(solutions)
 	}
 	var encoded bytes.Buffer
 	encoder := rdf.NewQuadEncoder(&encoded, rdf.NQuads)
@@ -212,5 +253,5 @@ func parseNeighborhoodPage(bindings []byte, limit int) ([]byte, []string, []stri
 		candidates = append(candidates, id)
 	}
 	sort.Strings(candidates)
-	return encoded.Bytes(), known, candidates, len(solutions), hasMore, nil
+	return encoded.Bytes(), known, candidates, returned, hasMore, nil
 }

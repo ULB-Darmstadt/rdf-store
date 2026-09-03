@@ -67,6 +67,7 @@ func ParseAllProfiles() (map[string]*shacl.NodeShape, error) {
 	for _, profile := range profiles {
 		profile.DenormalizePropertyNodeShapes(profiles)
 	}
+	shacl.DetectRdfCollections(profiles)
 	Profiles = profiles
 	base.Configuration.Profiles = configuredProfileIDs
 	return profiles, nil

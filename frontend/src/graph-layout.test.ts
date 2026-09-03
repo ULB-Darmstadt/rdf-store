@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { Parser } from 'n3'
 import {
     collectGraphNodeIds, collectNodeIds, computeHierarchyScore, computeKCore, countRouteCrossings,
-    edgePath, estimateLabelSize, graphDepths, mergeQuads, radialRadii, reserveRequestWave,
+    edgePath, estimateLabelSize, flattenLiteralCollections, graphDepths, mergeQuads, radialRadii, reserveRequestWave,
     routeGraphEdges, serializeNQuads, stableGraphSeed, type EdgeRoute, type GraphLayoutEdge,
     type LayoutEngine, type PositionedNode
 } from './graph-layout'
@@ -291,6 +291,46 @@ describe('graph model', () => {
         `)
         const ids = collectGraphNodeIds(quads, quad => quad.object.termType === 'NamedNode' && quad.object.value === 'urn:local:item')
         expect(ids).toEqual(new Set(['https://one.example/root', 'urn:local:item']))
+    })
+
+    it('flattens anonymous literal collections onto their owning property', () => {
+        const quads = flattenLiteralCollections(parse(`
+            <https://example.org/root> <https://example.org/values> _:head <https://example.org/g> .
+            _:head <http://www.w3.org/1999/02/22-rdf-syntax-ns#first> "one" <https://example.org/g> .
+            _:head <http://www.w3.org/1999/02/22-rdf-syntax-ns#rest> _:tail <https://example.org/g> .
+            _:tail <http://www.w3.org/1999/02/22-rdf-syntax-ns#first> "two" <https://example.org/g> .
+            _:tail <http://www.w3.org/1999/02/22-rdf-syntax-ns#rest> <http://www.w3.org/1999/02/22-rdf-syntax-ns#nil> <https://example.org/g> .
+        `))
+        expect(quads).toHaveLength(2)
+        expect(quads.map(quad => [quad.subject.value, quad.predicate.value, quad.object.value])).toEqual([
+            ['https://example.org/root', 'https://example.org/values', 'one'],
+            ['https://example.org/root', 'https://example.org/values', 'two']
+        ])
+    })
+
+    it('preserves named, resource-valued, and annotated collections', () => {
+        const cases = [
+            `
+                <https://example.org/root> <https://example.org/values> <https://example.org/list> <https://example.org/g> .
+                <https://example.org/list> <http://www.w3.org/1999/02/22-rdf-syntax-ns#first> "one" <https://example.org/g> .
+                <https://example.org/list> <http://www.w3.org/1999/02/22-rdf-syntax-ns#rest> <http://www.w3.org/1999/02/22-rdf-syntax-ns#nil> <https://example.org/g> .
+            `,
+            `
+                <https://example.org/root> <https://example.org/values> _:head <https://example.org/g> .
+                _:head <http://www.w3.org/1999/02/22-rdf-syntax-ns#first> <https://example.org/item> <https://example.org/g> .
+                _:head <http://www.w3.org/1999/02/22-rdf-syntax-ns#rest> <http://www.w3.org/1999/02/22-rdf-syntax-ns#nil> <https://example.org/g> .
+            `,
+            `
+                <https://example.org/root> <https://example.org/values> _:head <https://example.org/g> .
+                _:head <http://www.w3.org/1999/02/22-rdf-syntax-ns#first> "one" <https://example.org/g> .
+                _:head <http://www.w3.org/1999/02/22-rdf-syntax-ns#rest> <http://www.w3.org/1999/02/22-rdf-syntax-ns#nil> <https://example.org/g> .
+                _:head <https://example.org/note> "documented" <https://example.org/g> .
+            `
+        ]
+        for (const value of cases) {
+            const quads = parse(value)
+            expect(flattenLiteralCollections(quads)).toEqual(quads)
+        }
     })
 
 })
