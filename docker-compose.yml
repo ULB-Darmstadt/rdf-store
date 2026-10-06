@@ -141,6 +141,9 @@ services:
       - CONVERSION_UNIT=${CONVERSION_UNIT:-}
       - CONVERSION_QUANTITY=${CONVERSION_QUANTITY:-}
       - CONVERSION_VALUE=${CONVERSION_VALUE:-}
+      - GRAPH_NODE_LIMIT=${GRAPH_NODE_LIMIT:-50}
+      - GRAPH_EDGE_LIMIT=${GRAPH_EDGE_LIMIT:-100}
+      - GRAPH_LOAD_MORE=${GRAPH_LOAD_MORE:-true}
     healthcheck:
         test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/v1/healthz >/dev/null || exit 1"]
         start_period: 10s

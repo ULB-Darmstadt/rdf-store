@@ -32,6 +32,9 @@ export type Config = {
     conversionUnit: string
     conversionQuantity: string
     conversionValue: string
+    graphNodeLimit: number
+    graphEdgeLimit: number
+    graphLoadMore: boolean
 }
 
 @customElement('rdf-store')

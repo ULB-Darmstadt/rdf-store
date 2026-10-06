@@ -9,6 +9,7 @@ import {
 import { RadialLayoutEngine } from './graph-layout-radial'
 import { HybridLayoutEngine } from './graph-layout-hybrid'
 import { HierarchicalLayoutEngine } from './graph-layout-hierarchical'
+import { ForceLayoutEngine } from './graph-layout-force'
 
 const parse = (value: string) => new Parser({ format: 'N-Quads' }).parse(value)
 
@@ -696,5 +697,62 @@ describe('HierarchicalLayoutEngine', () => {
         const cY = result.positions.get('c')!.y
         expect(aY).toBeGreaterThan(rootY)
         expect(cY).toBeGreaterThan(aY)
+    })
+})
+
+describe('ForceLayoutEngine', () => {
+    const nodes = [{ id: 'root' }, { id: 'a' }, { id: 'b' }, { id: 'c' }, { id: 'isolated' }]
+    const edges: GraphLayoutEdge[] = [
+        { id: 'ra', source: 'root', target: 'a' },
+        { id: 'ab', source: 'a', target: 'b' },
+        { id: 'rb', source: 'root', target: 'b' },
+        { id: 'rc', source: 'root', target: 'c' }
+    ]
+    const distance = (positions: Map<string, { x: number, y: number }>, from: string, to: string) => {
+        const source = positions.get(from)!
+        const target = positions.get(to)!
+        return Math.hypot(source.x - target.x, source.y - target.y)
+    }
+
+    it('settles every node deterministically for the same seed', () => {
+        const engine = new ForceLayoutEngine()
+        const first = engine.compute(nodes, edges, 'root', 7)
+        const second = engine.compute(nodes, edges, 'root', 7)
+        expect(first.positions.size).toBe(nodes.length)
+        for (const node of nodes) {
+            const position = first.positions.get(node.id)!
+            expect(Number.isFinite(position.x)).toBe(true)
+            expect(Number.isFinite(position.y)).toBe(true)
+            expect(position).toEqual(second.positions.get(node.id))
+        }
+    })
+
+    it('keeps the focused node near the origin', () => {
+        const { positions } = new ForceLayoutEngine().compute(nodes, edges, 'root', 7)
+        const root = positions.get('root')!
+        expect(Math.hypot(root.x, root.y)).toBeLessThan(150)
+    })
+
+    it('pulls linked nodes together and spreads unlinked ones apart', () => {
+        const { positions } = new ForceLayoutEngine().compute(nodes, edges, 'root', 7)
+        expect(distance(positions, 'a', 'b')).toBeLessThan(distance(positions, 'a', 'isolated'))
+        expect(distance(positions, 'root', 'a')).toBeLessThan(120)
+    })
+
+    it('reproduces the classic force parameters', () => {
+        const { force } = new ForceLayoutEngine().compute(nodes, edges, 'root', 7)
+        expect(force).toMatchObject({
+            chargeStrength: -1200,
+            collideIterations: 2,
+            radialForce: null,
+            centerStrength: 0.1,
+            alpha: 1.8,
+            alphaMin: 0.2,
+            alphaDecay: 0.08,
+            velocityDecay: 0.6
+        })
+        expect(force!.linkStrength).toBeUndefined()
+        expect(force!.linkDistance({ id: 'a' }, { id: 'b' })).toBe(30)
+        expect(force!.collideRadius({ id: 'a' })).toBe(18)
     })
 })

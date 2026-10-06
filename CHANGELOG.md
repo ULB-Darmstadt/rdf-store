@@ -10,6 +10,26 @@ significant changes rather than documenting every commit.
 
 ## Unreleased
 
+## 2026-10
+
+### Added
+
+- Make the graph view's automatic loading limits configurable via the
+  `GRAPH_NODE_LIMIT` and `GRAPH_EDGE_LIMIT` environment variables
+  (defaults: 50 nodes, 100 links), exposed to the frontend through `/config`.
+- Make manual "Load more" loading in the graph view optional via
+  `GRAPH_LOAD_MORE` (default `true`); when disabled, the node action menu
+  only offers focusing and the bounded-subgraph notice no longer suggests
+  loading another page.
+
+### Changed
+
+- Render the graph with the classic force-directed layout and simple arc
+  links again, and open the node action menu only on click or keyboard
+  activation instead of on hover.
+
+## 2026-09
+
 ### Added
 
 - Return each quantity kind's canonical SI unit from `/quantities`, including

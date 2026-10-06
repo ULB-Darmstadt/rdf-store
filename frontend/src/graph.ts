@@ -5,11 +5,13 @@ import { type D3DragEvent, type Simulation, type SimulationLinkDatum, type Simul
 import { Parser, Quad } from 'n3'
 import { BACKEND_URL, RDF_TYPE } from './constants'
 import { fetchLabels, i18n } from './i18n'
+import type { Config } from '.'
 import {
-    collectGraphNodeIds, computeFlowDirections, countRouteCrossings, edgePath, flattenLiteralCollections, mergeQuads, nodeId, quadKey,
-    reserveRequestWave, routeGraphEdges, serializeNQuads, stableGraphSeed, selectLayoutEngine,
-    type EdgeRoute, type GraphLayoutEdge
+    collectGraphNodeIds, computeFlowDirections, flattenLiteralCollections, mergeQuads, nodeId, quadKey,
+    reserveRequestWave, serializeNQuads, stableGraphSeed, selectLayoutEngine,
+    type GraphLayoutEdge
 } from './graph-layout'
+import './graph-layout-force'
 import './graph-layout-radial'
 import './graph-layout-hybrid'
 import './graph-layout-hierarchical'
@@ -30,7 +32,6 @@ type Edge = SimulationLinkDatum<Node> & {
     targetId: string
     type: string
     label?: string
-    route: EdgeRoute
 }
 
 type Direction = 'incoming' | 'outgoing'
@@ -52,8 +53,8 @@ const height = 400
 const automaticPageSize = 10
 const manualPageSize = 25
 const automaticWaveSize = 4
-const automaticNodeLimit = 50
-const automaticEdgeLimit = 100
+const defaultGraphNodeLimit = 50
+const defaultGraphEdgeLimit = 100
 
 @customElement('rdf-graph')
 export class RdfGraph extends LitElement {
@@ -129,6 +130,7 @@ export class RdfGraph extends LitElement {
 
     @property() rdfSubject = ''
     @property() highlightSubject = ''
+    @property({ attribute: false }) config?: Config
 
     @state() private loading = false
     @state() private menuSubject = ''
@@ -140,7 +142,6 @@ export class RdfGraph extends LitElement {
 
     private menuPinned = false
     private menuCloseTimer?: number
-    private menuOpenTimer?: number
     private suppressFit = false
 
     @query('#info-pane') private infopane!: HTMLElement
@@ -160,7 +161,7 @@ export class RdfGraph extends LitElement {
     private abortController?: AbortController
     private drawVersion = 0
     private currentSvg?: SVGSVGElement
-    private lastLayout?: { nodes: Node[], links: Edge[], routes: Map<string, EdgeRoute>, crossings: number }
+    private lastLayout?: { nodes: Node[], links: Edge[] }
 
     updated(changed: PropertyValues) {
         if (changed.has('rdfSubject') || changed.has('highlightSubject')) {
@@ -205,8 +206,7 @@ export class RdfGraph extends LitElement {
             console.log('No layout data available')
             return
         }
-        const { nodes, links, routes, crossings } = this.lastLayout
-        const nodeMap = new Map(nodes.map(n => [n.id, n]))
+        const { nodes, links } = this.lastLayout
         const positionMap = new Map(nodes.map(n => [n.id, { x: n.x ?? 0, y: n.y ?? 0 }]))
         const flowDirections = computeFlowDirections(positionMap, links.map(l => ({ id: l.id, source: l.sourceId, target: l.targetId })))
         const debugNodes = nodes.map(n => ({
@@ -216,55 +216,22 @@ export class RdfGraph extends LitElement {
             y: Math.round((n.y ?? 0) * 100) / 100
         }))
         const debugEdges = links.map(l => {
-            const route = routes.get(l.id)
-            const src = nodeMap.get(l.sourceId)
-            const tgt = nodeMap.get(l.targetId)
             const srcPos = positionMap.get(l.sourceId)
             const tgtPos = positionMap.get(l.targetId)
             const srcFlow = flowDirections.get(l.sourceId)
             const tgtFlow = flowDirections.get(l.targetId)
-            const bend = route?.bend ?? 0
-            let cp1: { x: number, y: number } | undefined
-            let cp2: { x: number, y: number } | undefined
-            let srcTangentAngle: number | undefined
-            let tgtTangentAngle: number | undefined
-            if (srcPos && tgtPos && srcFlow && tgtFlow && l.sourceId !== l.targetId && Math.abs(bend) > 0.001) {
-                const dx = tgtPos.x - srcPos.x
-                const dy = tgtPos.y - srcPos.y
-                const dist = Math.hypot(dx, dy)
-                const scale = dist / 3
-                const srcAngle = route?.srcTangentAngle ?? Math.atan2(dy / 2 + (dx / dist) * bend, dx / 2 + (-dy / dist) * bend)
-                const tgtAngle = route?.tgtTangentAngle ?? Math.atan2(-dy / 2 + (dx / dist) * bend, -dx / 2 + (-dy / dist) * bend)
-                cp1 = {
-                    x: Math.round((srcPos.x + Math.cos(srcAngle) * scale) * 100) / 100,
-                    y: Math.round((srcPos.y + Math.sin(srcAngle) * scale) * 100) / 100
-                }
-                cp2 = {
-                    x: Math.round((tgtPos.x + Math.cos(tgtAngle) * scale) * 100) / 100,
-                    y: Math.round((tgtPos.y + Math.sin(tgtAngle) * scale) * 100) / 100
-                }
-                srcTangentAngle = Math.round(Math.atan2(cp1.y - srcPos.y, cp1.x - srcPos.x) * 1000) / 1000
-                tgtTangentAngle = Math.round(Math.atan2(tgtPos.y - cp2.y, tgtPos.x - cp2.x) * 1000) / 1000
-            }
             return {
                 id: l.id,
                 source: l.sourceId,
                 target: l.targetId,
                 type: l.type,
-                bend,
-                srcAngle: src ? Math.atan2(src.y ?? 0, src.x ?? 0) : undefined,
-                tgtAngle: tgt ? Math.atan2(tgt.y ?? 0, tgt.x ?? 0) : undefined,
-                curve: l.sourceId === l.targetId ? 'self-loop' : (cp1 && cp2 ? 'cubic' : 'quadratic'),
+                srcAngle: srcPos ? Math.atan2(srcPos.y, srcPos.x) : undefined,
+                tgtAngle: tgtPos ? Math.atan2(tgtPos.y, tgtPos.x) : undefined,
                 srcFlowAngle: srcFlow ? Math.round(Math.atan2(srcFlow.y, srcFlow.x) * 1000) / 1000 : undefined,
-                tgtFlowAngle: tgtFlow ? Math.round(Math.atan2(tgtFlow.y, tgtFlow.x) * 1000) / 1000 : undefined,
-                srcTangentAngle,
-                tgtTangentAngle,
-                cp1,
-                cp2
+                tgtFlowAngle: tgtFlow ? Math.round(Math.atan2(tgtFlow.y, tgtFlow.x) * 1000) / 1000 : undefined
             }
         })
         const output = {
-            crossings,
             nodeCount: nodes.length,
             edgeCount: links.length,
             nodes: debugNodes,
@@ -296,7 +263,6 @@ export class RdfGraph extends LitElement {
         this.localSubjects.clear()
         this.positions.clear()
         this.closeMenu()
-        this.clearMenuOpenTimer()
         this.loading = false
         this.nodeCount = 0
         this.edgeCount = 0
@@ -320,7 +286,6 @@ export class RdfGraph extends LitElement {
         this.positions.clear()
         this.newNodes.clear()
         this.closeMenu()
-        this.clearMenuOpenTimer()
         this.loading = true
         this.nodeCount = 0
         this.edgeCount = 0
@@ -368,6 +333,17 @@ export class RdfGraph extends LitElement {
         this.enqueueTask({ subject, direction: 'incoming' })
     }
 
+    private graphLimits() {
+        return {
+            nodeLimit: this.config?.graphNodeLimit ?? defaultGraphNodeLimit,
+            edgeLimit: this.config?.graphEdgeLimit ?? defaultGraphEdgeLimit
+        }
+    }
+
+    private loadMoreEnabled() {
+        return this.config?.graphLoadMore ?? true
+    }
+
     private automaticCapacity() {
         const visibleQuads = flattenLiteralCollections(this.quads.values())
         const nodes = collectGraphNodeIds(visibleQuads, quad => this.isGraphNodeObject(quad))
@@ -375,7 +351,8 @@ export class RdfGraph extends LitElement {
             nodes.add(this.activeSubject)
         }
         const edges = visibleQuads.filter(quad => this.isGraphNodeObject(quad)).length
-        return Math.min(automaticNodeLimit - nodes.size, automaticEdgeLimit - edges)
+        const { nodeLimit, edgeLimit } = this.graphLimits()
+        return Math.min(nodeLimit - nodes.size, edgeLimit - edges)
     }
 
     private async loadAdaptiveGraph(epoch: number) {
@@ -386,7 +363,11 @@ export class RdfGraph extends LitElement {
                 const remaining = this.automaticCapacity()
                 if (remaining <= 0) {
                     removeSnackbarMessages(this.snackbar)
-                    showSnackbarMessage({ message: i18n['graph_automatic_limited'], ttl: 7000, cssClass: 'success', closable: true }, this.snackbar)
+                    const { nodeLimit, edgeLimit } = this.graphLimits()
+                    const message = i18n[this.loadMoreEnabled() ? 'graph_automatic_limited' : 'graph_automatic_limited_focus_only']
+                        .replace('{nodeLimit}', String(nodeLimit))
+                        .replace('{edgeLimit}', String(edgeLimit))
+                    showSnackbarMessage({ message, ttl: 7000, cssClass: 'success', closable: true }, this.snackbar)
                     break
                 }
                 const reservations = reserveRequestWave(this.automaticQueue, remaining, automaticPageSize, automaticWaveSize)
@@ -431,6 +412,9 @@ export class RdfGraph extends LitElement {
     }
 
     private async loadDirection(subject: string, direction: Direction) {
+        if (!this.loadMoreEnabled()) {
+            return
+        }
         const epoch = this.requestEpoch
         const task = { subject, direction }
         const key = this.actionKey(subject, direction)
@@ -583,21 +567,6 @@ export class RdfGraph extends LitElement {
         this.menuCloseTimer = window.setTimeout(() => this.closeMenu(), 250)
     }
 
-    private clearMenuOpenTimer() {
-        if (this.menuOpenTimer !== undefined) {
-            clearTimeout(this.menuOpenTimer)
-            this.menuOpenTimer = undefined
-        }
-    }
-
-    private scheduleMenuOpen(event: MouseEvent, node: Node, element: SVGGElement) {
-        this.clearMenuOpenTimer()
-        this.menuOpenTimer = window.setTimeout(() => {
-            this.menuOpenTimer = undefined
-            this.openMenu(event, node, element)
-        }, 200)
-    }
-
     private closeMenu() {
         this.clearMenuCloseTimer()
         this.menuSubject = ''
@@ -679,8 +648,7 @@ export class RdfGraph extends LitElement {
                     target: objectId,
                     sourceId: subjectId,
                     targetId: objectId,
-                    type: quad.predicate.value,
-                    route: { bend: 0 }
+                    type: quad.predicate.value
                 })
                 if (quad.object.termType === 'NamedNode') {
                     labelsToFetch.add(objectId)
@@ -741,12 +709,19 @@ export class RdfGraph extends LitElement {
                     const src = typeof link.source === 'object' ? link.source : { id: String(link.source) }
                     const tgt = typeof link.target === 'object' ? link.target : { id: String(link.target) }
                     return force.linkDistance(src, tgt)
-                }).strength(force.linkStrength)
+                })
+            if (force.linkStrength !== undefined) {
+                linkForce.strength(force.linkStrength)
+            }
             simulation.force('link', linkForce)
             simulation.force('charge', d3.forceManyBody().strength(force.chargeStrength))
             simulation.force('collide', d3.forceCollide<Node>().radius(force.collideRadius).iterations(force.collideIterations))
             if (force.radialForce) {
                 simulation.force('radial', d3.forceRadial<Node>(force.radialForce, 0, 0).strength(force.radialStrength))
+            }
+            if (force.centerStrength !== undefined) {
+                simulation.force('x', d3.forceX<Node>().strength(force.centerStrength))
+                simulation.force('y', d3.forceY<Node>().strength(force.centerStrength))
             }
             simulation.alpha(force.alpha).alphaMin(force.alphaMin).alphaDecay(force.alphaDecay).velocityDecay(force.velocityDecay)
         }
@@ -776,15 +751,12 @@ export class RdfGraph extends LitElement {
             .attr('stroke', edge => color(edge.type))
             .attr('marker-end', edge => `url(${new URL(`#arrow-${types.indexOf(edge.type)}`, location.toString())})`)
 
-        const labelGuide = defs.append('g').selectAll('path').data(links).join('path')
-            .attr('id', (_, index) => `label-path-${index}`)
-
         scene.append('g').attr('class', 'link-labels').selectAll('text').data(links).join('text')
             .attr('font-size', 7).attr('dy', '-0.3em')
             .attr('paint-order', 'stroke').attr('stroke', 'var(--background-color, white)').attr('stroke-width', 2)
             .append('textPath')
-            .attr('fill', edge => color(edge.type)).attr('href', (_, index) => `#label-path-${index}`)
-            .attr('startOffset', '50%').attr('text-anchor', 'middle').text(edge => edge.label || edge.type)
+            .attr('fill', edge => color(edge.type)).attr('href', (_, index) => `#link-path-${index}`)
+            .attr('startOffset', '45%').attr('text-anchor', 'middle').text(edge => edge.label || edge.type)
 
         const node = scene.append('g').attr('fill', '#888').selectAll<SVGGElement, Node>('g').data(nodeArray).join('g')
             .attr('class', item => `node${item.id === this.activeSubject ? ' root' : ''}${!hydrated.has(item.id) ? ' stub' : ''}${this.newNodes.has(item.id) ? ' new' : ''}`)
@@ -799,20 +771,15 @@ export class RdfGraph extends LitElement {
         node.append('text').attr('x', 9).attr('y', '0.31em').html(item => item.label ?? escapeHtml(item.id))
             .clone(true).lower().attr('fill', 'none').attr('stroke', 'var(--background-color, white)').attr('stroke-width', 1)
 
-        node.on('mouseenter', (event, item) => {
+        node.on('mouseenter', (_event, item) => {
             if (!this.infopane.classList.contains('pinned')) {
                 this.showInfoPane(item, false)
             }
-            if (item.navigable) {
-                if (this.menuSubject !== item.id) {
-                    this.scheduleMenuOpen(event, item, event.currentTarget as SVGGElement)
-                } else {
-                    this.clearMenuCloseTimer()
-                }
+            if (this.menuSubject === item.id) {
+                this.clearMenuCloseTimer()
             }
         }).on('mouseleave', () => {
             this.hideInfoPane(false)
-            this.clearMenuOpenTimer()
             if (!this.menuPinned) {
                 this.scheduleMenuClose()
             }
@@ -833,27 +800,15 @@ export class RdfGraph extends LitElement {
         node.on('pointerdown', event => event.stopPropagation())
 
         const currentPositions = () => new Map(nodeArray.map(node => [node.id, { x: node.x ?? 0, y: node.y ?? 0 }]))
-        let lastRoutes = new Map<string, EdgeRoute>()
-        const assignRoutes = () => {
-            const positions = nodeArray.map(node => ({ id: node.id, x: node.x ?? 0, y: node.y ?? 0 }))
-            lastRoutes = routeGraphEdges(positions, layoutEdges)
-            for (const edge of links) {
-                edge.route = lastRoutes.get(edge.id) ?? { bend: 0 }
-            }
-        }
         const updatePositions = () => {
             const positions = currentPositions()
-            link.attr('d', edge => edgePath(graphLayoutEdge(edge), edge.route, positions, false))
-            labelGuide.attr('d', edge => edgePath(graphLayoutEdge(edge), edge.route, positions, true))
+            link.attr('d', edge => arcPath(positions.get(edge.sourceId), positions.get(edge.targetId)))
             node.attr('transform', item => {
                 this.positions.set(item.id, { x: item.x ?? 0, y: item.y ?? 0 })
                 return `translate(${item.x},${item.y})`
             })
         }
-        simulation.on('tick', updatePositions).on('end', () => {
-            assignRoutes()
-            updatePositions()
-        })
+        simulation.on('tick', updatePositions)
         for (let index = 0; index < 90; index++) {
             simulation.tick()
         }
@@ -866,14 +821,11 @@ export class RdfGraph extends LitElement {
         for (let index = 0; index < 300; index++) {
             simulation.tick()
         }
-        assignRoutes()
         updatePositions()
         simulation.stop()
         this.lastLayout = {
             nodes: nodeArray,
-            links,
-            routes: lastRoutes,
-            crossings: countRouteCrossings(nodeArray.map(n => ({ id: n.id, x: n.x ?? 0, y: n.y ?? 0 })), layoutEdges, lastRoutes)
+            links
         }
         return Object.assign(svg.node()!, {
             zoomBehaviour: zoom,
@@ -918,18 +870,20 @@ export class RdfGraph extends LitElement {
             </div>
             ${!this.menuSubject ? nothing : html`
                 <div class="radial-menu" style="left:${this.menuX}px;top:${this.menuY}px" @click=${(event: Event) => event.stopPropagation()}>
-                    <button class="incoming" @click=${() => this.loadDirection(this.menuSubject, 'incoming')}
-                        @mouseenter=${this.clearMenuCloseTimer} @mouseleave=${this.scheduleMenuClose}
-                        ?disabled=${this.loading || incomingComplete || incomingLoading}
-                        title=${incomingLabel} aria-label=${incomingLabel}>
-                        <span class="material-icons">${incomingLoading ? 'hourglass_top' : incomingComplete ? 'done' : 'call_received'}</span><span>${incomingLabel}</span>
-                    </button>
-                    <button class="outgoing" @click=${() => this.loadDirection(this.menuSubject, 'outgoing')}
-                        @mouseenter=${this.clearMenuCloseTimer} @mouseleave=${this.scheduleMenuClose}
-                        ?disabled=${this.loading || outgoingComplete || outgoingLoading}
-                        title=${outgoingLabel} aria-label=${outgoingLabel}>
-                        <span class="material-icons">${outgoingLoading ? 'hourglass_top' : outgoingComplete ? 'done' : 'call_made'}</span><span>${outgoingLabel}</span>
-                    </button>
+                    ${!this.loadMoreEnabled() ? nothing : html`
+                        <button class="incoming" @click=${() => this.loadDirection(this.menuSubject, 'incoming')}
+                            @mouseenter=${this.clearMenuCloseTimer} @mouseleave=${this.scheduleMenuClose}
+                            ?disabled=${this.loading || incomingComplete || incomingLoading}
+                            title=${incomingLabel} aria-label=${incomingLabel}>
+                            <span class="material-icons">${incomingLoading ? 'hourglass_top' : incomingComplete ? 'done' : 'call_received'}</span><span>${incomingLabel}</span>
+                        </button>
+                        <button class="outgoing" @click=${() => this.loadDirection(this.menuSubject, 'outgoing')}
+                            @mouseenter=${this.clearMenuCloseTimer} @mouseleave=${this.scheduleMenuClose}
+                            ?disabled=${this.loading || outgoingComplete || outgoingLoading}
+                            title=${outgoingLabel} aria-label=${outgoingLabel}>
+                            <span class="material-icons">${outgoingLoading ? 'hourglass_top' : outgoingComplete ? 'done' : 'call_made'}</span><span>${outgoingLabel}</span>
+                        </button>
+                    `}
                     <button class="focus" @click=${() => this.focusEntity(this.menuSubject)} title=${i18n['graph_focus']} aria-label=${i18n['graph_focus']}
                         @mouseenter=${this.clearMenuCloseTimer} @mouseleave=${this.scheduleMenuClose}>
                         <span class="material-icons">center_focus_strong</span><span>${i18n['graph_focus']}</span>
@@ -988,6 +942,13 @@ function fitToView(svg: SVGSVGElement) {
 
 function graphLayoutEdge(edge: Edge): GraphLayoutEdge {
     return { id: edge.id, source: edge.sourceId, target: edge.targetId, label: edge.label }
+}
+
+function arcPath(source: { x: number, y: number } | undefined, target: { x: number, y: number } | undefined) {
+    const s = source ?? { x: 0, y: 0 }
+    const t = target ?? { x: 0, y: 0 }
+    const r = Math.hypot(t.x - s.x, t.y - s.y)
+    return `M${s.x},${s.y} A${r},${r} 0 0,1 ${t.x},${t.y}`
 }
 
 function drag(simulation: Simulation<Node, Edge>) {

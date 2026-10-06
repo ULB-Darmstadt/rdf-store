@@ -265,6 +265,7 @@ export class Viewer extends LitElement {
                 <rdf-graph
                     rdfSubject="${this.rdfSubject}"
                     highlightSubject="${this.highlightSubject}"
+                    .config="${this.config}"
                     @graph-state-change="${this.handleGraphState}"
                 ></rdf-graph>
             ` : html`

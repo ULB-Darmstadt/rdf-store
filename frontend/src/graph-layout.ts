@@ -23,12 +23,13 @@ export function estimateLabelSize(label: string | undefined): { width: number, h
 
 export type ForceConfig = {
     linkDistance: (source: { id: string }, target: { id: string }) => number
-    linkStrength: number
+    linkStrength?: number
     chargeStrength: number
     collideRadius: (node: { id: string }) => number
     collideIterations: number
     radialForce: ((node: { id: string }) => number) | null
     radialStrength: (node: { id: string }) => number
+    centerStrength?: number
     alpha: number
     alphaMin: number
     alphaDecay: number
