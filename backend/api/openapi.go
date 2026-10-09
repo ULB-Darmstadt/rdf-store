@@ -115,8 +115,7 @@ func addSchemas(spec *openapi3.T) {
 		WithProperty("conversionQuantity", openapi3.NewStringSchema()).
 		WithProperty("conversionValue", openapi3.NewStringSchema()).
 		WithProperty("graphNodeLimit", openapi3.NewIntegerSchema()).
-		WithProperty("graphEdgeLimit", openapi3.NewIntegerSchema()).
-		WithProperty("graphLoadMore", openapi3.NewBoolSchema()))
+		WithProperty("graphEdgeLimit", openapi3.NewIntegerSchema()))
 	spec.Components.Schemas["LabelsResponse"] = openapi3.NewSchemaRef("", openapi3.NewSchema().
 		WithAdditionalProperties(openapi3.NewStringSchema()))
 	spec.Components.Schemas["ShapeInstancesResponse"] = openapi3.NewSchemaRef("", openapi3.NewSchema().

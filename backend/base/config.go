@@ -21,7 +21,6 @@ type Config struct {
 	ConversionValue     string   `json:"conversionValue"`
 	GraphNodeLimit      int      `json:"graphNodeLimit"`
 	GraphEdgeLimit      int      `json:"graphEdgeLimit"`
-	GraphLoadMore       bool     `json:"graphLoadMore"`
 }
 
 type AuthenticatedConfig struct {
@@ -45,7 +44,6 @@ var Configuration = Config{
 	ConversionValue:     EnvVar("CONVERSION_VALUE", ""),
 	GraphNodeLimit:      EnvVarAsInt("GRAPH_NODE_LIMIT", 50),
 	GraphEdgeLimit:      EnvVarAsInt("GRAPH_EDGE_LIMIT", 100),
-	GraphLoadMore:       EnvVarAsBool("GRAPH_LOAD_MORE", true),
 }
 
 var ExposeFusekiFrontend = EnvVarAsBool("EXPOSE_FUSEKI_FRONTEND", false)
