@@ -565,6 +565,26 @@ func TestAppendQueryValueDeduplicatesValues(t *testing.T) {
 	}
 }
 
+func TestAppendQueryValueIndexesStringForTextSearchAndFacets(t *testing.T) {
+	doc := document{"id": "resource|subject", "resourceId": "resource"}
+	path := []string{"http://example.org/status"}
+	indexer := &queryIndexer{traversal: newQueryTraversalState()}
+	for _, value := range []string{"In Progress", "Done", "In Progress"} {
+		indexer.appendValue(queryIndexValue{
+			document:  &doc,
+			shapePath: path,
+			term: rdf2go.NewLiteralWithDatatype(value,
+				rdf2go.NewResource("http://www.w3.org/2001/XMLSchema#string")),
+		})
+	}
+
+	for _, field := range []string{"valueText", "valueString"} {
+		if values := valueChildren(doc, path, field); !reflect.DeepEqual(values, []any{"In Progress", "Done"}) {
+			t.Fatalf("expected unchanged, unique string values in %s, got %#v", field, values)
+		}
+	}
+}
+
 func TestAppendQueryValueGroupsValuesByPath(t *testing.T) {
 	doc := document{"id": "resource|subject", "resourceId": "resource"}
 	path := []string{"http://example.org/name"}

@@ -840,6 +840,10 @@ func (indexer *queryIndexer) appendValue(value queryIndexValue) {
 		(*value.document)["_childDocuments_"] = append(children, valueDocument)
 	}
 	child.appendValue(field, storedValue)
+	// Preserve string literals for exact filters and facet buckets.
+	if field == "valueText" && datatype == fmt.Sprintf(prefixXSD, "string") {
+		child.appendValue("valueString", storedValue)
+	}
 	if datatype != "" {
 		child.appendValue("datatype", datatype)
 	}
