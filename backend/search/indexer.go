@@ -540,6 +540,7 @@ type queryIndexNode struct {
 }
 
 type queryIndexValue struct {
+	hasValue     bool
 	document     *document
 	shapePath    []string
 	predicateURI string
@@ -631,6 +632,7 @@ func (indexer *queryIndexer) walk(node queryIndexNode) {
 						shapePath:    nextShapePath,
 						predicateURI: path,
 						term:         value.Object,
+						hasValue:     property.HasValue,
 						quantity:     quantity,
 					})
 				}
@@ -658,6 +660,7 @@ func (indexer *queryIndexer) walk(node queryIndexNode) {
 								shapePath:    itemShapePath,
 								predicateURI: path,
 								term:         item,
+								hasValue:     property.HasValue,
 								quantity:     quantity,
 							})
 						}
@@ -667,6 +670,7 @@ func (indexer *queryIndexer) walk(node queryIndexNode) {
 								shapePath:    itemShapePath,
 								predicateURI: path,
 								term:         item,
+								hasValue:     property.HasValue,
 								quantity:     quantity,
 							})
 						}
@@ -840,8 +844,9 @@ func (indexer *queryIndexer) appendValue(value queryIndexValue) {
 		(*value.document)["_childDocuments_"] = append(children, valueDocument)
 	}
 	child.appendValue(field, storedValue)
-	// Preserve string literals for exact filters and facet buckets.
-	if field == "valueText" && datatype == fmt.Sprintf(prefixXSD, "string") {
+	// Preserve plain and xsd:string literals for exact filters and facet buckets,
+	// except for properties constrained by sh:hasValue.
+	if field == "valueText" && !value.hasValue && language == "" && (datatype == "" || datatype == fmt.Sprintf(prefixXSD, "string")) {
 		child.appendValue("valueString", storedValue)
 	}
 	if datatype != "" {

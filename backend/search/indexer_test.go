@@ -585,6 +585,49 @@ func TestAppendQueryValueIndexesStringForTextSearchAndFacets(t *testing.T) {
 	}
 }
 
+func TestBuildQueryDocStringFacetsRespectHasValue(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		term      rdf2go.Term
+		hasValue  bool
+		wantFacet bool
+	}{
+		{"plain", rdf2go.NewLiteral("In Progress"), false, true},
+		{"typed", rdf2go.NewLiteralWithDatatype("In Progress", rdf2go.NewResource("http://www.w3.org/2001/XMLSchema#string")), false, true},
+		{"fixed plain", rdf2go.NewLiteral("In Progress"), true, false},
+		{"fixed typed", rdf2go.NewLiteralWithDatatype("In Progress", rdf2go.NewResource("http://www.w3.org/2001/XMLSchema#string")), true, false},
+		{"language tagged", rdf2go.NewLiteralWithLanguage("In Progress", "en"), false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			const path = "http://example.org/status"
+			subject := rdf2go.NewResource("http://example.org/subject")
+			graph := rdf2go.NewGraph("")
+			graph.AddTriple(subject, rdf2go.NewResource(path), tc.term)
+			property := &shacl.Property{HasValue: tc.hasValue}
+			if tc.hasValue {
+				property.HasValueTerm = tc.term
+			}
+			profile := &shacl.NodeShape{
+				Id:         rdf2go.NewResource("http://example.org/Shape"),
+				Properties: map[string][]*shacl.Property{path: {property}},
+			}
+			doc := document{"id": "subject"}
+			newQueryIndexer(graph, nil, profile.Id.RawValue(), newQueryTraversalState(), qudt.PredicateConfig{}).index(subject, profile, &doc)
+			if values := valueChildren(doc, []string{path}, "valueText"); !reflect.DeepEqual(values, []any{"In Progress"}) {
+				t.Fatalf("expected full text value, got %#v", values)
+			}
+			values := valueChildren(doc, []string{path}, "valueString")
+			if tc.wantFacet {
+				if !reflect.DeepEqual(values, []any{"In Progress"}) {
+					t.Fatalf("expected exact string value, got %#v", values)
+				}
+			} else if len(values) != 0 {
+				t.Fatalf("expected no string facet value, got %#v", values)
+			}
+		})
+	}
+}
+
 func TestAppendQueryValueGroupsValuesByPath(t *testing.T) {
 	doc := document{"id": "resource|subject", "resourceId": "resource"}
 	path := []string{"http://example.org/name"}
@@ -636,7 +679,7 @@ func TestAppendQueryValueGroupsDifferentValueTypesByPath(t *testing.T) {
 	if values := valueChildren(doc, path, "valueNumber"); !reflect.DeepEqual(values, []any{"12.5"}) {
 		t.Fatalf("expected grouped numeric value, got %#v", values)
 	}
-	if values := valueChildren(doc, path, "valueString"); !reflect.DeepEqual(values, []any{"<http://example.org/value>"}) {
+	if values := valueChildren(doc, path, "valueString"); !reflect.DeepEqual(values, []any{"text", "<http://example.org/value>"}) {
 		t.Fatalf("expected grouped resource value, got %#v", values)
 	}
 	if datatypes := valueChildren(doc, path, "datatype"); !reflect.DeepEqual(datatypes, []any{"http://www.w3.org/2001/XMLSchema#decimal"}) {
