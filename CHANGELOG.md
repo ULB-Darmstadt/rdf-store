@@ -10,6 +10,16 @@ significant changes rather than documenting every commit.
 
 ## Unreleased
 
+## 2026-11
+
+### Fixed
+
+- Match text filters against complete literal values in `valueString`, preserving
+  spaces, punctuation, and word order without case sensitivity. Multi-word
+  affiliation names such as "Technical University of Darmstadt" now return
+  matching people, and search input is treated literally rather than as regex
+  syntax.
+
 ## 2026-10
 
 ### Added

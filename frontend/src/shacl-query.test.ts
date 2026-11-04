@@ -98,6 +98,48 @@ async function buildFilters(provider: SolrQueryFacetProvider, criteria: QueryCri
     return provider.buildFilters({ rootShapeId: 'urn:shape:root', criteria })
 }
 
+describe('text filters', () => {
+    beforeEach(() => {
+        vi.mocked(isRangeQueryField).mockReturnValue(false)
+    })
+
+    it('searches complete literal values across word boundaries without case sensitivity', async() => {
+        const provider = new SolrQueryFacetProvider(quantityConfig())
+        const filters = await buildFilters(provider, [{
+            field: field('affiliation', ['http://schema.org/affiliation', 'http://www.w3.org/2000/01/rdf-schema#label']),
+            operator: 'contains',
+            value: DataFactory.literal('Technical University of Darmstadt')
+        }])
+
+        expect(filters[1]).toContain('valueString:/.*(t|T)(e|E)(c|C)(h|H)(n|N)(i|I)(c|C)(a|A)(l|L) ')
+        expect(filters[1]).toContain('(u|U)(n|N)(i|I)(v|V)(e|E)(r|R)(s|S)(i|I)(t|T)(y|Y) (o|O)(f|F) ')
+        expect(filters[1]).not.toContain('valueText:')
+        expect(filters[1]).toContain('{!parent which=docType:entity}(docType:value AND path:')
+    })
+
+    it('treats punctuation and regex operators as literal search text', async() => {
+        const provider = new SolrQueryFacetProvider(quantityConfig())
+        const filters = await buildFilters(provider, [{
+            field: field('name', ['http://example.org/name']),
+            operator: 'contains',
+            value: DataFactory.literal('A/B (C++) [0-9].* "x" \\ @#&~<1>')
+        }])
+
+        expect(filters[1]).toContain('valueString:/.*(a|A)\\/(b|B) \\((c|C)\\+\\+\\) \\[0-9\\]\\.\\* \\"(x|X)\\" \\\\ \\@\\#\\&\\~\\<1\\>.*/')
+    })
+
+    it('keeps exact filters case-sensitive and quoted', async() => {
+        const provider = new SolrQueryFacetProvider(quantityConfig())
+        const filters = await buildFilters(provider, [{
+            field: field('name', ['http://example.org/name']),
+            operator: 'equals',
+            value: DataFactory.literal('Technical University of Darmstadt')
+        }])
+
+        expect(filters[1]).toContain('valueString:"Technical University of Darmstadt"')
+    })
+})
+
 describe('queryFieldPaths', () => {
     beforeEach(() => {
         vi.mocked(isRangeQueryField).mockReturnValue(false)

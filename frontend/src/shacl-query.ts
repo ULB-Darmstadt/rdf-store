@@ -60,6 +60,17 @@ function quote(value: string): string {
     return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
 }
 
+function containsPattern(value: string): string {
+    const escape = (text: string) => text.replace(/[.?+*|{}[\]()<>"#@&~\\/]/g, '\\$&')
+    // valueString preserves whole literals. Match them case-insensitively,
+    // including spaces and punctuation that text analysis would split apart.
+    return Array.from(value, character => {
+        const lower = character.toLowerCase()
+        const upper = character.toUpperCase()
+        return lower === upper ? escape(character) : `(${escape(lower)}|${escape(upper)})`
+    }).join('')
+}
+
 function normalizeDate(value: string): string {
     if (value.length === 10) {
         return `${value}T00:00:00Z`
@@ -419,8 +430,7 @@ export class SolrQueryFacetProvider implements QueryFacetProvider {
         const path = await this.pathFilter(criterion.field)
         let valueFilter: string | undefined
         if (criterion.operator === 'contains' && criterion.value) {
-            const escaped = criterion.value.value.replace(LUCENE_SPECIAL_RE, '\\$1')
-            valueFilter = `valueText:*${escaped}*`
+            valueFilter = `valueString:/.*${containsPattern(criterion.value.value)}.*/`
         } else if (criterion.operator === 'equals' && criterion.value) {
             const valueField = this.valueField(criterion.field, criterion.value)
             if (valueField === 'valueGeo') {

@@ -36,6 +36,10 @@ identifier, and fixed multivalued typed fields:
 
 Text literals populate both `valueString` and `valueText`, supporting exact
 facets and `contains` queries without creating additional physical fields.
+`contains` filters match case-insensitive literal substrings in `valueString`,
+preserving spaces, punctuation, and word order. Search input is escaped as a
+literal Lucene regular expression. Exact filters and facet buckets also use
+`valueString`; analyzed full-text values remain available in `valueText`.
 `datatype` and `language` are stored when present. Values sharing a path are
 grouped in one child document, whose ID is deterministic for the parent and path.
 Repeated values are deduplicated within each typed field.
