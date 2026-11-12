@@ -10,6 +10,7 @@ import (
 type Config struct {
 	Layout              string   `json:"layout"`
 	Profiles            []string `json:"profiles"`
+	DefaultProfileIds []string `json:"defaultProfileIds"`
 	Index               string   `json:"index"`
 	GeoDataType         string   `json:"geoDataType"`
 	SolrMaxAggregations int      `json:"solrMaxAggregations"`
@@ -33,6 +34,7 @@ type AuthenticatedConfig struct {
 var Configuration = Config{
 	Layout:              EnvVar("LAYOUT", "default"),
 	Profiles:            make([]string, 0),
+	DefaultProfileIds: EnvVarAsStringSlice("DEFAULT_PROFILE_IDS"),
 	Index:               SolrIndex,
 	GeoDataType:         "http://www.opengis.net/ont/geosparql#wktLiteral",
 	SolrMaxAggregations: 1000,
