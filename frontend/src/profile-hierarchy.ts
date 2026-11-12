@@ -165,12 +165,18 @@ export class ProfileHierarchy extends LitElement {
 
     render() {
         return html`
-            <rokit-select fixedOpen collapse sort class="${this.loading ? 'loading' : ''}" @change="${(event: Event) => {
-                event.stopPropagation()
-                const select = event.target as HTMLSelectElement
-                this.selectedProfile = select.value
-                select.value = ''
-                this.dispatchEvent(new Event('change', { bubbles: true, composed: true }))
+            <rokit-select
+                fixedOpen
+                collapse
+                sort
+                .filterableThreshold="${0}"
+                class="${this.loading ? 'loading' : ''}"
+                @change="${(event: Event) => {
+                    event.stopPropagation()
+                    const select = event.target as HTMLSelectElement
+                    this.selectedProfile = select.value
+                    select.value = ''
+                    this.dispatchEvent(new Event('change', { bubbles: true, composed: true }))
             }}">
                 <ul>${this.profiles?.map(profile => this.renderProfile(profile))}</ul>
             </rokit-select>
