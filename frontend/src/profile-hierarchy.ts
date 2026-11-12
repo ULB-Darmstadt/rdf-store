@@ -1,7 +1,6 @@
 import { LitElement, PropertyValues, TemplateResult, css, html } from 'lit'
 import { customElement, property, query, state } from 'lit/decorators.js'
 import { RokitSelect } from '@ro-kit/ui-widgets'
-import { BACKEND_URL } from './constants'
 import { fetchLabels, i18n } from './i18n'
 import { AggregationFacet, executeSolrRequest } from './solr'
 import { globalStyles } from './styles'
@@ -12,7 +11,7 @@ interface Profile {
     children: Profile[]
 }
 
-interface ProfileSummary {
+export interface ProfileSummary {
     id: string
     parents: string[]
 }
@@ -30,6 +29,8 @@ export class ProfileHierarchy extends LitElement {
     index = ''
     @property({ attribute: false })
     profileIds?: string[]
+    @property({ attribute: false })
+    profileSummaries?: ProfileSummary[]
     @property({ type: Boolean })
     active = false
     @property()
@@ -42,10 +43,21 @@ export class ProfileHierarchy extends LitElement {
     profileSelect?: RokitSelect
 
     willUpdate(changedProperties: PropertyValues) {
-        if (changedProperties.has('index') || changedProperties.has('profileIds')) {
+        if (
+            changedProperties.has('index') ||
+            changedProperties.has('profileIds') ||
+            changedProperties.has('profileSummaries')
+        ) {
             this.profiles = undefined
         }
-        if (this.active && (this.index || this.profileIds) && this.profiles === undefined && !this.loading) {
+
+        if (
+            this.active &&
+            this.profileSummaries !== undefined &&
+            (this.index || this.profileIds) &&
+            this.profiles === undefined &&
+            !this.loading
+        ) {
             void this.loadProfiles()
         }
     }
@@ -63,62 +75,91 @@ export class ProfileHierarchy extends LitElement {
     }
 
     private async loadProfiles() {
-        if (this.loading) {
+        if (this.loading || this.profileSummaries === undefined) {
             return
         }
+
         this.loading = true
+
+        const sourceSummaries = this.profileSummaries
+
         try {
+            // Ansicht: Nur Standardprofile
             if (this.profileIds) {
                 const sourceProfileIds = this.profileIds
-                const profileIds = sourceProfileIds.filter(id => !id.startsWith('urn:'))
-                const response = await fetch(`${BACKEND_URL}/profiles`)
-                if (!response.ok) {
-                    throw new Error(`Failed loading profiles: ${response.status}`)
-                }
+
+                const profileIds = sourceProfileIds.filter(
+                    id => !id.startsWith('urn:')
+                )
+
                 const allowedIds = new Set(profileIds)
-                const summaries = (await response.json() as ProfileSummary[])
-                    .filter(profile => allowedIds.has(profile.id))
+
+                const summaries = sourceSummaries.filter(
+                    profile => allowedIds.has(profile.id)
+                )
+
                 await fetchLabels(profileIds, true)
-                if (this.profileIds === sourceProfileIds) {
-                    this.profiles = this.buildProfileTree(profileIds, summaries)
+
+                if (
+                    this.profileSummaries === sourceSummaries &&
+                    this.profileIds === sourceProfileIds
+                ) {
+                    this.profiles = this.buildProfileTree(
+                        profileIds,
+                        summaries
+                    )
                 }
+
                 return
             }
 
-            const [response, solrResponse] = await Promise.all([
-                fetch(`${BACKEND_URL}/profiles`),
-                executeSolrRequest(this.index, {
-                    query: '*',
-                    filter: ['docType:entity'],
-                    limit: 0,
-                    offset: 0,
-                    facet: {
-                        profiles: {
-                            type: 'terms',
-                            field: 'shape',
-                            limit: -1
-                        }
+            // Ansicht: Alle Profile
+            const solrResponse = await executeSolrRequest(this.index, {
+                query: '*',
+                filter: ['docType:entity'],
+                limit: 0,
+                offset: 0,
+                facet: {
+                    profiles: {
+                        type: 'terms',
+                        field: 'shape',
+                        limit: -1
                     }
-                })
-            ])
-            if (!response.ok) {
-                throw new Error(`Failed loading profiles: ${response.status}`)
-            }
+                }
+            })
+
             if (solrResponse.error) {
-                throw new Error(solrResponse.error.msg || 'Failed loading profiles from Solr')
+                throw new Error(
+                    solrResponse.error.msg || 'Failed loading profiles from Solr'
+                )
             }
+
             const facet = solrResponse.facets?.profiles as AggregationFacet | undefined
+
             const profileCounts = new Map(
                 (facet?.buckets || [])
                     .filter(bucket => (bucket.count ?? 0) > 0)
                     .map(bucket => [String(bucket.val), bucket.count ?? 0])
             )
-            const summaries = (await response.json() as ProfileSummary[])
-                .filter(profile => !profile.id.startsWith('urn:'))
-                .filter(profile => profileCounts.has(profile.id))
+
+            const summaries = sourceSummaries.filter(
+                profile => !profile.id.startsWith('urn:')
+            )
+
             const profileIds = summaries.map(profile => profile.id)
+
             await fetchLabels(profileIds, true)
-            this.profiles = this.buildProfileTree(profileIds, summaries, profileCounts)
+
+            if (
+                this.profileSummaries === sourceSummaries &&
+                !this.profileIds
+            ) {
+                this.profiles = this.buildProfileTree(
+                    profileIds,
+                    summaries,
+                    profileCounts
+                )
+            }
         } catch (error) {
             console.error(error)
             this.profiles = []
