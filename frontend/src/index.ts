@@ -20,6 +20,7 @@ import { SolrQueryFacetProvider } from './shacl-query'
 export type Config = {
     layout: string
     profiles: string[]
+    defaultProfileIds: string[]
     index: string
     geoDataType: string
     solrMaxAggregations: number
@@ -312,6 +313,7 @@ export class App extends LitElement {
                         <div class="query-profile">
                             <profile-chooser
                                 .index="${this.config.index}"
+                                .defaultProfileIds="${this.config.defaultProfileIds}"
                                 .selectedProfile="${this.selectedQueryProfile}"
                                 @change="${(event: Event) => {
                                     this.selectedQueryProfile = (event.currentTarget as HTMLElement & { selectedProfile: string }).selectedProfile
