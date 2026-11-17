@@ -15,6 +15,7 @@ Afterwards, open browser at http://localhost:8089
 1. Copy the example file: `cp .env.example .env`.
 1. Update values as needed:
    - `APP_URL`: base URL for the deployment (used in redirects).
+   - `GATEWAY_PORT`: host port on which the gateway is published (defaults to `8089`). Keep `APP_URL` in sync when changing it.
    - `FUSEKI_PASSWORD`: admin password for Fuseki. Needs to be set before first starting the services.
    - `OAUTH2_PROXY_*`: OIDC/OAuth settings (issuer, client id/secret, cookie secret).
    - `DISABLE_OAUTH`: set to a non-empty value to bypass OAuth2 proxy authentication. For this to work, activate the port mapping `3000:3000` for the `app` service in `docker-compose.yml`. The base URL of the application then is `http://localhost:3000`
