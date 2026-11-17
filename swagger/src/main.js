@@ -75,13 +75,14 @@ function addAPIKeyControls(status, config) {
       meta.textContent = `Expires ${new Date(data.expiresAt).toLocaleString()}. The expiry is extended when you log in to the frontend.`
       const namespace = (config.rdfNamespace || 'http://example.org/').replace(/\/+$/, '')
       const resourceId = `${namespace}/example-resource`
+      const resourceUrl = new URL(`${API_URL}/resource/${encodeURIComponent(resourceId)}`, window.location.origin).href
       const curl = document.createElement('pre')
       curl.className = 'api-key-curl'
       curl.textContent = [
         'curl -X PUT \\',
         `  -H "X-API-Key: ${data.apiKey}" \\`,
         '  --data-urlencode "ttl@resource.ttl" \\',
-        `  '${API_URL}/resource/${encodeURIComponent(resourceId)}'`
+        `  '${resourceUrl}'`
       ].join('\n')
       const example = document.createElement('fieldset')
       example.className = 'api-key-example'
