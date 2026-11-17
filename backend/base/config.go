@@ -25,9 +25,10 @@ type Config struct {
 
 type AuthenticatedConfig struct {
 	Config
-	User        string `json:"authUser,omitempty"`
-	Email       string `json:"authEmail,omitempty"`
-	WriteAccess bool   `json:"authWriteAccess"`
+	User          string `json:"authUser,omitempty"`
+	Email         string `json:"authEmail,omitempty"`
+	WriteAccess   bool   `json:"authWriteAccess"`
+	APIKeyEnabled bool   `json:"apiKeyEnabled"`
 }
 
 var Configuration = Config{

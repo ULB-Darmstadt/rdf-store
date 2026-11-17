@@ -21,7 +21,6 @@ Afterwards, open browser at http://localhost:8089
    - `RDF_NAMESPACE`, `LOG_LEVEL`: optional service tuning.
    - `LABEL_LANGUAGES`: comma-separated language tags accepted for extracted labels, in fallback order. It defaults to `en,de`; labels tagged with other languages are ignored.
    - `GRAPH_NODE_LIMIT`, `GRAPH_EDGE_LIMIT`: maximum number of nodes/links the graph view loads automatically. They default to `50` and `100`.
-   - `GRAPH_LOAD_MORE`: set to `false` to disable manual "Load more" loading in the graph view; only the automatically loaded subgraph and focusing remain. Defaults to `true`.
 
 
 ## Updating

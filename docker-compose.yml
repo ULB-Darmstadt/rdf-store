@@ -134,6 +134,8 @@ services:
       - LABEL_LANGUAGES=${LABEL_LANGUAGES:-en,de}
       - DISABLE_OAUTH=${DISABLE_OAUTH:-}
       - WRITE_ACCESS_GROUP=${WRITE_ACCESS_GROUP:-}
+      - API_KEY_REDIS_URL=${API_KEY_REDIS_URL:-redis://redis:6379/1}
+      - API_KEY_TTL=${API_KEY_TTL:-168h}
       - CONTACT_EMAIL=${CONTACT_EMAIL:-}
       - CRON=${CRON:-}
       - EXPOSE_FUSEKI_FRONTEND=${EXPOSE_FUSEKI_FRONTEND:-false}
@@ -143,7 +145,6 @@ services:
       - CONVERSION_VALUE=${CONVERSION_VALUE:-}
       - GRAPH_NODE_LIMIT=${GRAPH_NODE_LIMIT:-50}
       - GRAPH_EDGE_LIMIT=${GRAPH_EDGE_LIMIT:-100}
-      - GRAPH_LOAD_MORE=${GRAPH_LOAD_MORE:-true}
     healthcheck:
         test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/v1/healthz >/dev/null || exit 1"]
         start_period: 10s
@@ -157,6 +158,9 @@ services:
         condition: service_healthy
       fuseki:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+        required: false
 
 volumes:
   solrdata:

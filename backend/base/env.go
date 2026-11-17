@@ -78,6 +78,8 @@ var AuthUserHeader = "X-User"
 var AuthEmailHeader = "X-Email"
 var AuthGroupsHeader = "X-Groups"
 var AuthWriteAccessGroup = EnvVar("WRITE_ACCESS_GROUP", "")
+var APIKeyRedisURL = EnvVar("API_KEY_REDIS_URL", "")
+var APIKeyTTL = EnvVar("API_KEY_TTL", "168h")
 
 // EnvVar reads an environment variable and falls back to a default when unset.
 // It returns the resolved string value.
