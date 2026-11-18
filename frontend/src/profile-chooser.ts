@@ -89,6 +89,8 @@ export class ProfileChooser extends LitElement {
     @state()
     showAllProfiles = this.defaultProfileIds.length === 0
 
+    private profileViewInitialized = false
+
     @property()
     index = ''
     @property({ type: Boolean })
@@ -143,7 +145,7 @@ export class ProfileChooser extends LitElement {
                 .map(profile => profile.id)
         )
 
-        this.validDefaultProfileIds = this.defaultProfileIds.filter(
+        this.validDefaultProfileIds = (this.defaultProfileIds ?? []).filter(
             id => !id.startsWith('urn:') && availableIds.has(id)
         )
 
@@ -188,15 +190,15 @@ export class ProfileChooser extends LitElement {
                     ${this.loadingProfiles ? html`
                         <div class="profile-loading" role="status">
                             <div class="loading-spinner"></div>
-                            <span>Profile werden geladen ...</span>
+                            <span>${i18n['profiles-loading']}</span>
                         </div>
                     ` : this.profileLoadError ? html`
                         <div class="profile-error">
-                            <p>Die Profile konnten nicht geladen werden.</p>
+                            <p>${i18n['profiles-load-error']}</p>
                             <rokit-button
                                 @click="${() => this.openProfileDialog()}"
                             >
-                                Erneut versuchen
+                                ${i18n['profiles-retry']}
                             </rokit-button>
                         </div>
                     ` : html`
