@@ -15,14 +15,11 @@ const appLabels: Record<string, Literal[]> = {
     'fulltextsearchplaceholder': [DataFactory.literal('Search query...', 'en'), DataFactory.literal('Suchanfrage...', 'de')],
     'shape': [DataFactory.literal('Profile', 'en'), DataFactory.literal('Profil', 'de')],
     'selectprofile': [DataFactory.literal('Select profile', 'en'), DataFactory.literal('Profil auswählen', 'de')],
-    'show-default-profiles': [
-        DataFactory.literal('Show default profiles', 'en'),
-        DataFactory.literal('Standardprofile anzeigen', 'de')
-    ],
-    'show-all-profiles': [
-        DataFactory.literal('Show all profiles', 'en'),
-        DataFactory.literal('Alle Profile anzeigen', 'de')
-    ],
+    'show-default-profiles': [DataFactory.literal('Show default profiles', 'en'), DataFactory.literal('Standardprofile anzeigen', 'de')],
+    'show-all-profiles': [DataFactory.literal('Show all profiles', 'en'), DataFactory.literal('Alle Profile anzeigen', 'de')],
+    'profiles-loading': [DataFactory.literal('Loading profiles ...', 'en'), DataFactory.literal('Profile werden geladen ...', 'de')],
+    'profiles-load-error': [DataFactory.literal('The profiles could not be loaded.', 'en'), DataFactory.literal('Die Profile konnten nicht geladen werden.', 'de')],
+    'profiles-retry': [DataFactory.literal('Try again', 'en'), DataFactory.literal('Erneut versuchen', 'de')],
     'selectedprofile': [DataFactory.literal('Selected profile', 'en'), DataFactory.literal('Ausgewähltes Profil', 'de')],
     'selectprofile-hint': [DataFactory.literal('Select a profile to show search filters', 'en'), DataFactory.literal('Profil auswählen, um Suchfilter anzuzeigen', 'de')],
     'add_resource': [DataFactory.literal('Add resource', 'en'), DataFactory.literal('Ressource hinzufügen', 'de')],
