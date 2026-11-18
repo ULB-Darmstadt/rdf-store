@@ -95,7 +95,9 @@ export class ProfileHierarchy extends LitElement {
                 const allowedIds = new Set(profileIds)
 
                 const summaries = sourceSummaries.filter(
-                    profile => allowedIds.has(profile.id)
+                    profile =>
+                        !profile.id.startsWith('urn:') &&
+                        profileCounts.has(profile.id)
                 )
 
                 await fetchLabels(profileIds, true)
