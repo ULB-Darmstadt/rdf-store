@@ -149,9 +149,12 @@ export class ProfileChooser extends LitElement {
             id => !id.startsWith('urn:') && availableIds.has(id)
         )
 
-        this.showAllProfiles = !this.hasDefaultProfiles
+        if (!this.profileViewInitialized) {
+            this.showAllProfiles = !this.hasDefaultProfiles
+            this.profileViewInitialized = true
+        }
     }
-    
+
     private selectProfile(profile: string) {
         this.selectedProfile = profile
         this.open = false
@@ -227,7 +230,7 @@ export class ProfileChooser extends LitElement {
                                 }}"
                         ></profile-hierarchy>
                     `}
-                
+
                 </div>
             </rokit-dialog>
         `
