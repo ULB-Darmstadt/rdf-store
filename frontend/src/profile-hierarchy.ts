@@ -1,6 +1,7 @@
 import { LitElement, PropertyValues, TemplateResult, css, html } from 'lit'
 import { customElement, property, query, state } from 'lit/decorators.js'
 import { RokitSelect } from '@ro-kit/ui-widgets'
+import { BACKEND_URL } from './constants'
 import { fetchLabels, i18n } from './i18n'
 import { AggregationFacet, executeSolrRequest } from './solr'
 import { globalStyles } from './styles'
@@ -42,25 +43,9 @@ export class ProfileHierarchy extends LitElement {
     @query('rokit-select')
     profileSelect?: RokitSelect
 
-    willUpdate(changedProperties: PropertyValues) {
-        if (
-            changedProperties.has('index') ||
-            changedProperties.has('profileIds') ||
-            changedProperties.has('profileSummaries')
-        ) {
-            this.profiles = undefined
-        }
+    private cachedProfileSummaries?: ProfileSummary[]
+    private loadRequestId = 0
 
-        if (
-            this.active &&
-            this.profileSummaries !== undefined &&
-            (this.index || this.profileIds) &&
-            this.profiles === undefined &&
-            !this.loading
-        ) {
-            void this.loadProfiles()
-        }
-    }
 
     async updated(changedProperties: PropertyValues) {
         if (!changedProperties.has('active') || !this.active) {
@@ -74,20 +59,81 @@ export class ProfileHierarchy extends LitElement {
         }
     }
 
-    private async loadProfiles() {
-        if (this.loading || this.profileSummaries === undefined) {
-            return
+    willUpdate(changedProperties: PropertyValues) {
+        const sourceChanged =
+            changedProperties.has('index') ||
+            changedProperties.has('profileIds') ||
+            changedProperties.has('profileSummaries')
+
+        if (sourceChanged) {
+            this.profiles = undefined
+            this.loadRequestId++
         }
+
+        // Beim Schließen laufende Requests ungültig machen.
+        if (changedProperties.has('active') && !this.active) {
+            this.loadRequestId++
+            this.loading = false
+        }
+
+        if (
+            this.active &&
+            (sourceChanged || changedProperties.has('active')) &&
+            this.profiles === undefined
+        ) {
+            void this.loadProfiles()
+        }
+    }
+
+
+    private async loadProfiles() {
+        const requestId = ++this.loadRequestId
+
+        const sourceProfileIds = this.profileIds
+        const sourceProvidedSummaries = this.profileSummaries
+        const sourceIndex = this.index
 
         this.loading = true
 
-        const sourceSummaries = this.profileSummaries
+        const isCurrentRequest = () =>
+            requestId === this.loadRequestId &&
+            this.active &&
+            this.index === sourceIndex &&
+            this.profileIds === sourceProfileIds &&
+            this.profileSummaries === sourceProvidedSummaries
 
         try {
-            // Ansicht: Nur Standardprofile
-            if (this.profileIds) {
-                const sourceProfileIds = this.profileIds
+            // Profildaten verwenden oder bei Bedarf selbst laden.
+            let sourceSummaries =
+                sourceProvidedSummaries ?? this.cachedProfileSummaries
 
+            if (sourceSummaries === undefined) {
+                const response = await fetch(`${BACKEND_URL}/profiles`)
+
+                if (!response.ok) {
+                    throw new Error(
+                        `Failed loading profiles: ${response.status}`
+                    )
+                }
+
+                sourceSummaries =
+                    await response.json() as ProfileSummary[]
+
+                if (!isCurrentRequest()) {
+                    return
+                }
+
+                this.cachedProfileSummaries = sourceSummaries
+            } else {
+                this.cachedProfileSummaries = sourceSummaries
+            }
+
+            if (!isCurrentRequest()) {
+                return
+            }
+
+            // Ansicht: Nur Standardprofile
+            if (sourceProfileIds) {
                 const profileIds = sourceProfileIds.filter(
                     id => !id.startsWith('urn:')
                 )
@@ -95,17 +141,12 @@ export class ProfileHierarchy extends LitElement {
                 const allowedIds = new Set(profileIds)
 
                 const summaries = sourceSummaries.filter(
-                    profile =>
-                        !profile.id.startsWith('urn:') &&
-                        profileCounts.has(profile.id)
+                    profile => allowedIds.has(profile.id)
                 )
 
                 await fetchLabels(profileIds, true)
 
-                if (
-                    this.profileSummaries === sourceSummaries &&
-                    this.profileIds === sourceProfileIds
-                ) {
+                if (isCurrentRequest()) {
                     this.profiles = this.buildProfileTree(
                         profileIds,
                         summaries
@@ -116,7 +157,7 @@ export class ProfileHierarchy extends LitElement {
             }
 
             // Ansicht: Alle Profile
-            const solrResponse = await executeSolrRequest(this.index, {
+            const solrResponse = await executeSolrRequest(sourceIndex, {
                 query: '*',
                 filter: ['docType:entity'],
                 limit: 0,
@@ -136,6 +177,10 @@ export class ProfileHierarchy extends LitElement {
                 )
             }
 
+            if (!isCurrentRequest()) {
+                return
+            }
+
             const facet = solrResponse.facets?.profiles as AggregationFacet | undefined
 
             const profileCounts = new Map(
@@ -145,17 +190,16 @@ export class ProfileHierarchy extends LitElement {
             )
 
             const summaries = sourceSummaries.filter(
-                profile => !profile.id.startsWith('urn:')
+                profile =>
+                    !profile.id.startsWith('urn:') &&
+                    profileCounts.has(profile.id)
             )
 
             const profileIds = summaries.map(profile => profile.id)
 
             await fetchLabels(profileIds, true)
 
-            if (
-                this.profileSummaries === sourceSummaries &&
-                !this.profileIds
-            ) {
+            if (isCurrentRequest()) {
                 this.profiles = this.buildProfileTree(
                     profileIds,
                     summaries,
@@ -163,12 +207,20 @@ export class ProfileHierarchy extends LitElement {
                 )
             }
         } catch (error) {
-            console.error(error)
-            this.profiles = []
+            // Fehler veralteter Requests dürfen die aktuelle Ansicht
+            // nicht verändern.
+            if (isCurrentRequest()) {
+                console.error(error)
+                this.profiles = []
+            }
         } finally {
-            this.loading = false
+            // Nur der aktuellste Request darf den Ladezustand zurücksetzen.
+            if (requestId === this.loadRequestId) {
+                this.loading = false
+            }
         }
     }
+
 
     private buildProfileTree(profileIds: string[], summaries: ProfileSummary[], profileCounts?: Map<string, number>): Profile[] {
         const allowedIds = new Set(profileIds)
@@ -209,17 +261,17 @@ export class ProfileHierarchy extends LitElement {
     render() {
         return html`
             <rokit-select
-                fixedOpen
-                collapse
-                sort
-                .filterableThreshold="${0}"
-                class="${this.loading ? 'loading' : ''}"
-                @change="${(event: Event) => {
-                    event.stopPropagation()
-                    const select = event.target as HTMLSelectElement
-                    this.selectedProfile = select.value
-                    select.value = ''
-                    this.dispatchEvent(new Event('change', { bubbles: true, composed: true }))
+                    fixedOpen
+                    collapse
+                    sort
+                    .filterableThreshold="${0}"
+                    class="${this.loading ? 'loading' : ''}"
+                    @change="${(event: Event) => {
+                event.stopPropagation()
+                const select = event.target as HTMLSelectElement
+                this.selectedProfile = select.value
+                select.value = ''
+                this.dispatchEvent(new Event('change', { bubbles: true, composed: true }))
             }}">
                 <ul>${this.profiles?.map(profile => this.renderProfile(profile))}</ul>
             </rokit-select>
