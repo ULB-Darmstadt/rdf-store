@@ -127,7 +127,7 @@ func EnvVarAsBool(key string, defaultValue bool) bool {
 // It returns the non-empty entries in order, or a copy of defaultValues when unset.
 func EnvVarAsStringSlice(key string, defaultValues ...string) []string {
 	loadDotEnv()
-	var result []string
+	result := make([]string, 0)
 	if val, present := os.LookupEnv(key); present {
 		for _, v := range strings.Split(val, ",") {
 			value := strings.TrimSpace(v)

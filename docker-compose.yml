@@ -129,6 +129,7 @@ services:
       - MPS_ENABLED=${MPS_ENABLED:-true}
       - MPS_QUERY=${MPS_QUERY:-}
       - LAYOUT=${LAYOUT:-default}
+      - DEFAULT_PROFILE_IDS=${DEFAULT_PROFILE_IDS:-}
       - RDF_NAMESPACE=${RDF_NAMESPACE:-http://example.org/}
       - RDF_STANDARD_TAXONOMIES=${RDF_STANDARD_TAXONOMIES:-}
       - LABEL_LANGUAGES=${LABEL_LANGUAGES:-en,de}
