@@ -4,8 +4,140 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>RDF store API</title>
+    <style>
+      body {
+        margin: 0;
+      }
+      #auth-status {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        padding: 0.75rem 1.5rem;
+        text-align: right;
+        background: #fafafa;
+        border-bottom: 1px solid #e8e8e8;
+        color: #3b4151;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        font-size: 14px;
+        line-height: 1.4;
+      }
+      #auth-status a {
+        color: #4990e2;
+        font-weight: 600;
+        text-decoration: none;
+      }
+      #auth-status a:hover,
+      #auth-status a:focus-visible {
+        text-decoration: underline;
+      }
+      #auth-status button {
+        padding: 0.35rem 0.75rem;
+        border: 1px solid #4990e2;
+        border-radius: 3px;
+        background: #4990e2;
+        color: #fff;
+        font: inherit;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      #auth-status button:hover:not(:disabled) {
+        background: #3b7bc4;
+        border-color: #3b7bc4;
+      }
+      #auth-status button:disabled {
+        opacity: 0.6;
+        cursor: default;
+      }
+      #auth-status button.copy-api-key {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 1.9rem;
+        height: 1.9rem;
+        padding: 0;
+        border-color: #d8dde3;
+        background: #fff;
+        color: #4990e2;
+        font-size: 0;
+      }
+      #auth-status button.copy-api-key:hover:not(:disabled) {
+        background: #f2f7fd;
+        border-color: #4990e2;
+      }
+      #auth-status button.copy-api-key.copied {
+        border-color: #2e7d32;
+        color: #2e7d32;
+      }
+      #auth-status #api-key-result {
+        flex-basis: 100%;
+        margin-top: 0.25rem;
+        padding: 0.5rem 0.75rem;
+        background: #fff;
+        border: 1px solid #e8e8e8;
+        border-radius: 3px;
+        font-size: 13px;
+        text-align: right;
+      }
+      #auth-status .api-key-row {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+      }
+      #auth-status .api-key-meta {
+        margin-top: 0.5rem;
+        color: #61666b;
+        font-size: 12px;
+      }
+      #auth-status fieldset.api-key-example {
+        margin: 0.5rem 0 0;
+        padding: 0.75rem;
+        border: 1px solid #dfe4e8;
+        border-radius: 6px;
+        background: #fff;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+        text-align: left;
+      }
+      #auth-status fieldset.api-key-example legend {
+        padding: 0 0.35rem;
+        color: #4990e2;
+        font-size: 12px;
+        font-weight: 600;
+      }
+      #auth-status .api-key-curl {
+        margin: 0;
+        padding: 0.5rem 0.75rem;
+        background: #f6f8fa;
+        border: 1px solid #eceff1;
+        border-radius: 4px;
+        color: #3b4151;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 12px;
+        line-height: 1.5;
+        text-align: left;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+      #auth-status input {
+        flex: 1 1 24rem;
+        max-width: 32rem;
+        min-width: 0;
+        padding: 0.35rem 0.5rem;
+        border: 1px solid #d8dde3;
+        border-radius: 3px;
+        background: #f7f7f7;
+        color: #3b4151;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 12px;
+      }
+    </style>
   </head>
   <body>
+    <div id="auth-status"></div>
     <div id="app"></div>
     <script type="module" src="/src/main.js"></script>
   </body>

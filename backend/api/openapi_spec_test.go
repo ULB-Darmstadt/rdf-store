@@ -25,4 +25,9 @@ func TestApiSpecValidates(t *testing.T) {
 			t.Errorf("missing path %s", path)
 		}
 	}
+	for _, path := range []string{"/api-key", "/api-key/renew"} {
+		if doc.Paths.Find(path) != nil {
+			t.Errorf("unexpected management path %s", path)
+		}
+	}
 }

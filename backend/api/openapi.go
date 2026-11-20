@@ -37,6 +37,25 @@ func init() {
 // newApiSpec constructs the OpenAPI specification for this service.
 // It returns the populated OpenAPI document.
 func newApiSpec() *openapi3.T {
+	security := openapi3.SecurityRequirements{
+		openapi3.SecurityRequirement{"jwt": []string{}},
+		openapi3.SecurityRequirement{"apiKey": []string{}},
+	}
+	securitySchemes := openapi3.SecuritySchemes{
+		"jwt": &openapi3.SecuritySchemeRef{Value: openapi3.NewJWTSecurityScheme()},
+		"apiKey": &openapi3.SecuritySchemeRef{Value: &openapi3.SecurityScheme{
+			Type: "apiKey",
+			Name: apiKeyHeader,
+			In:   "header",
+		}},
+	}
+	if issuer := strings.TrimSpace(base.EnvVar("OAUTH2_PROXY_OIDC_ISSUER_URL", "")); issuer != "" {
+		security = append(security, openapi3.SecurityRequirement{"openid": []string{}})
+		securitySchemes["openid"] = &openapi3.SecuritySchemeRef{Value: &openapi3.SecurityScheme{
+			Type:             "openIdConnect",
+			OpenIdConnectUrl: strings.TrimRight(issuer, "/") + "/.well-known/openid-configuration",
+		}}
+	}
 	spec := &openapi3.T{
 		OpenAPI: "3.1.0",
 		Info: &openapi3.Info{
@@ -54,27 +73,16 @@ func newApiSpec() *openapi3.T {
 				URL:         strings.TrimSuffix(base.BackendUrl, "/") + BasePath,
 			},
 		},
-		Security: openapi3.SecurityRequirements{
-			openapi3.SecurityRequirement{
-				"jwt":    []string{},
-				"openid": []string{},
-			},
-		},
+		Security: security,
 		Tags: openapi3.Tags{
 			&openapi3.Tag{Name: TAG_RDF},
 			&openapi3.Tag{Name: TAG_SOLR},
 			&openapi3.Tag{Name: TAG_MISC},
 		},
 		Components: &openapi3.Components{
-			// SecuritySchemes: openapi3.SecuritySchemes{
-			// 	"jwt": &openapi3.SecuritySchemeRef{Value: openapi3.NewJWTSecurityScheme()},
-			// 	"openid": &openapi3.SecuritySchemeRef{Value: &openapi3.SecurityScheme{
-			// 		Type:             "openIdConnect",
-			// 		OpenIdConnectUrl: fmt.Sprintf("%s/.well-known/openid-configuration", core.AuthEndpoint),
-			// 	}},
-			// },
-			Schemas:       openapi3.Schemas{},
-			RequestBodies: openapi3.RequestBodies{},
+			SecuritySchemes: securitySchemes,
+			Schemas:         openapi3.Schemas{},
+			RequestBodies:   openapi3.RequestBodies{},
 			Responses: openapi3.ResponseBodies{
 				"ErrorResponse": &openapi3.ResponseRef{
 					Value: openapi3.NewResponse().
@@ -107,6 +115,7 @@ func addSchemas(spec *openapi3.T) {
 		WithProperty("solrMaxAggregations", openapi3.NewIntegerSchema()).
 		WithProperty("authEnabled", openapi3.NewBoolSchema()).
 		WithProperty("authWriteAccess", openapi3.NewBoolSchema()).
+		WithProperty("apiKeyEnabled", openapi3.NewBoolSchema()).
 		WithProperty("authUser", openapi3.NewStringSchema()).
 		WithProperty("authEmail", openapi3.NewStringSchema()).
 		WithProperty("contactEmail", openapi3.NewStringSchema()).

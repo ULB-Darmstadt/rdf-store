@@ -10,6 +10,24 @@ significant changes rather than documenting every commit.
 
 ## Unreleased
 
+### Added
+
+- Add user API keys for accounts with write access. Keys are generated through
+  `POST /api-key`, are accepted via the `X-API-Key` header, and restore the
+  owning user's identity, email, and groups for authorization. Generating a new
+  key revokes the previous key for that user; API keys cannot be used to
+  generate or renew keys.
+- Store only SHA-256 hashes of API keys in Redis at `API_KEY_REDIS_URL`, with a
+  lifetime configured by `API_KEY_TTL` (default `168h`). Keys are disabled when
+  authentication or the Redis URL is not configured; docker-compose supplies the
+  Redis URL by default. Frontend login silently renews the active key.
+
+### Changed
+
+- Expose `apiKeyEnabled` in `/config` and allow `X-API-Key` in CORS requests.
+- Define JWT, API key, and optional OpenID Connect security schemes in the
+  OpenAPI specification.
+
 ## 2026-11
 
 ### Fixed
@@ -27,16 +45,16 @@ significant changes rather than documenting every commit.
 - Make the graph view's automatic loading limits configurable via the
   `GRAPH_NODE_LIMIT` and `GRAPH_EDGE_LIMIT` environment variables
   (defaults: 50 nodes, 100 links), exposed to the frontend through `/config`.
-- Make manual "Load more" loading in the graph view optional via
-  `GRAPH_LOAD_MORE` (default `true`); when disabled, the node action menu
-  only offers focusing and the bounded-subgraph notice no longer suggests
-  loading another page.
+- Add clickable per-node badges for expanding incoming and outgoing neighbors
+  within those limits, with a notice when the bounded subgraph reaches capacity.
 
 ### Changed
 
 - Render the graph with the classic force-directed layout and simple arc
-  links again, and open the node action menu only on click or keyboard
-  activation instead of on hover.
+  links again, replacing the radial node action menu; newly revealed nodes are
+  animated. The short-lived `GRAPH_LOAD_MORE` option was removed, so manual
+  expansion is always available.
+- Update `@ulb-darmstadt/shacl-form` to 3.7.4.
 
 ## 2026-09
 

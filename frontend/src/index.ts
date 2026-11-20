@@ -26,6 +26,7 @@ export type Config = {
     solrMaxAggregations: number
     authEnabled: boolean
     authWriteAccess: boolean
+    apiKeyEnabled: boolean
     authUser: string
     authEmail: string
     contactEmail: string
@@ -123,6 +124,17 @@ export class App extends LitElement {
         this.handleLocationChange()
     }
 
+    async renewAPIKey() {
+        try {
+            const resp = await fetch(`${BACKEND_URL}/api-key/renew`, { method: 'POST', credentials: 'include' })
+            if (!resp.ok && resp.status !== 404) {
+                console.error(`Failed renewing API key: ${resp.status}`)
+            }
+        } catch (e) {
+            console.error(e)
+        }
+    }
+
     async firstUpdated() {
         try {
             const resp = await fetch(`${BACKEND_URL}/config`)
@@ -130,6 +142,9 @@ export class App extends LitElement {
                 throw 'Failed loading application configuration'
             }
             this.config = await resp.json() as Config
+            if (this.config.apiKeyEnabled && this.config.authUser && this.config.authWriteAccess) {
+                void this.renewAPIKey()
+            }
             await this.applyLayout(this.config.layout || 'default')
 
             // fetch labels for profiles. this is needed for the editor dialog, which renders before the keyword facet can load the labels

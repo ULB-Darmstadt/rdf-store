@@ -24,7 +24,7 @@ func init() {
 	corsConfig := cors.New(cors.Config{
 		AllowOrigins:     []string{"*"},
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Length", "Content-Type"},
+		AllowHeaders:     []string{"Origin", "Content-Length", "Content-Type", apiKeyHeader},
 		ExposeHeaders:    []string{"Content-Length", "Location"},
 		AllowCredentials: true,
 		MaxAge:           12 * time.Hour,
@@ -35,10 +35,13 @@ func init() {
 	}))
 	Router.Use(gin.Recovery())
 	Router.Use(corsConfig)
+	Router.Use(apiKeyMiddleware)
 	Router.SetTrustedProxies(nil)
 	Router.UseRawPath = true
 	Router.GET(BasePath+livelinessEndpoint, handleHealthz)
 	Router.GET(BasePath+"/config", handleConfig)
+	Router.POST(BasePath+"/api-key", handleGenerateAPIKey)
+	Router.POST(BasePath+"/api-key/renew", handleRenewAPIKey)
 }
 
 // handleHealthz returns a lightweight health response for liveness checks.
@@ -50,10 +53,11 @@ func handleHealthz(c *gin.Context) {
 func handleConfig(c *gin.Context) {
 	writeAccess, user := writeAccessGranted(c.Request.Header)
 	config := base.AuthenticatedConfig{
-		Config:      base.Configuration,
-		User:        user,
-		Email:       c.Request.Header.Get(base.AuthEmailHeader),
-		WriteAccess: writeAccess,
+		Config:        base.Configuration,
+		User:          user,
+		Email:         c.Request.Header.Get(base.AuthEmailHeader),
+		WriteAccess:   writeAccess,
+		APIKeyEnabled: apiKeyEnabled,
 	}
 	c.JSON(http.StatusOK, config)
 }
