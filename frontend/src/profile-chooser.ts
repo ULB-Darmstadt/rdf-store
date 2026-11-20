@@ -98,59 +98,59 @@ export class ProfileChooser extends LitElement {
     showHint = true
 
     private async openProfileDialog() {
-    const requestId = ++this.profileLoadRequestId
+        const requestId = ++this.profileLoadRequestId
 
-    // Dialog sofort öffnen
-    this.open = true
-    this.profileLoadError = false
+        // Dialog sofort öffnen
+        this.open = true
+        this.profileLoadError = false
 
-    // Bereits geladene Profile wiederverwenden
-    if (this.profileSummaries !== undefined) {
-        this.updateValidDefaultProfiles()
-        return
-    }
-
-    // Ladeanzeige aktivieren
-    this.loadingProfiles = true
-
-    try {
-        const response = await fetch(`${BACKEND_URL}/profiles`)
-
-        if (!response.ok) {
-            throw new Error(
-                `Failed loading profiles: ${response.status}`
-            )
-        }
-
-        const summaries = await response.json() as ProfileSummary[]
-
-        // Veraltete Requests ignorieren
-        if (
-            requestId !== this.profileLoadRequestId ||
-            !this.open
-        ) {
+        // Bereits geladene Profile wiederverwenden
+        if (this.profileSummaries !== undefined) {
+            this.updateValidDefaultProfiles()
             return
         }
 
-        this.profileSummaries = summaries
-        this.updateValidDefaultProfiles()
+        // Ladeanzeige aktivieren
+        this.loadingProfiles = true
 
-    } catch (error) {
-        if (
-            requestId === this.profileLoadRequestId &&
-            this.open
-        ) {
-            console.error('Could not load or validate profiles:', error)
-            this.profileLoadError = true
-            this.validDefaultProfileIds = []
-        }
+        try {
+            const response = await fetch(`${BACKEND_URL}/profiles`)
 
-    } finally {
-        if (requestId === this.profileLoadRequestId) {
-            this.loadingProfiles = false
+            if (!response.ok) {
+                throw new Error(
+                    `Failed loading profiles: ${response.status}`
+                )
+            }
+
+            const summaries = await response.json() as ProfileSummary[]
+
+            // Veraltete Requests ignorieren
+            if (
+                requestId !== this.profileLoadRequestId ||
+                !this.open
+            ) {
+                return
+            }
+
+            this.profileSummaries = summaries
+            this.updateValidDefaultProfiles()
+
+        } catch (error) {
+            if (
+                requestId === this.profileLoadRequestId &&
+                this.open
+            ) {
+                console.error('Could not load or validate profiles:', error)
+                this.profileLoadError = true
+                this.validDefaultProfileIds = []
+            }
+
+        } finally {
+            if (requestId === this.profileLoadRequestId) {
+                this.loadingProfiles = false
+            }
         }
     }
-}
 
     private updateValidDefaultProfiles() {
         if (this.profileSummaries === undefined) {
@@ -202,11 +202,7 @@ export class ProfileChooser extends LitElement {
             <rokit-dialog
                 .open="${this.open}"
                 closable
-                @close="${() => {
-                    this.open = false
-                    this.profileLoadRequestId++
-                    this.loadingProfiles = false
-                }}"
+                @close="${() => this.open = false}"
             >
                 <div slot="header">${i18n['selectprofile']}</div>
 
