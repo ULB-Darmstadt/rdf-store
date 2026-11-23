@@ -12,7 +12,7 @@ interface Profile {
     children: Profile[]
 }
 
-interface ProfileSummary {
+export interface ProfileSummary {
     id: string
     parents: string[]
 }
@@ -30,6 +30,8 @@ export class ProfileHierarchy extends LitElement {
     index = ''
     @property({ attribute: false })
     profileIds?: string[]
+    @property({ attribute: false })
+    profileSummaries?: ProfileSummary[]
     @property({ type: Boolean })
     active = false
     @property()
@@ -41,14 +43,9 @@ export class ProfileHierarchy extends LitElement {
     @query('rokit-select')
     profileSelect?: RokitSelect
 
-    willUpdate(changedProperties: PropertyValues) {
-        if (changedProperties.has('index') || changedProperties.has('profileIds')) {
-            this.profiles = undefined
-        }
-        if (this.active && (this.index || this.profileIds) && this.profiles === undefined && !this.loading) {
-            void this.loadProfiles()
-        }
-    }
+    private cachedProfileSummaries?: ProfileSummary[]
+    private loadRequestId = 0
+
 
     async updated(changedProperties: PropertyValues) {
         if (!changedProperties.has('active') || !this.active) {
@@ -62,70 +59,168 @@ export class ProfileHierarchy extends LitElement {
         }
     }
 
-    private async loadProfiles() {
-        if (this.loading) {
-            return
+    willUpdate(changedProperties: PropertyValues) {
+        const sourceChanged =
+            changedProperties.has('index') ||
+            changedProperties.has('profileIds') ||
+            changedProperties.has('profileSummaries')
+
+        if (sourceChanged) {
+            this.profiles = undefined
+            this.loadRequestId++
         }
+
+        // Beim Schließen laufende Requests ungültig machen.
+        if (changedProperties.has('active') && !this.active) {
+            this.loadRequestId++
+            this.loading = false
+        }
+
+        if (
+            this.active &&
+            (sourceChanged || changedProperties.has('active')) &&
+            this.profiles === undefined
+        ) {
+            void this.loadProfiles()
+        }
+    }
+
+
+    private async loadProfiles() {
+        const requestId = ++this.loadRequestId
+
+        const sourceProfileIds = this.profileIds
+        const sourceProvidedSummaries = this.profileSummaries
+        const sourceIndex = this.index
+
         this.loading = true
+
+        const isCurrentRequest = () =>
+            requestId === this.loadRequestId &&
+            this.active &&
+            this.index === sourceIndex &&
+            this.profileIds === sourceProfileIds &&
+            this.profileSummaries === sourceProvidedSummaries
+
         try {
-            if (this.profileIds) {
-                const sourceProfileIds = this.profileIds
-                const profileIds = sourceProfileIds.filter(id => !id.startsWith('urn:'))
+            // Profildaten verwenden oder bei Bedarf selbst laden.
+            let sourceSummaries =
+                sourceProvidedSummaries ?? this.cachedProfileSummaries
+
+            if (sourceSummaries === undefined) {
                 const response = await fetch(`${BACKEND_URL}/profiles`)
+
                 if (!response.ok) {
-                    throw new Error(`Failed loading profiles: ${response.status}`)
+                    throw new Error(
+                        `Failed loading profiles: ${response.status}`
+                    )
                 }
-                const allowedIds = new Set(profileIds)
-                const summaries = (await response.json() as ProfileSummary[])
-                    .filter(profile => allowedIds.has(profile.id))
-                await fetchLabels(profileIds, true)
-                if (this.profileIds === sourceProfileIds) {
-                    this.profiles = this.buildProfileTree(profileIds, summaries)
+
+                sourceSummaries =
+                    await response.json() as ProfileSummary[]
+
+                if (!isCurrentRequest()) {
+                    return
                 }
+
+                this.cachedProfileSummaries = sourceSummaries
+            } else {
+                this.cachedProfileSummaries = sourceSummaries
+            }
+
+            if (!isCurrentRequest()) {
                 return
             }
 
-            const [response, solrResponse] = await Promise.all([
-                fetch(`${BACKEND_URL}/profiles`),
-                executeSolrRequest(this.index, {
-                    query: '*',
-                    filter: ['docType:entity'],
-                    limit: 0,
-                    offset: 0,
-                    facet: {
-                        profiles: {
-                            type: 'terms',
-                            field: 'shape',
-                            limit: -1
-                        }
+            // Ansicht: Nur Standardprofile
+            if (sourceProfileIds) {
+                const profileIds = sourceProfileIds.filter(
+                    id => !id.startsWith('urn:')
+                )
+
+                const allowedIds = new Set(profileIds)
+
+                const summaries = sourceSummaries.filter(
+                    profile => allowedIds.has(profile.id)
+                )
+
+                await fetchLabels(profileIds, true)
+
+                if (isCurrentRequest()) {
+                    this.profiles = this.buildProfileTree(
+                        profileIds,
+                        summaries
+                    )
+                }
+
+                return
+            }
+
+            // Ansicht: Alle Profile
+            const solrResponse = await executeSolrRequest(sourceIndex, {
+                query: '*',
+                filter: ['docType:entity'],
+                limit: 0,
+                offset: 0,
+                facet: {
+                    profiles: {
+                        type: 'terms',
+                        field: 'shape',
+                        limit: -1
                     }
-                })
-            ])
-            if (!response.ok) {
-                throw new Error(`Failed loading profiles: ${response.status}`)
-            }
+                }
+            })
+
             if (solrResponse.error) {
-                throw new Error(solrResponse.error.msg || 'Failed loading profiles from Solr')
+                throw new Error(
+                    solrResponse.error.msg || 'Failed loading profiles from Solr'
+                )
             }
+
+            if (!isCurrentRequest()) {
+                return
+            }
+
             const facet = solrResponse.facets?.profiles as AggregationFacet | undefined
+
             const profileCounts = new Map(
                 (facet?.buckets || [])
                     .filter(bucket => (bucket.count ?? 0) > 0)
                     .map(bucket => [String(bucket.val), bucket.count ?? 0])
             )
-            const summaries = (await response.json() as ProfileSummary[])
-                .filter(profile => !profile.id.startsWith('urn:'))
-                .filter(profile => profileCounts.has(profile.id))
+
+            const summaries = sourceSummaries.filter(
+                profile =>
+                    !profile.id.startsWith('urn:') &&
+                    profileCounts.has(profile.id)
+            )
+
             const profileIds = summaries.map(profile => profile.id)
+
             await fetchLabels(profileIds, true)
-            this.profiles = this.buildProfileTree(profileIds, summaries, profileCounts)
+
+            if (isCurrentRequest()) {
+                this.profiles = this.buildProfileTree(
+                    profileIds,
+                    summaries,
+                    profileCounts
+                )
+            }
         } catch (error) {
-            console.error(error)
-            this.profiles = []
+            // Fehler veralteter Requests dürfen die aktuelle Ansicht
+            // nicht verändern.
+            if (isCurrentRequest()) {
+                console.error(error)
+                this.profiles = []
+            }
         } finally {
-            this.loading = false
+            // Nur der aktuellste Request darf den Ladezustand zurücksetzen.
+            if (requestId === this.loadRequestId) {
+                this.loading = false
+            }
         }
     }
+
 
     private buildProfileTree(profileIds: string[], summaries: ProfileSummary[], profileCounts?: Map<string, number>): Profile[] {
         const allowedIds = new Set(profileIds)
@@ -165,7 +260,13 @@ export class ProfileHierarchy extends LitElement {
 
     render() {
         return html`
-            <rokit-select fixedOpen collapse sort class="${this.loading ? 'loading' : ''}" @change="${(event: Event) => {
+            <rokit-select
+                    fixedOpen
+                    collapse
+                    sort
+                    .filterableThreshold="${0}"
+                    class="${this.loading ? 'loading' : ''}"
+                    @change="${(event: Event) => {
                 event.stopPropagation()
                 const select = event.target as HTMLSelectElement
                 this.selectedProfile = select.value
